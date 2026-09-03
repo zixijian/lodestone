@@ -7,8 +7,7 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  BlockState,
-  NbtFile
+  BlockState
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -23,6 +22,7 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    cleanupRenderer(): void;
   }
 }
 
@@ -30,16 +30,21 @@ let container: HTMLElement;
 let activeCamera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
 let perspectiveCamera: THREE.PerspectiveCamera;
 let orthographicCamera: THREE.OrthographicCamera;
-let controls: OrbitControls;
-let renderer: ThreeStructureRenderer;
+let controls: OrbitControls | null = null;
+let renderer: ThreeStructureRenderer | null = null;
 let currentLitematicBuffer: ArrayBuffer | null = null;
 let currentStructure: Structure | null = null;
 let activeRegionName: string = '';
 let currentResources: any = null;
-let canvasElement: HTMLCanvasElement;
+let canvasElement: HTMLCanvasElement | null = null;
 let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
+let animationFrameId: number | null = null;
+let initPromise: Promise<void> | null = null;
+
+// Reusable matrix to prevent GC allocations in tick loop
+const cachedViewMatrix = mat4.create();
 
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
@@ -50,6 +55,86 @@ let tightRadius: number = 10;
     const placed = this.placedBlocksCache[i];
     this.placedBlocksMapCache[this.getIndex(placed.pos)] = placed;
   }
+};
+
+// Patch SpecialRenderers.getBlockMesh to render connected double chests (type=left / type=right)
+const origGetBlockMesh = Lodestone.SpecialRenderers.getBlockMesh;
+Lodestone.SpecialRenderers.getBlockMesh = function (state: any, nbt: any, resources: any, cull: any) {
+  const name = state.getName().toString();
+  if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+    const type = state.getProperty('type') || 'single';
+    if (type === 'left' || type === 'right') {
+      const texName = name === 'minecraft:trapped_chest' ? 'trapped' : 'normal';
+      const isLeft = type === 'left';
+      const texPath = `entity/chest/${texName}_${type}`;
+
+      const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
+      const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
+
+      const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
+      const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
+
+      const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
+      const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
+
+      const model = new Lodestone.BlockModel(undefined, { 0: texPath }, [
+        {
+          from: bodyFrom,
+          to: bodyTo,
+          faces: {
+            north: { uv: [10.5, 8.25, 14, 10.75], rotation: 180, texture: '#0' },
+            east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
+            south: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
+            west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+            up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
+            down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
+          }
+        },
+        {
+          from: lidFrom,
+          to: lidTo,
+          faces: {
+            north: { uv: [10.5, 3.75, 14, 4.75], rotation: 180, texture: '#0' },
+            east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
+            south: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
+            west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+            up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
+            down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
+          }
+        },
+        {
+          from: latchFrom,
+          to: latchTo,
+          faces: {
+            north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+            east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+            south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+            west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+            up: { uv: [0.25, 0, 0.75, 0.25], texture: '#0' },
+            down: { uv: [0.75, 0, 1.25, 0.25], texture: '#0' }
+          }
+        }
+      ]);
+
+      const mesh = model.getMesh(resources, Lodestone.Cull.none());
+      const facing = state.getProperty('facing') || 'south';
+      const matrix = mat4.create();
+      mat4.translate(matrix, matrix, [8, 8, 8]);
+      mat4.rotateY(
+        matrix,
+        matrix,
+        facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0
+      );
+      mat4.translate(matrix, matrix, [-8, -8, -8]);
+      mesh.transform(matrix);
+
+      const scaleMat = mat4.create();
+      mat4.scale(scaleMat, scaleMat, [0.0625, 0.0625, 0.0625]);
+      return mesh.transform(scaleMat);
+    }
+  }
+
+  return origGetBlockMesh.call(this, state, nbt, resources, cull);
 };
 
 // Infinite View: override applyDrawDistance so chunks are never culled when zooming out
@@ -91,6 +176,7 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
         const mesh = (this as any).chunkMeshes[i];
         mesh.visible = true;
         mesh.frustumCulled = false;
+        mesh.matrixAutoUpdate = false;
       }
     }
     if (window.AndroidHost && token === (this as any).buildToken) {
@@ -101,6 +187,47 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   (this as any).buildPromise = buildPromise;
   return buildPromise;
 };
+
+// Cleanup function to prevent frame drops on exit
+window.cleanupRenderer = function () {
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+
+  if (controls) {
+    controls.dispose();
+    controls = null;
+  }
+
+  if (renderer) {
+    try {
+      const r = renderer.renderer;
+      if (r) {
+        const gl = r.getContext();
+        r.dispose();
+        if (gl) {
+          const loseContextExt = gl.getExtension('WEBGL_lose_context');
+          if (loseContextExt) loseContextExt.loseContext();
+        }
+      }
+    } catch (e) {
+      console.warn('Error disposing WebGL renderer context', e);
+    }
+    renderer = null;
+  }
+
+  currentStructure = null;
+  currentLitematicBuffer = null;
+  parsedRootCompound = null;
+
+  if (container) {
+    container.innerHTML = '';
+  }
+};
+
+window.addEventListener('beforeunload', () => window.cleanupRenderer());
+window.addEventListener('pagehide', () => window.cleanupRenderer());
 
 // Initialize Web application
 async function init() {
@@ -114,7 +241,7 @@ async function init() {
   activeCamera.position.set(10, 15, 20);
 
   try {
-    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/';
+    const packBaseUrl = new URL('default-pack/', window.location.href).href;
     const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
     currentResources = loaded.resources;
 
@@ -128,24 +255,18 @@ async function init() {
   }
 }
 
-// Render loop to keep view and OrbitControls synchronized
+initPromise = init();
+
+// Render loop optimized to prevent allocations and overhead
 function tick() {
-  requestAnimationFrame(tick);
+  animationFrameId = requestAnimationFrame(tick);
   if (controls) {
     controls.update();
   }
   if (renderer && activeCamera) {
-    if ((renderer as any).chunkMeshes) {
-      for (let i = 0; i < (renderer as any).chunkMeshes.length; i++) {
-        const mesh = (renderer as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
     activeCamera.updateMatrixWorld(true);
-    const viewMatrix = mat4.create();
-    mat4.copy(viewMatrix, activeCamera.matrixWorldInverse.elements as any);
-    renderer.drawStructure(viewMatrix);
+    mat4.copy(cachedViewMatrix, activeCamera.matrixWorldInverse.elements as any);
+    renderer.drawStructure(cachedViewMatrix);
   }
 }
 
@@ -170,17 +291,8 @@ async function loadRegionAsync(
   const palette: BlockState[] = [];
   paletteList.forEach((entry: any) => {
     if (!entry.isCompound()) return;
-    const name = entry.getString('Name') ?? 'minecraft:air';
-    const properties: { [key: string]: string } = {};
-    if (entry.has('Properties')) {
-      const propsTag = entry.get('Properties');
-      if (propsTag && propsTag.isCompound()) {
-        propsTag.forEach((key: string, value: any) => {
-          properties[key] = value.getAsString?.() ?? '';
-        });
-      }
-    }
-    palette.push(new BlockState(name, properties));
+    const state = BlockState.fromNbt(entry);
+    palette.push(state);
   });
 
   const isAir = palette.map(state => state.is('minecraft:air'));
@@ -286,6 +398,10 @@ async function loadRegionAsync(
 // Main loader function called from Android native side
 window.loadLitematic = async function () {
   try {
+    if (initPromise) {
+      await initPromise;
+    }
+
     const response = await fetch('./model.litematic');
     currentLitematicBuffer = await response.arrayBuffer();
 
@@ -328,6 +444,15 @@ window.loadLitematic = async function () {
 
 async function buildRendererForRegion(regionName: string) {
   if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) return;
+
+  if (renderer) {
+    try {
+      renderer.renderer.dispose();
+    } catch (e) {
+      // ignore
+    }
+    renderer = null;
+  }
 
   container.innerHTML = '';
 
@@ -400,30 +525,9 @@ async function buildRendererForRegion(regionName: string) {
   );
   controls.update();
 
-  window.addEventListener('resize', () => {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const newAspect = width / height;
-
-    renderer.setViewport(0, 0, width, height);
-
-    perspectiveCamera.aspect = newAspect;
-    perspectiveCamera.updateProjectionMatrix();
-
-    if (activeCamera === orthographicCamera) {
-      const distance = activeCamera.position.distanceTo(controls.target);
-      const frustumHeight = distance * Math.tan((perspectiveCamera.fov * Math.PI) / 360) * 2;
-      const frustumWidth = frustumHeight * newAspect;
-      orthographicCamera.left = -frustumWidth / 2;
-      orthographicCamera.right = frustumWidth / 2;
-      orthographicCamera.top = frustumHeight / 2;
-      orthographicCamera.bottom = -frustumHeight / 2;
-      orthographicCamera.far = 100000.0;
-      orthographicCamera.updateProjectionMatrix();
-    }
-  });
-
-  tick();
+  if (animationFrameId === null) {
+    tick();
+  }
 
   // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
@@ -435,39 +539,24 @@ function calculateAndSendStatistics() {
   if (!currentStructure) return;
 
   try {
-    const rawStructure = currentStructure as any;
-    const blocks = rawStructure.blocks || [];
-    const palette = rawStructure.palette || [];
-
+    const blocks = currentStructure.getBlocks();
     const blockStats: { [key: string]: number } = {};
     let totalBlocks = 0;
-    const totalCount = blocks.length;
-    let index = 0;
 
-    const batchSize = 100000;
-    function processBatch() {
-      const end = Math.min(index + batchSize, totalCount);
-      for (; index < end; index++) {
-        const block = blocks[index];
-        if (block) {
-          const stateIdx = block.state;
-          const state = palette[stateIdx];
-          if (state) {
-            const blockName = state.getName().toString();
-            blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-            totalBlocks++;
-          }
-        }
-      }
-      if (index < totalCount) {
-        setTimeout(processBatch, 0);
-      } else {
-        if (window.AndroidHost) {
-          window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      if (block && block.state) {
+        const blockName = block.state.getName().toString();
+        if (blockName !== 'minecraft:air') {
+          blockStats[blockName] = (blockStats[blockName] || 0) + 1;
+          totalBlocks++;
         }
       }
     }
-    processBatch();
+
+    if (window.AndroidHost) {
+      window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
+    }
   } catch (err) {
     console.error("Error collecting block statistics: ", err);
   }
@@ -478,11 +567,10 @@ window.toggleCameraView = function () {
 
   const currentTarget = controls.target.clone();
   const currentPos = activeCamera.position.clone();
-  const direction = new THREE.Vector3().subVectors(currentPos, currentTarget);
-  const distance = Math.max(direction.length(), 5.0);
 
   if (activeCamera === perspectiveCamera) {
     const aspect = window.innerWidth / window.innerHeight;
+    const distance = Math.max(currentPos.distanceTo(currentTarget), 5.0);
     const frustumHeight = distance * Math.tan((perspectiveCamera.fov * Math.PI) / 360) * 2;
     const frustumWidth = frustumHeight * aspect;
 
@@ -547,5 +635,3 @@ window.switchRegion = async function (regionName: string) {
     window.AndroidHost.onLoadingProgress('SUCCESS');
   }
 };
-
-init();
