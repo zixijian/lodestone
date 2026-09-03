@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">lodestone</string>
+    <string name="banner_text">为了更方便、顺畅地为您浏览和导入您本地庞大的投影文件，我们强烈建议您授权“所有文件访问权限”。</string>
+    <string name="banner_action">去授权</string>
+    <string name="usage_title">使用说明</string>
+    <string name="usage_content">1. 点击右上角 ⊕ 按钮通过系统存储访问框架 (SAF) 浏览并直接打开任意 .litematic 文件。\n2. 授权“所有文件访问权限”后，可使用内置的高效文件浏览器直接浏览并秒开 2000 万方块的大型投影文件。\n3. 在 3D 预览界面，您可以使用手势控制旋转、平移和缩放视角，通过顶部控制栏切换相机模式、重置视角、选择并切换渲染子区域。\n4. 底部为统计面板，展示该投影中每种方块的细分数量统计，支持上下滑动展开或折叠。</string>
+    <string name="about_title">关于项目</string>
+    <string name="about_content">Lodestone 投影预览客户端\n\n本应用基于开源 3D Minecraft 结构渲染引擎 @mattzh72/lodestone 精心打造。提供流畅的大型 .litematic 投影文件 offline 3D 可视化预览服务。\n\n版本：1.0.0 (Release)\n作者：Jules\n配色风格：Solarized Dark</string>
+    <string name="oss_title">开源组件列表</string>
+    <string name="oss_content">- Three.js (MIT License)\n- @mattzh72/lodestone (MIT License)\n- gl-matrix (MIT License)\n- Android Jetpack &amp; Material Components (Apache 2.0)\n- Kotlin (Apache 2.0)</string>
+    <string name="menu_usage">使用说明</string>
+    <string name="menu_about">关于项目</string>
+    <string name="menu_oss">开源组件列表</string>
+    <string name="menu_exit">退出应用</string>
+    <string name="dialog_ok">确定</string>
+    <string name="folder_tag">文件夹</string>
+    <string name="file_size_bytes">%1$s 字节</string>
+    <string name="file_size_kb">%1$.2f KB</string>
+    <string name="file_size_mb">%1$.2f MB</string>
+    <string name="file_empty">此目录下没有文件或暂未授权</string>
+    <string name="back_to_parent">返回上级</string>
+    <string name="already_highest">已处于内部存储根目录，无法继续返回</string>
+    <string name="toast_permission_success">已成功获取文件访问权限</string>
+    <string name="toast_permission_needed">需要文件访问权限以浏览内部存储目录</string>
+    <string name="stats_title">方块统计信息</string>
+    <string name="stats_total">总方块数: %1$d</string>
+    <string name="view_mode">视图</string>
+    <string name="view_reset">重置</string>
+    <string name="view_region">区域</string>
+    <string name="no_regions">无子区域或解析失败</string>
+    <string name="select_region">选择渲染区域</string>
+    <string name="loading">加载中...</string>
+</resources>

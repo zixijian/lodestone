@@ -1,0 +1,12 @@
+# Gradle
+.gradle/
+build/
+app/build/
+web_android/node_modules/
+web_android/dist/
+.idea/
+*.iml
+.DS_Store
+local.properties
+capture.png
+*.log
