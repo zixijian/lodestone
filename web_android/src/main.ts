@@ -187,100 +187,15 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   return buildPromise;
 };
 
-// Safe resource pack loader with multiple fallbacks for WebView atlas decoding
-async function safeLoadDefaultPackResources(baseUrl: string) {
-  const urls = Lodestone.getDefaultPackUrls(baseUrl);
-  const [assetsRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
-    fetch(urls.assetsJson),
-    fetch(urls.blockFlags.opaqueTxt),
-    fetch(urls.blockFlags.transparentTxt),
-    fetch(urls.blockFlags.nonSelfCullingTxt),
-    fetch(urls.blockFlags.emissiveJson)
-  ]);
+async function loadResources() {
+  if (currentResources) return currentResources;
 
-  if (!assetsRes.ok) throw new Error(`Failed to fetch assets.json: ${assetsRes.status}`);
+  const baseUrl = new URL('default-pack/', window.location.href).href;
+  console.log('[Lodestone] Loading default pack resources from:', baseUrl);
 
-  const assets = await assetsRes.json();
-
-  let img: HTMLImageElement | ImageBitmap | null = null;
-
-  // Fallback 1: Direct HTMLImageElement from urls.atlasPng (no crossOrigin attribute to prevent CORS issues in WebView)
-  try {
-    const imageElement = new Image();
-    await new Promise((resolve, reject) => {
-      imageElement.onload = () => resolve(true);
-      imageElement.onerror = err => reject(err);
-      imageElement.src = urls.atlasPng;
-    });
-    img = imageElement;
-  } catch (e) {
-    console.warn('Direct image load failed, trying createImageBitmap:', e);
-  }
-
-  // Fallback 2: createImageBitmap from fetched blob
-  if (!img) {
-    try {
-      const atlasRes = await fetch(urls.atlasPng);
-      if (atlasRes.ok) {
-        const atlasBlob = await atlasRes.blob();
-        img = await createImageBitmap(atlasBlob);
-      }
-    } catch (e) {
-      console.warn('createImageBitmap failed, trying blob URL:', e);
-    }
-  }
-
-  // Fallback 3: Blob URL with HTMLImageElement
-  if (!img) {
-    const atlasRes = await fetch(urls.atlasPng);
-    if (!atlasRes.ok) throw new Error(`Failed to fetch atlas.png: ${atlasRes.status}`);
-    const atlasBlob = await atlasRes.blob();
-    const blobUrl = URL.createObjectURL(atlasBlob);
-    const imageElement = new Image();
-    await new Promise((resolve, reject) => {
-      imageElement.onload = () => resolve(true);
-      imageElement.onerror = err => reject(err);
-      imageElement.src = blobUrl;
-    });
-    URL.revokeObjectURL(blobUrl);
-    img = imageElement;
-  }
-
-  const width = img.width;
-  const height = img.height;
-  if (width <= 0 || height <= 0) {
-    throw new Error(`Invalid atlas.png dimensions: ${width}x${height}`);
-  }
-
-  const atlasSize = Lodestone.upperPowerOfTwo(Math.max(width, height));
-  const canvas = document.createElement('canvas');
-  canvas.width = atlasSize;
-  canvas.height = atlasSize;
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(img, 0, 0);
-  const imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
-
-  const parseBlockList = (text: string) => {
-    const ids = new Set<string>();
-    const matches = text.match(/minecraft:[a-z0-9_]+/g) ?? [];
-    matches.forEach(m => ids.add(m));
-    return ids;
-  };
-
-  const flags = {
-    opaque: parseBlockList(await opaqueRes.text()),
-    transparent: parseBlockList(await transparentRes.text()),
-    nonSelfCulling: parseBlockList(await nonSelfCullingRes.text()),
-    emissive: await emissiveRes.json()
-  };
-
-  const resources = Lodestone.createResourcesFromPack({
-    assets,
-    atlas: { imageData, atlasSize },
-    flags
-  });
-
-  return { urls, assets, atlas: { imageData, atlasSize }, resources };
+  const loaded = await Lodestone.loadDefaultPackResources({ baseUrl });
+  currentResources = loaded.resources;
+  return currentResources;
 }
 
 // Cleanup function to prevent frame drops on exit
@@ -336,14 +251,14 @@ async function init() {
   activeCamera.position.set(10, 15, 20);
 
   try {
-    const packBaseUrl = new URL('default-pack/', window.location.href).href;
-    const loaded = await safeLoadDefaultPackResources(packBaseUrl);
-    currentResources = loaded.resources;
+    await loadResources();
+    console.log('[Lodestone] Pack resources loaded successfully.');
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
     }
   } catch (err: any) {
+    console.error('[Lodestone] Error loading default pack resources:', err);
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('ERROR: Failed to load default resource pack. ' + err?.message);
     }
@@ -370,6 +285,10 @@ window.loadLitematic = async function () {
   try {
     if (initPromise) {
       await initPromise;
+    }
+
+    if (!currentResources) {
+      await loadResources();
     }
 
     const response = await fetch('./model.litematic');
@@ -406,6 +325,7 @@ window.loadLitematic = async function () {
       window.AndroidHost.onLoadingProgress('SUCCESS');
     }
   } catch (err: any) {
+    console.error('[Lodestone] Failed to load litematic:', err);
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('ERROR: ' + err?.message);
     }
@@ -414,17 +334,11 @@ window.loadLitematic = async function () {
 
 async function buildRendererForRegion(regionName: string) {
   if (!currentResources) {
-    try {
-      const packBaseUrl = new URL('default-pack/', window.location.href).href;
-      const loaded = await safeLoadDefaultPackResources(packBaseUrl);
-      currentResources = loaded.resources;
-    } catch (e) {
-      console.error('Failed to load pack resources on demand:', e);
-    }
+    await loadResources();
   }
 
   if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) {
-    console.error('buildRendererForRegion missing required state', {
+    console.error('[Lodestone] buildRendererForRegion missing required state', {
       hasBuffer: !!currentLitematicBuffer,
       hasResources: !!currentResources,
       hasNbt: !!parsedRootCompound
