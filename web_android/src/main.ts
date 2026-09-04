@@ -471,6 +471,9 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
+  // Calculate and send statistics immediately after structure parsing
+  calculateAndSendStatistics();
+
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
   const maxDim = Math.max(size[0], size[1], size[2]);
@@ -552,7 +555,7 @@ function calculateAndSendStatistics() {
         const st = palette[b.state];
         if (st) {
           const name = st.getName().toString();
-          if (name !== 'minecraft:air' && name !== 'minecraft:cave_air' && name !== 'minecraft:void_air' && name !== 'minecraft:structure_void') {
+          if (name !== 'minecraft:air' && name !== 'minecraft:cave_air' && name !== 'minecraft:void_air') {
             blockStats[name] = (blockStats[name] || 0) + 1;
             totalBlocks++;
           }
