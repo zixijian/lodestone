@@ -187,12 +187,11 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   return buildPromise;
 };
 
-// Safe resource pack loader with HTMLImageElement fallback for Android WebView asset schemas
+// Safe resource pack loader loading atlas.png directly via HTMLImageElement
 async function safeLoadResources(baseUrl: string) {
   const urls = Lodestone.getDefaultPackUrls(baseUrl);
-  const [assetsRes, atlasRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
+  const [assetsRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
     fetch(urls.assetsJson),
-    fetch(urls.atlasPng),
     fetch(urls.blockFlags.opaqueTxt),
     fetch(urls.blockFlags.transparentTxt),
     fetch(urls.blockFlags.nonSelfCullingTxt),
@@ -200,23 +199,20 @@ async function safeLoadResources(baseUrl: string) {
   ]);
 
   if (!assetsRes.ok) throw new Error(`Failed to fetch assets.json: ${assetsRes.status}`);
-  if (!atlasRes.ok) throw new Error(`Failed to fetch atlas.png: ${atlasRes.status}`);
 
   const assets = await assetsRes.json();
-  const atlasBlob = await atlasRes.blob();
 
-  // Always decode atlas PNG via HTMLImageElement for 100% reliable image decoding across all WebViews
+  // Load atlas.png directly via HTMLImageElement
   const img = new Image();
-  const blobUrl = URL.createObjectURL(atlasBlob);
+  img.crossOrigin = 'anonymous';
   await new Promise((resolve, reject) => {
     img.onload = () => resolve(true);
-    img.onerror = (err) => reject(err);
-    img.src = blobUrl;
+    img.onerror = () => reject(new Error('Failed to load atlas.png image element'));
+    img.src = urls.atlasPng;
   });
-  URL.revokeObjectURL(blobUrl);
 
   if (img.width <= 0 || img.height <= 0) {
-    throw new Error(`Failed to decode atlas.png image: invalid dimensions ${img.width}x${img.height}`);
+    throw new Error(`Invalid atlas.png dimensions: ${img.width}x${img.height}`);
   }
 
   const atlasSize = Lodestone.upperPowerOfTwo(Math.max(img.width, img.height));
