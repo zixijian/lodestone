@@ -187,12 +187,11 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   return buildPromise;
 };
 
-// Safe resource pack loader that decodes atlas.png via HTMLImageElement without createImageBitmap failures in WebView
+// Safe resource pack loader with multiple fallbacks for WebView atlas decoding
 async function safeLoadDefaultPackResources(baseUrl: string) {
   const urls = Lodestone.getDefaultPackUrls(baseUrl);
-  const [assetsRes, atlasRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
+  const [assetsRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
     fetch(urls.assetsJson),
-    fetch(urls.atlasPng),
     fetch(urls.blockFlags.opaqueTxt),
     fetch(urls.blockFlags.transparentTxt),
     fetch(urls.blockFlags.nonSelfCullingTxt),
@@ -200,28 +199,60 @@ async function safeLoadDefaultPackResources(baseUrl: string) {
   ]);
 
   if (!assetsRes.ok) throw new Error(`Failed to fetch assets.json: ${assetsRes.status}`);
-  if (!atlasRes.ok) throw new Error(`Failed to fetch atlas.png: ${atlasRes.status}`);
 
   const assets = await assetsRes.json();
-  const atlasBlob = await atlasRes.blob();
 
-  // Decode atlas.png blob via HTMLImageElement
-  const img = new Image();
-  const blobUrl = URL.createObjectURL(atlasBlob);
+  let img: HTMLImageElement | ImageBitmap | null = null;
 
-  await new Promise((resolve, reject) => {
-    img.onload = () => resolve(true);
-    img.onerror = () => reject(new Error('Failed to decode atlas.png blob into HTMLImageElement'));
-    img.src = blobUrl;
-  });
-
-  URL.revokeObjectURL(blobUrl);
-
-  if (img.width <= 0 || img.height <= 0) {
-    throw new Error(`Invalid atlas.png dimensions: ${img.width}x${img.height}`);
+  // Fallback 1: Direct HTMLImageElement from urls.atlasPng (no crossOrigin attribute to prevent CORS issues in WebView)
+  try {
+    const imageElement = new Image();
+    await new Promise((resolve, reject) => {
+      imageElement.onload = () => resolve(true);
+      imageElement.onerror = err => reject(err);
+      imageElement.src = urls.atlasPng;
+    });
+    img = imageElement;
+  } catch (e) {
+    console.warn('Direct image load failed, trying createImageBitmap:', e);
   }
 
-  const atlasSize = Lodestone.upperPowerOfTwo(Math.max(img.width, img.height));
+  // Fallback 2: createImageBitmap from fetched blob
+  if (!img) {
+    try {
+      const atlasRes = await fetch(urls.atlasPng);
+      if (atlasRes.ok) {
+        const atlasBlob = await atlasRes.blob();
+        img = await createImageBitmap(atlasBlob);
+      }
+    } catch (e) {
+      console.warn('createImageBitmap failed, trying blob URL:', e);
+    }
+  }
+
+  // Fallback 3: Blob URL with HTMLImageElement
+  if (!img) {
+    const atlasRes = await fetch(urls.atlasPng);
+    if (!atlasRes.ok) throw new Error(`Failed to fetch atlas.png: ${atlasRes.status}`);
+    const atlasBlob = await atlasRes.blob();
+    const blobUrl = URL.createObjectURL(atlasBlob);
+    const imageElement = new Image();
+    await new Promise((resolve, reject) => {
+      imageElement.onload = () => resolve(true);
+      imageElement.onerror = err => reject(err);
+      imageElement.src = blobUrl;
+    });
+    URL.revokeObjectURL(blobUrl);
+    img = imageElement;
+  }
+
+  const width = img.width;
+  const height = img.height;
+  if (width <= 0 || height <= 0) {
+    throw new Error(`Invalid atlas.png dimensions: ${width}x${height}`);
+  }
+
+  const atlasSize = Lodestone.upperPowerOfTwo(Math.max(width, height));
   const canvas = document.createElement('canvas');
   canvas.width = atlasSize;
   canvas.height = atlasSize;
@@ -382,7 +413,24 @@ window.loadLitematic = async function () {
 };
 
 async function buildRendererForRegion(regionName: string) {
-  if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) return;
+  if (!currentResources) {
+    try {
+      const packBaseUrl = new URL('default-pack/', window.location.href).href;
+      const loaded = await safeLoadDefaultPackResources(packBaseUrl);
+      currentResources = loaded.resources;
+    } catch (e) {
+      console.error('Failed to load pack resources on demand:', e);
+    }
+  }
+
+  if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) {
+    console.error('buildRendererForRegion missing required state', {
+      hasBuffer: !!currentLitematicBuffer,
+      hasResources: !!currentResources,
+      hasNbt: !!parsedRootCompound
+    });
+    return;
+  }
 
   if (renderer) {
     try {
