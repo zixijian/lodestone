@@ -137,7 +137,13 @@ class PreviewActivity : AppCompatActivity() {
                     }
                 }
 
-                return assetLoader.shouldInterceptRequest(url)
+                val response = assetLoader.shouldInterceptRequest(url)
+                if (response != null) {
+                    val headers = response.responseHeaders?.toMutableMap() ?: mutableMapOf()
+                    headers["Access-Control-Allow-Origin"] = "*"
+                    response.responseHeaders = headers
+                }
+                return response
             }
         }
 
@@ -172,6 +178,20 @@ class PreviewActivity : AppCompatActivity() {
             .show()
     }
 
+    override fun onDestroy() {
+        try {
+            binding.webviewRenderer.evaluateJavascript("if(window.cleanupRenderer) window.cleanupRenderer();", null)
+            binding.webviewRenderer.clearHistory()
+            binding.webviewRenderer.clearCache(true)
+            binding.webviewRenderer.onPause()
+            binding.webviewRenderer.removeAllViews()
+            binding.webviewRenderer.destroy()
+        } catch (e: Exception) {
+            Log.e("Lodestone", "Error destroying webview", e)
+        }
+        super.onDestroy()
+    }
+
     // Inner class for JS-Android communications
     inner class AndroidJSBridge {
 
@@ -189,7 +209,6 @@ class PreviewActivity : AppCompatActivity() {
                     binding.llLoadingOverlay.visibility = View.VISIBLE
                     binding.tvLoadingStatus.text = "解析数据 $pct%"
                 } else if (state.startsWith("RENDERING_")) {
-                    // Remove "构建网格" prompt overlay during chunk rendering so 3D model is 100% visible
                     binding.llLoadingOverlay.visibility = View.GONE
                 } else if (state.startsWith("ERROR:")) {
                     binding.llLoadingOverlay.visibility = View.GONE
