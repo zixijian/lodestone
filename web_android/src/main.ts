@@ -205,40 +205,27 @@ async function safeLoadResources(baseUrl: string) {
   const assets = await assetsRes.json();
   const atlasBlob = await atlasRes.blob();
 
-  let imageData: ImageData;
-  let atlasSize: number;
+  // Always decode atlas PNG via HTMLImageElement for 100% reliable image decoding across all WebViews
+  const img = new Image();
+  const blobUrl = URL.createObjectURL(atlasBlob);
+  await new Promise((resolve, reject) => {
+    img.onload = () => resolve(true);
+    img.onerror = (err) => reject(err);
+    img.src = blobUrl;
+  });
+  URL.revokeObjectURL(blobUrl);
 
-  try {
-    if (typeof createImageBitmap === 'function') {
-      const bitmap = await createImageBitmap(atlasBlob);
-      atlasSize = Lodestone.upperPowerOfTwo(Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = atlasSize;
-      canvas.height = atlasSize;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(bitmap, 0, 0);
-      imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
-    } else {
-      throw new Error('createImageBitmap not available');
-    }
-  } catch (e) {
-    const img = new Image();
-    const blobUrl = URL.createObjectURL(atlasBlob);
-    await new Promise((resolve, reject) => {
-      img.onload = () => resolve(true);
-      img.onerror = (err) => reject(err);
-      img.src = blobUrl;
-    });
-    URL.revokeObjectURL(blobUrl);
-
-    atlasSize = Lodestone.upperPowerOfTwo(Math.max(img.width, img.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = atlasSize;
-    canvas.height = atlasSize;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(img, 0, 0);
-    imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
+  if (img.width <= 0 || img.height <= 0) {
+    throw new Error(`Failed to decode atlas.png image: invalid dimensions ${img.width}x${img.height}`);
   }
+
+  const atlasSize = Lodestone.upperPowerOfTwo(Math.max(img.width, img.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = atlasSize;
+  canvas.height = atlasSize;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
 
   const parseBlockList = (text: string) => {
     const ids = new Set<string>();
@@ -611,17 +598,23 @@ function calculateAndSendStatistics() {
   if (!currentStructure) return;
 
   try {
-    const blocks = currentStructure.getBlocks();
+    const rawStructure = currentStructure as any;
+    const blocks = rawStructure.blocks || [];
+    const palette = rawStructure.palette || [];
+
     const blockStats: { [key: string]: number } = {};
     let totalBlocks = 0;
 
     for (let i = 0; i < blocks.length; i++) {
-      const block = blocks[i];
-      if (block && block.state) {
-        const blockName = block.state.getName().toString();
-        if (blockName !== 'minecraft:air' && blockName !== 'minecraft:cave_air' && blockName !== 'minecraft:void_air') {
-          blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-          totalBlocks++;
+      const b = blocks[i];
+      if (b) {
+        const st = palette[b.state];
+        if (st) {
+          const name = st.getName().toString();
+          if (name !== 'minecraft:air' && name !== 'minecraft:cave_air' && name !== 'minecraft:void_air') {
+            blockStats[name] = (blockStats[name] || 0) + 1;
+            totalBlocks++;
+          }
         }
       }
     }
