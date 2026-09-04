@@ -6,6 +6,7 @@ import { mat4 } from 'gl-matrix';
 const {
   Structure,
   ThreeStructureRenderer,
+  loadDefaultPackResources,
   BlockState
 } = Lodestone;
 
@@ -187,63 +188,6 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   return buildPromise;
 };
 
-// Safe resource pack loader loading atlas.png directly via HTMLImageElement
-async function safeLoadResources(baseUrl: string) {
-  const urls = Lodestone.getDefaultPackUrls(baseUrl);
-  const [assetsRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
-    fetch(urls.assetsJson),
-    fetch(urls.blockFlags.opaqueTxt),
-    fetch(urls.blockFlags.transparentTxt),
-    fetch(urls.blockFlags.nonSelfCullingTxt),
-    fetch(urls.blockFlags.emissiveJson)
-  ]);
-
-  if (!assetsRes.ok) throw new Error(`Failed to fetch assets.json: ${assetsRes.status}`);
-
-  const assets = await assetsRes.json();
-
-  // Load atlas.png directly via HTMLImageElement
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  await new Promise((resolve, reject) => {
-    img.onload = () => resolve(true);
-    img.onerror = () => reject(new Error('Failed to load atlas.png image element'));
-    img.src = urls.atlasPng;
-  });
-
-  if (img.width <= 0 || img.height <= 0) {
-    throw new Error(`Invalid atlas.png dimensions: ${img.width}x${img.height}`);
-  }
-
-  const atlasSize = Lodestone.upperPowerOfTwo(Math.max(img.width, img.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = atlasSize;
-  canvas.height = atlasSize;
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(img, 0, 0);
-  const imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
-
-  const parseBlockList = (text: string) => {
-    const ids = new Set<string>();
-    const matches = text.match(/minecraft:[a-z0-9_]+/g) ?? [];
-    matches.forEach(m => ids.add(m));
-    return ids;
-  };
-
-  const flags = {
-    opaque: parseBlockList(await opaqueRes.text()),
-    transparent: parseBlockList(await transparentRes.text()),
-    nonSelfCulling: parseBlockList(await nonSelfCullingRes.text()),
-    emissive: await emissiveRes.json()
-  };
-
-  return Lodestone.createResourcesFromPack({
-    assets,
-    atlas: { imageData, atlasSize },
-    flags
-  });
-}
-
 // Cleanup function to prevent frame drops on exit
 window.cleanupRenderer = function () {
   if (animationFrameId !== null) {
@@ -298,7 +242,8 @@ async function init() {
 
   try {
     const packBaseUrl = new URL('default-pack/', window.location.href).href;
-    currentResources = await safeLoadResources(packBaseUrl);
+    const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
+    currentResources = loaded.resources;
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
@@ -607,7 +552,7 @@ function calculateAndSendStatistics() {
         const st = palette[b.state];
         if (st) {
           const name = st.getName().toString();
-          if (name !== 'minecraft:air' && name !== 'minecraft:cave_air' && name !== 'minecraft:void_air') {
+          if (name !== 'minecraft:air' && name !== 'minecraft:cave_air' && name !== 'minecraft:void_air' && name !== 'minecraft:structure_void') {
             blockStats[name] = (blockStats[name] || 0) + 1;
             totalBlocks++;
           }
