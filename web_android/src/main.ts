@@ -7,7 +7,7 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  BlockState
+  LitematicLoader
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -270,131 +270,6 @@ function tick() {
   }
 }
 
-// Streaming Time-Sliced NBT Decoder
-async function loadRegionAsync(
-  regionCompound: any,
-  onProgress?: (pct: number) => void
-): Promise<Structure> {
-  const sizeNbt = regionCompound.getCompound('Size');
-  const rawSize = [
-    sizeNbt.getNumber('x') ?? 0,
-    sizeNbt.getNumber('y') ?? 0,
-    sizeNbt.getNumber('z') ?? 0,
-  ];
-  const size: [number, number, number] = [
-    Math.abs(rawSize[0]),
-    Math.abs(rawSize[1]),
-    Math.abs(rawSize[2]),
-  ];
-
-  const paletteList = regionCompound.getList('BlockStatePalette');
-  const palette: BlockState[] = [];
-  paletteList.forEach((entry: any) => {
-    if (!entry.isCompound()) return;
-    const state = BlockState.fromNbt(entry);
-    palette.push(state);
-  });
-
-  const isAir = palette.map(state => state.is('minecraft:air'));
-
-  const blockStatesNbt = regionCompound.has('BlockStates')
-    ? regionCompound.getLongArray('BlockStates')
-    : null;
-  const blockStates = blockStatesNbt
-    ? blockStatesNbt.getItems().map((item: any) => item.getAsPair())
-    : [];
-
-  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
-  const mask = (1 << bitsPerBlock) - 1;
-
-  const width = size[0];
-  const height = size[1];
-  const depth = size[2];
-  const volume = width * height * depth;
-
-  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
-
-  let minX = width, minY = height, minZ = depth;
-  let maxX = 0, maxY = 0, maxZ = 0;
-  let hasPlaced = false;
-
-  let lastYield = performance.now();
-
-  for (let index = 0; index < volume; index++) {
-    let paletteIndex = 0;
-    if (blockStates.length > 0) {
-      const startOffset = index * bitsPerBlock;
-      const startArrIndex = startOffset >>> 5;
-      const endArrIndex = ((index + 1) * bitsPerBlock - 1) >>> 5;
-      const startBitOffset = startOffset & 0x1f;
-      const halfInd = startArrIndex >>> 1;
-
-      let blockStart: number;
-      let blockEnd: number;
-
-      if ((startArrIndex & 0x1) === 0) {
-        blockStart = blockStates[halfInd]?.[1] ?? 0;
-        blockEnd = blockStates[halfInd]?.[0] ?? 0;
-      } else {
-        blockStart = blockStates[halfInd]?.[0] ?? 0;
-        blockEnd = blockStates[halfInd + 1]?.[1] ?? 0;
-      }
-
-      if (startArrIndex === endArrIndex) {
-        paletteIndex = (blockStart >>> startBitOffset) & mask;
-      } else {
-        const endOffset = 32 - startBitOffset;
-        paletteIndex =
-          ((blockStart >>> startBitOffset) & mask) |
-          ((blockEnd << endOffset) & mask);
-      }
-    }
-
-    if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-      const x = index % width;
-      const y = Math.floor(index / (width * depth));
-      const z = Math.floor(index / width) % depth;
-      storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
-
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (z < minZ) minZ = z;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      if (z > maxZ) maxZ = z;
-      hasPlaced = true;
-    }
-
-    if ((index & 0x7fff) === 0) {
-      const now = performance.now();
-      if (now - lastYield >= 12) {
-        if (onProgress) {
-          onProgress(Math.floor((index / volume) * 100));
-        }
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        lastYield = performance.now();
-      }
-    }
-  }
-
-  if (hasPlaced) {
-    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
-    const dx = maxX - minX + 1;
-    const dy = maxY - minY + 1;
-    const dz = maxZ - minZ + 1;
-    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-  } else {
-    tightCenter = [width / 2, height / 2, depth / 2];
-    tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
-  }
-
-  if (onProgress) {
-    onProgress(100);
-  }
-
-  return new Structure(size, palette, storedBlocks);
-}
-
 // Main loader function called from Android native side
 window.loadLitematic = async function () {
   try {
@@ -461,17 +336,17 @@ async function buildRendererForRegion(regionName: string) {
   canvasElement.style.height = '100%';
   container.appendChild(canvasElement);
 
-  const regionsTag = parsedRootCompound.getCompound('Regions');
-  const region = regionsTag.getCompound(regionName);
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_50%');
+  }
 
-  // Time-sliced streaming NBT parsing
-  currentStructure = await loadRegionAsync(region, (pct) => {
-    if (window.AndroidHost) {
-      window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
-    }
-  });
+  // Native Lodestone Litematic loader
+  currentStructure = LitematicLoader.fromNbt(parsedRootCompound, regionName);
 
-  // Calculate and send statistics immediately after structure parsing
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_100%');
+  }
+
   calculateAndSendStatistics();
 
   const size = currentStructure.getSize();
@@ -512,6 +387,9 @@ async function buildRendererForRegion(regionName: string) {
   orthographicCamera.far = 100000.0;
   orthographicCamera.updateProjectionMatrix();
 
+  tightCenter = [size[0] / 2, size[1] / 2, size[2] / 2];
+  tightRadius = Math.max(1.0, Math.max(size[0], size[1], size[2]) / 2);
+
   if (controls) {
     controls.dispose();
   }
@@ -542,23 +420,17 @@ function calculateAndSendStatistics() {
   if (!currentStructure) return;
 
   try {
-    const rawStructure = currentStructure as any;
-    const blocks = rawStructure.blocks || [];
-    const palette = rawStructure.palette || [];
-
+    const blocks = currentStructure.getBlocks();
     const blockStats: { [key: string]: number } = {};
     let totalBlocks = 0;
 
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
-      if (b) {
-        const st = palette[b.state];
-        if (st) {
-          const name = st.getName().toString();
-          if (name !== 'minecraft:air' && name !== 'minecraft:cave_air' && name !== 'minecraft:void_air') {
-            blockStats[name] = (blockStats[name] || 0) + 1;
-            totalBlocks++;
-          }
+      if (b && b.state) {
+        const name = b.state.getName().toString();
+        if (name !== 'minecraft:air' && name !== 'minecraft:cave_air' && name !== 'minecraft:void_air' && name !== 'minecraft:structure_void') {
+          blockStats[name] = (blockStats[name] || 0) + 1;
+          totalBlocks++;
         }
       }
     }
