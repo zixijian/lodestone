@@ -187,56 +187,48 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   return buildPromise;
 };
 
-// Clean pack resources loader without any cached requests
+// Clean pack resources loader using Blob decoding to guarantee no canvas tainting or CORS security errors
 async function loadPackResourcesClean(baseUrl: string) {
   const urls = Lodestone.getDefaultPackUrls(baseUrl);
-  const cacheOptions: RequestInit = { cache: 'no-store' };
 
-  const [assetsRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
-    fetch(urls.assetsJson, cacheOptions),
-    fetch(urls.blockFlags.opaqueTxt, cacheOptions),
-    fetch(urls.blockFlags.transparentTxt, cacheOptions),
-    fetch(urls.blockFlags.nonSelfCullingTxt, cacheOptions),
-    fetch(urls.blockFlags.emissiveJson, cacheOptions)
+  const [assetsRes, atlasRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
+    fetch(urls.assetsJson),
+    fetch(urls.atlasPng),
+    fetch(urls.blockFlags.opaqueTxt),
+    fetch(urls.blockFlags.transparentTxt),
+    fetch(urls.blockFlags.nonSelfCullingTxt),
+    fetch(urls.blockFlags.emissiveJson)
   ]);
 
   if (!assetsRes.ok) throw new Error(`Failed to fetch assets.json: ${assetsRes.status}`);
+  if (!atlasRes.ok) throw new Error(`Failed to fetch atlas.png: ${atlasRes.status}`);
+  if (!opaqueRes.ok) throw new Error(`Failed to fetch opaque.txt: ${opaqueRes.status}`);
+  if (!transparentRes.ok) throw new Error(`Failed to fetch transparent.txt: ${transparentRes.status}`);
+  if (!nonSelfCullingRes.ok) throw new Error(`Failed to fetch non_self_culling.txt: ${nonSelfCullingRes.status}`);
+  if (!emissiveRes.ok) throw new Error(`Failed to fetch emissive.json: ${emissiveRes.status}`);
 
   const assets = await assetsRes.json();
+  const atlasBlob = await atlasRes.blob();
 
-  let img: HTMLImageElement | ImageBitmap | null = null;
+  let imageData: ImageData | null = null;
+  let atlasSize = 2048;
 
-  // Method 1: HTMLImageElement directly from atlas.png
+  // Method 1: Decode Blob via createImageBitmap
   try {
-    const imageElement = new Image();
-    await new Promise((resolve, reject) => {
-      imageElement.onload = () => resolve(true);
-      imageElement.onerror = err => reject(err);
-      imageElement.src = urls.atlasPng + '?cb=' + Date.now();
-    });
-    img = imageElement;
+    const bitmap = await createImageBitmap(atlasBlob);
+    atlasSize = Lodestone.upperPowerOfTwo(Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = atlasSize;
+    canvas.height = atlasSize;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(bitmap, 0, 0);
+    imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
   } catch (e) {
-    console.warn('[Lodestone] HTMLImageElement load failed:', e);
+    console.warn('[Lodestone] createImageBitmap failed, falling back to Blob URL:', e);
   }
 
-  // Method 2: createImageBitmap from uncached blob
-  if (!img) {
-    try {
-      const atlasRes = await fetch(urls.atlasPng, cacheOptions);
-      if (atlasRes.ok) {
-        const atlasBlob = await atlasRes.blob();
-        img = await createImageBitmap(atlasBlob);
-      }
-    } catch (e) {
-      console.warn('[Lodestone] createImageBitmap failed:', e);
-    }
-  }
-
-  // Method 3: Blob URL with HTMLImageElement
-  if (!img) {
-    const atlasRes = await fetch(urls.atlasPng, cacheOptions);
-    if (!atlasRes.ok) throw new Error(`Failed to fetch atlas.png: ${atlasRes.status}`);
-    const atlasBlob = await atlasRes.blob();
+  // Method 2: Decode Blob via URL.createObjectURL HTMLImageElement (Blob URLs belong to current origin, never taint canvas)
+  if (!imageData) {
     const blobUrl = URL.createObjectURL(atlasBlob);
     const imageElement = new Image();
     await new Promise((resolve, reject) => {
@@ -245,22 +237,15 @@ async function loadPackResourcesClean(baseUrl: string) {
       imageElement.src = blobUrl;
     });
     URL.revokeObjectURL(blobUrl);
-    img = imageElement;
-  }
 
-  const width = img.width;
-  const height = img.height;
-  if (width <= 0 || height <= 0) {
-    throw new Error(`Invalid atlas.png dimensions: ${width}x${height}`);
+    atlasSize = Lodestone.upperPowerOfTwo(Math.max(imageElement.width, imageElement.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = atlasSize;
+    canvas.height = atlasSize;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(imageElement, 0, 0);
+    imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
   }
-
-  const atlasSize = Lodestone.upperPowerOfTwo(Math.max(width, height));
-  const canvas = document.createElement('canvas');
-  canvas.width = atlasSize;
-  canvas.height = atlasSize;
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(img, 0, 0);
-  const imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
 
   const parseBlockList = (text: string) => {
     const ids = new Set<string>();
@@ -385,9 +370,14 @@ window.loadLitematic = async function () {
       await initPromise;
     }
 
-    await loadResourcesFresh();
+    if (!currentResources) {
+      await loadResourcesFresh();
+    }
 
-    const response = await fetch('./model.litematic', { cache: 'no-store' });
+    const response = await fetch('./model.litematic');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch model.litematic: ${response.status}`);
+    }
     currentLitematicBuffer = await response.arrayBuffer();
 
     const nbt = Lodestone.NbtFile.read(new Uint8Array(currentLitematicBuffer));
