@@ -71,7 +71,7 @@ Lodestone.SpecialRenderers.getBlockMesh = function (state: any, nbt: any, resour
       const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
 
       const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
-      const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
+      const lidTo: [number, number, number] = isLeft ? [15, 14, 15] : [15, 14, 15];
 
       const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
       const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
@@ -187,7 +187,7 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   return buildPromise;
 };
 
-// Clean pack resources loader using Blob decoding to guarantee no canvas tainting or CORS security errors
+// Clean pack resources loader using Data URL decoding to guarantee 100% untainted canvas and zero CORS errors
 async function loadPackResourcesClean(baseUrl: string) {
   const urls = Lodestone.getDefaultPackUrls(baseUrl);
 
@@ -210,42 +210,28 @@ async function loadPackResourcesClean(baseUrl: string) {
   const assets = await assetsRes.json();
   const atlasBlob = await atlasRes.blob();
 
-  let imageData: ImageData | null = null;
-  let atlasSize = 2048;
+  // Convert Blob to Data URL using FileReader (Data URLs are same-origin, untainted, and load reliably anywhere)
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(atlasBlob);
+  });
 
-  // Method 1: Decode Blob via createImageBitmap
-  try {
-    const bitmap = await createImageBitmap(atlasBlob);
-    atlasSize = Lodestone.upperPowerOfTwo(Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = atlasSize;
-    canvas.height = atlasSize;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(bitmap, 0, 0);
-    imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
-  } catch (e) {
-    console.warn('[Lodestone] createImageBitmap failed, falling back to Blob URL:', e);
-  }
+  const imageElement = new Image();
+  await new Promise((resolve, reject) => {
+    imageElement.onload = () => resolve(true);
+    imageElement.onerror = err => reject(err);
+    imageElement.src = dataUrl;
+  });
 
-  // Method 2: Decode Blob via URL.createObjectURL HTMLImageElement (Blob URLs belong to current origin, never taint canvas)
-  if (!imageData) {
-    const blobUrl = URL.createObjectURL(atlasBlob);
-    const imageElement = new Image();
-    await new Promise((resolve, reject) => {
-      imageElement.onload = () => resolve(true);
-      imageElement.onerror = err => reject(err);
-      imageElement.src = blobUrl;
-    });
-    URL.revokeObjectURL(blobUrl);
-
-    atlasSize = Lodestone.upperPowerOfTwo(Math.max(imageElement.width, imageElement.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = atlasSize;
-    canvas.height = atlasSize;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(imageElement, 0, 0);
-    imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
-  }
+  const atlasSize = Lodestone.upperPowerOfTwo(Math.max(imageElement.width, imageElement.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = atlasSize;
+  canvas.height = atlasSize;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(imageElement, 0, 0);
+  const imageData = ctx.getImageData(0, 0, atlasSize, atlasSize);
 
   const parseBlockList = (text: string) => {
     const ids = new Set<string>();
@@ -424,12 +410,7 @@ async function buildRendererForRegion(regionName: string) {
   }
 
   if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) {
-    console.error('[Lodestone] buildRendererForRegion missing required state', {
-      hasBuffer: !!currentLitematicBuffer,
-      hasResources: !!currentResources,
-      hasNbt: !!parsedRootCompound
-    });
-    return;
+    throw new Error(`buildRendererForRegion missing state: buffer=${!!currentLitematicBuffer}, res=${!!currentResources}, nbt=${!!parsedRootCompound}`);
   }
 
   if (renderer) {
@@ -475,10 +456,15 @@ async function buildRendererForRegion(regionName: string) {
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
 
-  // Disable sunlight fog density so models stay clear without fading when camera zooms out
-  if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
-    (renderer as any).sunlight.fog.density = 0.0;
-    (renderer as any).sunlight.fog.heightFalloff = 0.0;
+  // Disable sunlight fog density & post-processing to force direct screen rendering (avoids offscreen WebGL target bugs on Android)
+  if ((renderer as any).sunlight) {
+    if ((renderer as any).sunlight.fog) {
+      (renderer as any).sunlight.fog.density = 0.0;
+      (renderer as any).sunlight.fog.heightFalloff = 0.0;
+    }
+    if ((renderer as any).sunlight.postProcess) {
+      (renderer as any).sunlight.postProcess.enabled = false;
+    }
   }
 
   renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
