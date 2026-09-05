@@ -71,7 +71,7 @@ Lodestone.SpecialRenderers.getBlockMesh = function (state: any, nbt: any, resour
       const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
 
       const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
-      const lidTo: [number, number, number] = isLeft ? [15, 14, 15] : [15, 14, 15];
+      const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
 
       const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
       const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
@@ -187,15 +187,17 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   return buildPromise;
 };
 
-// Safe resource pack loader with multiple fallbacks for WebView atlas decoding
-async function safeLoadDefaultPackResources(baseUrl: string) {
+// Clean pack resources loader without any cached requests
+async function loadPackResourcesClean(baseUrl: string) {
   const urls = Lodestone.getDefaultPackUrls(baseUrl);
+  const cacheOptions: RequestInit = { cache: 'no-store' };
+
   const [assetsRes, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
-    fetch(urls.assetsJson),
-    fetch(urls.blockFlags.opaqueTxt),
-    fetch(urls.blockFlags.transparentTxt),
-    fetch(urls.blockFlags.nonSelfCullingTxt),
-    fetch(urls.blockFlags.emissiveJson)
+    fetch(urls.assetsJson, cacheOptions),
+    fetch(urls.blockFlags.opaqueTxt, cacheOptions),
+    fetch(urls.blockFlags.transparentTxt, cacheOptions),
+    fetch(urls.blockFlags.nonSelfCullingTxt, cacheOptions),
+    fetch(urls.blockFlags.emissiveJson, cacheOptions)
   ]);
 
   if (!assetsRes.ok) throw new Error(`Failed to fetch assets.json: ${assetsRes.status}`);
@@ -204,35 +206,35 @@ async function safeLoadDefaultPackResources(baseUrl: string) {
 
   let img: HTMLImageElement | ImageBitmap | null = null;
 
-  // Method 1: HTMLImageElement with urls.atlasPng (no crossOrigin attribute to prevent CORS issues in WebView)
+  // Method 1: HTMLImageElement directly from atlas.png
   try {
     const imageElement = new Image();
     await new Promise((resolve, reject) => {
       imageElement.onload = () => resolve(true);
       imageElement.onerror = err => reject(err);
-      imageElement.src = urls.atlasPng;
+      imageElement.src = urls.atlasPng + '?cb=' + Date.now();
     });
     img = imageElement;
   } catch (e) {
-    console.warn('[Lodestone] Direct HTMLImageElement load failed, trying createImageBitmap:', e);
+    console.warn('[Lodestone] HTMLImageElement load failed:', e);
   }
 
-  // Method 2: createImageBitmap from fetched blob
+  // Method 2: createImageBitmap from uncached blob
   if (!img) {
     try {
-      const atlasRes = await fetch(urls.atlasPng);
+      const atlasRes = await fetch(urls.atlasPng, cacheOptions);
       if (atlasRes.ok) {
         const atlasBlob = await atlasRes.blob();
         img = await createImageBitmap(atlasBlob);
       }
     } catch (e) {
-      console.warn('[Lodestone] createImageBitmap failed, trying blob URL:', e);
+      console.warn('[Lodestone] createImageBitmap failed:', e);
     }
   }
 
   // Method 3: Blob URL with HTMLImageElement
   if (!img) {
-    const atlasRes = await fetch(urls.atlasPng);
+    const atlasRes = await fetch(urls.atlasPng, cacheOptions);
     if (!atlasRes.ok) throw new Error(`Failed to fetch atlas.png: ${atlasRes.status}`);
     const atlasBlob = await atlasRes.blob();
     const blobUrl = URL.createObjectURL(atlasBlob);
@@ -283,13 +285,12 @@ async function safeLoadDefaultPackResources(baseUrl: string) {
   return { urls, assets, atlas: { imageData, atlasSize }, resources };
 }
 
-async function loadResources() {
-  if (currentResources) return currentResources;
-
+async function loadResourcesFresh() {
+  currentResources = null;
   const baseUrl = new URL('default-pack/', window.location.href).href;
-  console.log('[Lodestone] Loading default pack resources safely from:', baseUrl);
+  console.log('[Lodestone] Loading fresh pack resources from:', baseUrl);
 
-  const loaded = await safeLoadDefaultPackResources(baseUrl);
+  const loaded = await loadPackResourcesClean(baseUrl);
   currentResources = loaded.resources;
   return currentResources;
 }
@@ -326,6 +327,7 @@ window.cleanupRenderer = function () {
   currentStructure = null;
   currentLitematicBuffer = null;
   parsedRootCompound = null;
+  currentResources = null;
 
   if (container) {
     container.innerHTML = '';
@@ -347,8 +349,8 @@ async function init() {
   activeCamera.position.set(10, 15, 20);
 
   try {
-    await loadResources();
-    console.log('[Lodestone] Pack resources loaded successfully.');
+    await loadResourcesFresh();
+    console.log('[Lodestone] Pack resources loaded fresh successfully.');
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
@@ -383,11 +385,9 @@ window.loadLitematic = async function () {
       await initPromise;
     }
 
-    if (!currentResources) {
-      await loadResources();
-    }
+    await loadResourcesFresh();
 
-    const response = await fetch('./model.litematic');
+    const response = await fetch('./model.litematic', { cache: 'no-store' });
     currentLitematicBuffer = await response.arrayBuffer();
 
     const nbt = Lodestone.NbtFile.read(new Uint8Array(currentLitematicBuffer));
@@ -430,7 +430,7 @@ window.loadLitematic = async function () {
 
 async function buildRendererForRegion(regionName: string) {
   if (!currentResources) {
-    await loadResources();
+    await loadResourcesFresh();
   }
 
   if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) {

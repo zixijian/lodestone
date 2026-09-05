@@ -85,6 +85,7 @@ class PreviewActivity : AppCompatActivity() {
         webSettings.javaScriptEnabled = true
         webSettings.domStorageEnabled = true
         webSettings.allowFileAccess = true
+        webSettings.cacheMode = WebSettings.LOAD_NO_CACHE
 
         // Force Solarized Dark background on WebView before loading content
         binding.webviewRenderer.setBackgroundColor(getColor(R.color.solarized_base03))
@@ -119,6 +120,9 @@ class PreviewActivity : AppCompatActivity() {
                         if (stream != null) {
                             val responseHeaders = mutableMapOf<String, String>()
                             responseHeaders["Access-Control-Allow-Origin"] = "*"
+                            responseHeaders["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                            responseHeaders["Pragma"] = "no-cache"
+                            responseHeaders["Expires"] = "0"
                             if (fileSize > 0) {
                                 responseHeaders["Content-Length"] = fileSize.toString()
                             }
@@ -141,6 +145,7 @@ class PreviewActivity : AppCompatActivity() {
                 if (response != null) {
                     val headers = response.responseHeaders?.toMutableMap() ?: mutableMapOf()
                     headers["Access-Control-Allow-Origin"] = "*"
+                    headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
                     response.responseHeaders = headers
                 }
                 return response
