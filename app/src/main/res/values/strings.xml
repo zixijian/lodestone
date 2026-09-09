@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">lodestone</string>
+    <string name="banner_text">To browse and load massive schematic files smoothly, we recommend granting the "All Files Access" permission.</string>
+    <string name="banner_action">Grant</string>
+    <string name="usage_title">Usage</string>
+    <string name="usage_content">1. Click the ⊕ button on the top right to open any .litematic file directly via the Storage Access Framework (SAF).\n2. After granting "All Files Access", use the built-in fast file browser to open files up to 20 million blocks directly.\n3. In 3D preview, use gestures to rotate, pan, and zoom. Use the top controls to switch camera modes, reset view, or select rendering sub-regions.\n4. Slide the bottom panel up/down to inspect detailed block statistics.</string>
+    <string name="about_title">About Project</string>
+    <string name="about_content">Lodestone Schematic Viewer\n\nBuilt on top of the powerful @mattzh72/lodestone 3D Minecraft structure rendering engine. Providing offline 3D visualization and preview for large .litematic files.\n\nVersion: 1.0.0 (Release)\nAuthor: Jules\nTheme: Solarized Dark</string>
+    <string name="oss_title">Open Source Licenses</string>
+    <string name="oss_content">- Three.js (MIT License)\n- @mattzh72/lodestone (MIT License)\n- gl-matrix (MIT License)\n- Android Jetpack &amp; Material Components (Apache 2.0)\n- Kotlin (Apache 2.0)</string>
+    <string name="menu_usage">Usage</string>
+    <string name="menu_about">About</string>
+    <string name="menu_oss">Open Source</string>
+    <string name="menu_exit">Exit</string>
+    <string name="dialog_ok">OK</string>
+    <string name="folder_tag">Folder</string>
+    <string name="file_size_bytes">%1$s Bytes</string>
+    <string name="file_size_kb">%1$.2f KB</string>
+    <string name="file_size_mb">%1$.2f MB</string>
+    <string name="file_empty">Empty directory or permission not granted</string>
+    <string name="back_to_parent">Back</string>
+    <string name="already_highest">Already at internal storage root directory</string>
+    <string name="toast_permission_success">Storage permission granted successfully</string>
+    <string name="toast_permission_needed">Storage permission is required to browse directories</string>
+    <string name="stats_title">Block Statistics</string>
+    <string name="stats_total">Total Blocks: %1$d</string>
+    <string name="view_mode">View</string>
+    <string name="view_reset">Reset</string>
+    <string name="view_region">Region</string>
+    <string name="no_regions">No subregions found or failed to parse</string>
+    <string name="select_region">Select Region</string>
+    <string name="loading">Loading...</string>
+</resources>

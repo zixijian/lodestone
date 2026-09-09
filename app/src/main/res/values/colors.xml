@@ -1,0 +1,33 @@
+<resources>
+    <!-- Base03 (Primary Background) -->
+    <color name="solarized_base03">#002b36</color>
+    <!-- Base02 (Secondary Background/Banner background) -->
+    <color name="solarized_base02">#073642</color>
+    <!-- Base01 (Optional dark content) -->
+    <color name="solarized_base01">#586e75</color>
+    <!-- Base00 (Optional secondary dark content) -->
+    <color name="solarized_base00">#657b83</color>
+    <!-- Base0 (Primary content/text) -->
+    <color name="solarized_base0">#839496</color>
+    <!-- Base1 (Secondary content/text) -->
+    <color name="solarized_base1">#93a1a1</color>
+    <!-- Base2 (Light background/accent) -->
+    <color name="solarized_base2">#eee8d5</color>
+    <!-- Base3 (Very light background) -->
+    <color name="solarized_base3">#fdf6e3</color>
+
+    <!-- Solarized Accent Colors -->
+    <color name="solarized_yellow">#b58900</color>
+    <color name="solarized_orange">#cb4b16</color>
+    <color name="solarized_red">#dc322f</color>
+    <color name="solarized_magenta">#d33682</color>
+    <color name="solarized_violet">#6c71c4</color>
+    <color name="solarized_blue">#268bd2</color>
+    <color name="solarized_cyan">#2aa198</color>
+    <color name="solarized_green">#859900</color>
+
+    <!-- App colors -->
+    <color name="colorPrimary">#002b36</color>
+    <color name="colorPrimaryDark">#002b36</color>
+    <color name="colorAccent">#2aa198</color>
+</resources>
