@@ -49,13 +49,14 @@ let tightRadius: number = 10;
 let isRendering: boolean = true;
 let animFrameId: number | null = null;
 
-// Double Chest and Waterlogged Stairs Patching
+// Double Chest Half Models
 function createChestHalfModel(type: 'left' | 'right', textureName: string) {
   const tex = `#0`;
   const textures = { '0': `entity/chest/${textureName}` };
   if (type === 'left') {
+    // Left half: extends from x=1 to x=16 (touching right neighbor at x=16)
     return new BlockModel(undefined, textures, [
-      {
+      { // body
         from: [1, 0, 1],
         to: [16, 10, 15],
         faces: {
@@ -67,7 +68,7 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
         },
       },
-      {
+      { // lid
         from: [1, 10, 1],
         to: [16, 14, 15],
         faces: {
@@ -79,7 +80,7 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           down: { uv: [3.25, 0, 7, 3.5], texture: tex },
         },
       },
-      {
+      { // latch knob
         from: [15, 7, 0],
         to: [16, 11, 2],
         faces: {
@@ -93,8 +94,9 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
       },
     ]);
   } else {
+    // Right half: extends from x=0 to x=15 (touching left neighbor at x=0)
     return new BlockModel(undefined, textures, [
-      {
+      { // body
         from: [0, 0, 1],
         to: [15, 10, 15],
         faces: {
@@ -106,7 +108,7 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
         },
       },
-      {
+      { // lid
         from: [0, 10, 1],
         to: [15, 14, 15],
         faces: {
@@ -118,7 +120,7 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           down: { uv: [3.25, 0, 7, 3.5], texture: tex },
         },
       },
-      {
+      { // latch knob
         from: [0, 7, 0],
         to: [1, 11, 2],
         faces: {
@@ -440,6 +442,10 @@ async function buildRendererForRegion(regionName: string) {
 
   window.stopRenderLoop();
 
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_0%');
+  }
+
   container.innerHTML = '';
 
   canvasElement = document.createElement('canvas');
@@ -487,11 +493,29 @@ async function buildRendererForRegion(regionName: string) {
 
   const longs = blockStatesNbt ? blockStatesNbt.getItems() : [];
   const bigArray = new BigUint64Array(longs.length);
+
+  let lastYield = performance.now();
   for (let i = 0; i < longs.length; i++) {
     const pair = longs[i].getAsPair();
     const high = BigInt(pair[0] >>> 0);
     const low = BigInt(pair[1] >>> 0);
     bigArray[i] = (high << 32n) | low;
+
+    if ((i & 0x7fff) === 0) {
+      const now = performance.now();
+      if (now - lastYield >= 12) {
+        const pct = Math.floor((i / Math.max(1, longs.length)) * 100);
+        if (window.AndroidHost) {
+          window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
+        }
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        lastYield = performance.now();
+      }
+    }
+  }
+
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_100%');
   }
 
   const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
@@ -538,14 +562,31 @@ async function buildRendererForRegion(regionName: string) {
   orthographicCamera.far = 100000.0;
   orthographicCamera.updateProjectionMatrix();
 
+  // Position camera & target on region center BEFORE streaming chunk rendering starts
+  tightCenter = [width / 2, height / 2, depth / 2];
+  tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
+
   if (controls) {
     controls.dispose();
   }
   controls = new OrbitControls(activeCamera, canvasElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
+  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
+
+  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
+  activeCamera.position.set(
+    tightCenter[0] + fitDistance,
+    tightCenter[1] + fitDistance * 0.8,
+    tightCenter[2] + fitDistance
+  );
+  controls.update();
 
   window.startRenderLoop();
+
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('RENDERING_0%');
+  }
 
   // Streaming Chunk-by-Chunk Mesh Generation Pipeline ("按litemapy库解析逻辑，流式渲染")
   const numChunksX = Math.ceil(width / CSIZE);
@@ -561,7 +602,7 @@ async function buildRendererForRegion(regionName: string) {
   let maxX = 0, maxY = 0, maxZ = 0;
   let hasPlaced = false;
 
-  let lastYield = performance.now();
+  lastYield = performance.now();
 
   const storedBlocksForStructure: Array<{ pos: [number, number, number]; state: number }> = [];
 
@@ -650,7 +691,7 @@ async function buildRendererForRegion(regionName: string) {
           }
         }
 
-        // Add chunk meshes to scene immediately for progressive streaming display
+        // Add chunk meshes to scene immediately for progressive streaming display ("加载多少显示多少")
         if (!chunkMesh.isEmpty()) {
           const geometry = meshToBufferGeometry(chunkMesh);
           const threeMesh = new THREE.Mesh(geometry, (renderer as any).opaqueMaterial);
@@ -689,19 +730,16 @@ async function buildRendererForRegion(regionName: string) {
     const dy = maxY - minY + 1;
     const dz = maxZ - minZ + 1;
     tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-  } else {
-    tightCenter = [width / 2, height / 2, depth / 2];
-    tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
-  }
 
-  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
-  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
-  activeCamera.position.set(
-    tightCenter[0] + fitDistance,
-    tightCenter[1] + fitDistance * 0.8,
-    tightCenter[2] + fitDistance
-  );
-  controls.update();
+    controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
+    const fitDistance = Math.max(tightRadius * 2.2, 10.0);
+    activeCamera.position.set(
+      tightCenter[0] + fitDistance,
+      tightCenter[1] + fitDistance * 0.8,
+      tightCenter[2] + fitDistance
+    );
+    controls.update();
+  }
 
   if (storedBlocksForStructure.length > 0) {
     currentStructure = new Structure(size, palette, storedBlocksForStructure);
