@@ -49,12 +49,12 @@ let tightRadius: number = 10;
 let isRendering: boolean = true;
 let animFrameId: number | null = null;
 
-// Double Chest Half Models
+// Double Chest Half Models with all 6 faces specified on body and lid
 function createChestHalfModel(type: 'left' | 'right', textureName: string) {
   const tex = `#0`;
   const textures = { '0': `entity/chest/${textureName}` };
   if (type === 'left') {
-    // Left half: extends from x=1 to x=16 (touching right neighbor at x=16)
+    // Left half: extends from x=1 to x=16 (touches right half at x=16)
     return new BlockModel(undefined, textures, [
       { // body
         from: [1, 0, 1],
@@ -80,21 +80,21 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           down: { uv: [3.25, 0, 7, 3.5], texture: tex },
         },
       },
-      { // latch knob
+      { // latch knob (latch attached at connection edge x=15 to x=16)
         from: [15, 7, 0],
-        to: [16, 11, 2],
+        to: [16, 11, 1],
         faces: {
           north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
           east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
           south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
           west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
-          up: { uv: [0.25, 0, 0.5, 0.25], rotation: 180, texture: tex },
-          down: { uv: [0.5, 0, 0.75, 0.25], rotation: 180, texture: tex },
+          up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
+          down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
         },
       },
     ]);
   } else {
-    // Right half: extends from x=0 to x=15 (touching left neighbor at x=0)
+    // Right half: extends from x=0 to x=15 (touches left half at x=0)
     return new BlockModel(undefined, textures, [
       { // body
         from: [0, 0, 1],
@@ -120,16 +120,16 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           down: { uv: [3.25, 0, 7, 3.5], texture: tex },
         },
       },
-      { // latch knob
+      { // latch knob (latch attached at connection edge x=0 to x=1)
         from: [0, 7, 0],
-        to: [1, 11, 2],
+        to: [1, 11, 1],
         faces: {
           north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
           east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
           south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
           west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
-          up: { uv: [0.25, 0, 0.5, 0.25], rotation: 180, texture: tex },
-          down: { uv: [0.5, 0, 0.75, 0.25], rotation: 180, texture: tex },
+          up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
+          down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
         },
       },
     ]);
@@ -731,13 +731,13 @@ async function buildRendererForRegion(regionName: string) {
     const dz = maxZ - minZ + 1;
     tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
 
-    controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
-    const fitDistance = Math.max(tightRadius * 2.2, 10.0);
-    activeCamera.position.set(
-      tightCenter[0] + fitDistance,
-      tightCenter[1] + fitDistance * 0.8,
-      tightCenter[2] + fitDistance
-    );
+    // Shift camera target to tight center while maintaining current orientation and distance
+    const oldTarget = controls.target.clone();
+    const newTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
+    const targetOffset = new THREE.Vector3().subVectors(newTarget, oldTarget);
+
+    controls.target.copy(newTarget);
+    activeCamera.position.add(targetOffset);
     controls.update();
   }
 
@@ -809,13 +809,12 @@ window.toggleCameraView = function () {
 window.resetCamera = function () {
   if (!controls) return;
 
-  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
-  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
-  activeCamera.position.set(
-    tightCenter[0] + fitDistance,
-    tightCenter[1] + fitDistance * 0.8,
-    tightCenter[2] + fitDistance
-  );
+  const oldTarget = controls.target.clone();
+  const newTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
+  const offset = new THREE.Vector3().subVectors(newTarget, oldTarget);
+
+  controls.target.copy(newTarget);
+  activeCamera.position.add(offset);
   controls.update();
 };
 
