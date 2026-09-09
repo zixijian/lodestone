@@ -8,7 +8,10 @@ const {
   ThreeStructureRenderer,
   loadDefaultPackResources,
   BlockState,
-  NbtFile
+  SpecialRenderers,
+  Cull,
+  BlockModel,
+  Direction
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -23,6 +26,9 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    stopRenderLoop(): void;
+    startRenderLoop(): void;
+    destroyRenderer(): void;
   }
 }
 
@@ -40,19 +46,255 @@ let canvasElement: HTMLCanvasElement;
 let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
+let isRendering: boolean = true;
+let animFrameId: number | null = null;
 
-// High-performance block caching patch
-(Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksCache.length === this.blocks.length) return;
-  this.placedBlocksCache = this.blocks.map((block: any) => this.toPlacedBlock(block));
-  this.placedBlocksMapCache = [];
-  for (let i = 0; i < this.placedBlocksCache.length; i++) {
-    const placed = this.placedBlocksCache[i];
-    this.placedBlocksMapCache[this.getIndex(placed.pos)] = placed;
+// Double Chest and Waterlogged Stairs Patching
+function createChestHalfModel(type: 'left' | 'right', textureName: string) {
+  const tex = `#0`;
+  const textures = { '0': `entity/chest/${textureName}` };
+  if (type === 'left') {
+    return new BlockModel(undefined, textures, [
+      {
+        from: [1, 0, 1],
+        to: [16, 10, 15],
+        faces: {
+          north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
+          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: tex },
+          south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
+          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex },
+          up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
+          down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
+        },
+      },
+      {
+        from: [1, 10, 1],
+        to: [16, 14, 15],
+        faces: {
+          north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
+          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: tex },
+          south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
+          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex },
+          up: { uv: [7, 0, 10.75, 3.5], texture: tex },
+          down: { uv: [3.25, 0, 7, 3.5], texture: tex },
+        },
+      },
+      {
+        from: [15, 7, 0],
+        to: [16, 11, 2],
+        faces: {
+          north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
+          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
+          south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
+          west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
+          up: { uv: [0.25, 0, 0.5, 0.25], rotation: 180, texture: tex },
+          down: { uv: [0.5, 0, 0.75, 0.25], rotation: 180, texture: tex },
+        },
+      },
+    ]);
+  } else {
+    return new BlockModel(undefined, textures, [
+      {
+        from: [0, 0, 1],
+        to: [15, 10, 15],
+        faces: {
+          north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
+          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: tex },
+          south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
+          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex },
+          up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
+          down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
+        },
+      },
+      {
+        from: [0, 10, 1],
+        to: [15, 14, 15],
+        faces: {
+          north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
+          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: tex },
+          south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
+          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex },
+          up: { uv: [7, 0, 10.75, 3.5], texture: tex },
+          down: { uv: [3.25, 0, 7, 3.5], texture: tex },
+        },
+      },
+      {
+        from: [0, 7, 0],
+        to: [1, 11, 2],
+        faces: {
+          north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
+          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
+          south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
+          west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
+          up: { uv: [0.25, 0, 0.5, 0.25], rotation: 180, texture: tex },
+          down: { uv: [0.5, 0, 0.75, 0.25], rotation: 180, texture: tex },
+        },
+      },
+    ]);
   }
+}
+
+function liquidRendererWaterlogged(atlas: any) {
+  // Inset water box slightly (0.01) to prevent Z-fighting depth flickering with solid stair faces
+  return new BlockModel(undefined, {
+    still: 'block/water_still',
+    flow: 'block/water_flow',
+  }, [{
+    from: [0.01, 0.01, 0.01],
+    to: [15.99, 15.99, 15.99],
+    faces: {
+      up: { texture: '#still', cullface: Direction.UP },
+      down: { texture: '#still', cullface: Direction.DOWN },
+      north: { texture: '#flow', cullface: Direction.NORTH },
+      east: { texture: '#flow', cullface: Direction.EAST },
+      south: { texture: '#flow', cullface: Direction.SOUTH },
+      west: { texture: '#flow', cullface: Direction.WEST },
+    },
+  }]).getMesh(atlas, Cull.none());
+}
+
+// Override getBlockMesh to fix chest type (single/left/right) and waterlogged stairs Z-fighting
+const origGetBlockMesh = SpecialRenderers.getBlockMesh;
+SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+  const name = block.getName().toString();
+  if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+    const type = block.getProperty('type') ?? 'single';
+    const facing = block.getProperty('facing') ?? 'south';
+    const baseTex = name === 'minecraft:trapped_chest' ? 'trapped' : 'normal';
+
+    let model: any;
+    if (type === 'left') {
+      model = createChestHalfModel('left', `${baseTex}_left`).getMesh(atlas, Cull.none());
+    } else if (type === 'right') {
+      model = createChestHalfModel('right', `${baseTex}_right`).getMesh(atlas, Cull.none());
+    }
+
+    if (model) {
+      const mesh = new Lodestone.Mesh();
+      const t = mat4.create();
+      mat4.translate(t, t, [8, 8, 8]);
+      mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0);
+      mat4.translate(t, t, [-8, -8, -8]);
+      mesh.merge(model.transform(t));
+
+      const scaleMat = mat4.create();
+      mat4.scale(scaleMat, scaleMat, [0.0625, 0.0625, 0.0625]);
+      return mesh.transform(scaleMat);
+    }
+  }
+
+  const mesh = origGetBlockMesh.call(SpecialRenderers, block, nbt, atlas, cull);
+
+  if (!block.is('water') && !block.is('lava') && block.isWaterlogged()) {
+    const waterMesh = liquidRendererWaterlogged(atlas);
+    const scaleMat = mat4.create();
+    mat4.scale(scaleMat, scaleMat, [0.0625, 0.0625, 0.0625]);
+    mesh.merge(waterMesh.transform(scaleMat));
+  }
+
+  return mesh;
 };
 
-// Infinite View: override applyDrawDistance so chunks are never culled when zooming out
+// Fast zero-allocation Mesh to BufferGeometry converter
+function meshToBufferGeometry(mesh: any): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  if (!mesh || !mesh.quads || mesh.quads.length === 0) {
+    return geometry;
+  }
+  const quadCount = mesh.quads.length;
+  const vertCount = quadCount * 4;
+
+  const positions = new Float32Array(vertCount * 3);
+  const normals = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const texLimits = new Float32Array(vertCount * 4);
+  const colors = new Float32Array(vertCount * 3);
+  const blockPositions = new Float32Array(vertCount * 3);
+  const emissives = new Float32Array(vertCount);
+  const indices = vertCount > 65535 ? new Uint32Array(quadCount * 6) : new Uint16Array(quadCount * 6);
+
+  let vIndex = 0;
+  let iIndex = 0;
+  let offset = 0;
+
+  for (let q = 0; q < quadCount; q++) {
+    const quad = mesh.quads[q];
+    const verts = quad.vertices();
+    const quadNormal = quad.normal();
+
+    for (let i = 0; i < 4; i++) {
+      const v = verts[i];
+      const pos = v.pos;
+      const normal = v.normal || quadNormal;
+      const uv = v.texture;
+      const texLimit = v.textureLimit;
+      const color = v.color;
+      const bPos = v.blockPos || pos;
+
+      positions[vIndex * 3] = pos.x;
+      positions[vIndex * 3 + 1] = pos.y;
+      positions[vIndex * 3 + 2] = pos.z;
+
+      normals[vIndex * 3] = normal.x;
+      normals[vIndex * 3 + 1] = normal.y;
+      normals[vIndex * 3 + 2] = normal.z;
+
+      if (uv) {
+        uvs[vIndex * 2] = uv[0];
+        uvs[vIndex * 2 + 1] = uv[1];
+      }
+
+      if (texLimit) {
+        texLimits[vIndex * 4] = texLimit[0];
+        texLimits[vIndex * 4 + 1] = texLimit[1];
+        texLimits[vIndex * 4 + 2] = texLimit[2];
+        texLimits[vIndex * 4 + 3] = texLimit[3];
+      }
+
+      if (color) {
+        colors[vIndex * 3] = color[0];
+        colors[vIndex * 3 + 1] = color[1];
+        colors[vIndex * 3 + 2] = color[2];
+      } else {
+        colors[vIndex * 3] = 1;
+        colors[vIndex * 3 + 1] = 1;
+        colors[vIndex * 3 + 2] = 1;
+      }
+
+      blockPositions[vIndex * 3] = bPos.x;
+      blockPositions[vIndex * 3 + 1] = bPos.y;
+      blockPositions[vIndex * 3 + 2] = bPos.z;
+
+      emissives[vIndex] = v.emissive || 0;
+
+      vIndex++;
+    }
+
+    indices[iIndex] = offset;
+    indices[iIndex + 1] = offset + 1;
+    indices[iIndex + 2] = offset + 2;
+    indices[iIndex + 3] = offset;
+    indices[iIndex + 4] = offset + 2;
+    indices[iIndex + 5] = offset + 3;
+
+    iIndex += 6;
+    offset += 4;
+  }
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('texLimit', new THREE.BufferAttribute(texLimits, 4));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('blockPos', new THREE.BufferAttribute(blockPositions, 3));
+  geometry.setAttribute('emissive', new THREE.BufferAttribute(emissives, 1));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+// Infinite View: chunk visibility handling
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
@@ -61,45 +303,6 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
       mesh.frustumCulled = false;
     }
   }
-};
-
-// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
-ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
-  const token = ++(this as any).buildToken;
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('RENDERING_0%');
-  }
-
-  await (this as any).chunkBuilder.updateStructureBuffersAsync({
-    chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
-    onProgress: (done: number, total: number) => {
-      if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 50);
-        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-      }
-    }
-  });
-
-  if (token !== (this as any).buildToken) return;
-
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
-    if (window.AndroidHost && token === (this as any).buildToken) {
-      window.AndroidHost.onLoadingProgress('RENDERING_100%');
-    }
-  });
-
-  (this as any).buildPromise = buildPromise;
-  return buildPromise;
 };
 
 // Initialize Web application
@@ -130,7 +333,9 @@ async function init() {
 
 // Render loop to keep view and OrbitControls synchronized
 function tick() {
-  requestAnimationFrame(tick);
+  if (!isRendering) return;
+  animFrameId = requestAnimationFrame(tick);
+
   if (controls) {
     controls.update();
   }
@@ -149,139 +354,43 @@ function tick() {
   }
 }
 
-// Streaming Time-Sliced NBT Decoder
-async function loadRegionAsync(
-  regionCompound: any,
-  onProgress?: (pct: number) => void
-): Promise<Structure> {
-  const sizeNbt = regionCompound.getCompound('Size');
-  const rawSize = [
-    sizeNbt.getNumber('x') ?? 0,
-    sizeNbt.getNumber('y') ?? 0,
-    sizeNbt.getNumber('z') ?? 0,
-  ];
-  const size: [number, number, number] = [
-    Math.abs(rawSize[0]),
-    Math.abs(rawSize[1]),
-    Math.abs(rawSize[2]),
-  ];
+// Lifecycle methods for activity pause/destroy
+window.stopRenderLoop = function () {
+  isRendering = false;
+  if (animFrameId !== null) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+};
 
-  const paletteList = regionCompound.getList('BlockStatePalette');
-  const palette: BlockState[] = [];
-  paletteList.forEach((entry: any) => {
-    if (!entry.isCompound()) return;
-    const name = entry.getString('Name') ?? 'minecraft:air';
-    const properties: { [key: string]: string } = {};
-    if (entry.has('Properties')) {
-      const propsTag = entry.get('Properties');
-      if (propsTag && propsTag.isCompound()) {
-        propsTag.forEach((key: string, value: any) => {
-          properties[key] = value.getAsString?.() ?? '';
-        });
-      }
-    }
-    palette.push(new BlockState(name, properties));
-  });
+window.startRenderLoop = function () {
+  if (!isRendering) {
+    isRendering = true;
+    tick();
+  }
+};
 
-  const isAir = palette.map(state => state.is('minecraft:air'));
-
-  const blockStatesNbt = regionCompound.has('BlockStates')
-    ? regionCompound.getLongArray('BlockStates')
-    : null;
-  const blockStates = blockStatesNbt
-    ? blockStatesNbt.getItems().map((item: any) => item.getAsPair())
-    : [];
-
-  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
-  const mask = (1 << bitsPerBlock) - 1;
-
-  const width = size[0];
-  const height = size[1];
-  const depth = size[2];
-  const volume = width * height * depth;
-
-  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
-
-  let minX = width, minY = height, minZ = depth;
-  let maxX = 0, maxY = 0, maxZ = 0;
-  let hasPlaced = false;
-
-  let lastYield = performance.now();
-
-  for (let index = 0; index < volume; index++) {
-    let paletteIndex = 0;
-    if (blockStates.length > 0) {
-      const startOffset = index * bitsPerBlock;
-      const startArrIndex = startOffset >>> 5;
-      const endArrIndex = ((index + 1) * bitsPerBlock - 1) >>> 5;
-      const startBitOffset = startOffset & 0x1f;
-      const halfInd = startArrIndex >>> 1;
-
-      let blockStart: number;
-      let blockEnd: number;
-
-      if ((startArrIndex & 0x1) === 0) {
-        blockStart = blockStates[halfInd]?.[1] ?? 0;
-        blockEnd = blockStates[halfInd]?.[0] ?? 0;
-      } else {
-        blockStart = blockStates[halfInd]?.[0] ?? 0;
-        blockEnd = blockStates[halfInd + 1]?.[1] ?? 0;
-      }
-
-      if (startArrIndex === endArrIndex) {
-        paletteIndex = (blockStart >>> startBitOffset) & mask;
-      } else {
-        const endOffset = 32 - startBitOffset;
-        paletteIndex =
-          ((blockStart >>> startBitOffset) & mask) |
-          ((blockEnd << endOffset) & mask);
-      }
-    }
-
-    if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-      const x = index % width;
-      const y = Math.floor(index / (width * depth));
-      const z = Math.floor(index / width) % depth;
-      storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
-
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (z < minZ) minZ = z;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      if (z > maxZ) maxZ = z;
-      hasPlaced = true;
-    }
-
-    if ((index & 0x7fff) === 0) {
-      const now = performance.now();
-      if (now - lastYield >= 12) {
-        if (onProgress) {
-          onProgress(Math.floor((index / volume) * 100));
-        }
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        lastYield = performance.now();
-      }
+window.destroyRenderer = function () {
+  window.stopRenderLoop();
+  if (renderer) {
+    try {
+      renderer.dispose();
+    } catch (e) {
+      console.error(e);
     }
   }
-
-  if (hasPlaced) {
-    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
-    const dx = maxX - minX + 1;
-    const dy = maxY - minY + 1;
-    const dz = maxZ - minZ + 1;
-    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-  } else {
-    tightCenter = [width / 2, height / 2, depth / 2];
-    tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
+  if (controls) {
+    controls.dispose();
   }
-
-  if (onProgress) {
-    onProgress(100);
+  if (canvasElement) {
+    try {
+      const gl = canvasElement.getContext('webgl2') || canvasElement.getContext('webgl');
+      gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    } catch (e) {
+      console.error(e);
+    }
   }
-
-  return new Structure(size, palette, storedBlocks);
-}
+};
 
 // Main loader function called from Android native side
 window.loadLitematic = async function () {
@@ -329,6 +438,8 @@ window.loadLitematic = async function () {
 async function buildRendererForRegion(regionName: string) {
   if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) return;
 
+  window.stopRenderLoop();
+
   container.innerHTML = '';
 
   canvasElement = document.createElement('canvas');
@@ -339,28 +450,71 @@ async function buildRendererForRegion(regionName: string) {
   const regionsTag = parsedRootCompound.getCompound('Regions');
   const region = regionsTag.getCompound(regionName);
 
-  // Time-sliced streaming NBT parsing
-  currentStructure = await loadRegionAsync(region, (pct) => {
-    if (window.AndroidHost) {
-      window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
+  const sizeNbt = region.getCompound('Size');
+  const rawSize = [
+    sizeNbt.getNumber('x') ?? 0,
+    sizeNbt.getNumber('y') ?? 0,
+    sizeNbt.getNumber('z') ?? 0,
+  ];
+  const size: [number, number, number] = [
+    Math.abs(rawSize[0]),
+    Math.abs(rawSize[1]),
+    Math.abs(rawSize[2]),
+  ];
+
+  const paletteList = region.getList('BlockStatePalette');
+  const palette: BlockState[] = [];
+  paletteList.forEach((entry: any) => {
+    if (!entry.isCompound()) return;
+    const name = entry.getString('Name') ?? 'minecraft:air';
+    const properties: { [key: string]: string } = {};
+    if (entry.has('Properties')) {
+      const propsTag = entry.get('Properties');
+      if (propsTag && propsTag.isCompound()) {
+        propsTag.forEach((key: string, value: any) => {
+          properties[key] = value.getAsString?.() ?? '';
+        });
+      }
     }
+    palette.push(new BlockState(name, properties));
   });
 
-  const size = currentStructure.getSize();
-  const volume = size[0] * size[1] * size[2];
-  const maxDim = Math.max(size[0], size[1], size[2]);
+  const isAir = palette.map(state => state.is('minecraft:air') || state.is('minecraft:cave_air') || state.is('minecraft:void_air'));
 
-  const chunkSize = volume > 1000000 || maxDim > 128 ? 32 : 16;
+  const blockStatesNbt = region.has('BlockStates')
+    ? region.getLongArray('BlockStates')
+    : null;
+
+  const longs = blockStatesNbt ? blockStatesNbt.getItems() : [];
+  const bigArray = new BigUint64Array(longs.length);
+  for (let i = 0; i < longs.length; i++) {
+    const pair = longs[i].getAsPair();
+    const high = BigInt(pair[0] >>> 0);
+    const low = BigInt(pair[1] >>> 0);
+    bigArray[i] = (high << 32n) | low;
+  }
+
+  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
+  const mask = (1n << BigInt(bitsPerBlock)) - 1n;
+
+  const width = size[0];
+  const height = size[1];
+  const depth = size[2];
+  const volume = width * height * depth;
+
+  const maxDim = Math.max(width, height, depth);
+  const CSIZE = volume > 500000 || maxDim > 128 ? 32 : 16;
+
+  // Dummy empty Structure for ThreeStructureRenderer initialization
+  currentStructure = new Structure(size, palette, []);
 
   const rendererOptions: any = {
-    asyncBuild: true,
-    asyncChunkBuildTimeMs: 12,
-    chunkSize: [chunkSize, chunkSize, chunkSize]
+    asyncBuild: false,
+    chunkSize: [CSIZE, CSIZE, CSIZE]
   };
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
 
-  // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
     (renderer as any).sunlight.fog.density = 0.0;
     (renderer as any).sunlight.fog.heightFalloff = 0.0;
@@ -390,8 +544,157 @@ async function buildRendererForRegion(regionName: string) {
   controls = new OrbitControls(activeCamera, canvasElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
-  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
 
+  window.startRenderLoop();
+
+  // Streaming Chunk-by-Chunk Mesh Generation Pipeline ("按litemapy库解析逻辑，流式渲染")
+  const numChunksX = Math.ceil(width / CSIZE);
+  const numChunksY = Math.ceil(height / CSIZE);
+  const numChunksZ = Math.ceil(depth / CSIZE);
+  const totalChunks = numChunksX * numChunksY * numChunksZ;
+
+  let processedChunks = 0;
+  const paletteStats = new Uint32Array(palette.length);
+  let totalPlacedBlocks = 0;
+
+  let minX = width, minY = height, minZ = depth;
+  let maxX = 0, maxY = 0, maxZ = 0;
+  let hasPlaced = false;
+
+  let lastYield = performance.now();
+
+  const storedBlocksForStructure: Array<{ pos: [number, number, number]; state: number }> = [];
+
+  for (let cy = 0; cy < numChunksY; cy++) {
+    for (let cz = 0; cz < numChunksZ; cz++) {
+      for (let cx = 0; cx < numChunksX; cx++) {
+        processedChunks++;
+
+        const chunkMesh = new Lodestone.Mesh();
+        const chunkTransparentMesh = new Lodestone.Mesh();
+
+        const xStart = cx * CSIZE;
+        const xEnd = Math.min(width, (cx + 1) * CSIZE);
+        const yStart = cy * CSIZE;
+        const yEnd = Math.min(height, (cy + 1) * CSIZE);
+        const zStart = cz * CSIZE;
+        const zEnd = Math.min(depth, (cz + 1) * CSIZE);
+
+        for (let y = yStart; y < yEnd; y++) {
+          for (let z = zStart; z < zEnd; z++) {
+            for (let x = xStart; x < xEnd; x++) {
+              const index = (y * depth + z) * width + x;
+
+              let paletteIndex = 0;
+              if (bigArray.length > 0) {
+                const startBit = BigInt(index * bitsPerBlock);
+                const startWord = Number(startBit >> 6n);
+                const bitOffset = startBit & 63n;
+
+                if (startWord < bigArray.length) {
+                  let val = bigArray[startWord] >> bitOffset;
+                  if (bitOffset + BigInt(bitsPerBlock) > 64n && startWord + 1 < bigArray.length) {
+                    val |= bigArray[startWord + 1] << (64n - bitOffset);
+                  }
+                  paletteIndex = Number(val & mask);
+                }
+              }
+
+              if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
+                paletteStats[paletteIndex]++;
+                totalPlacedBlocks++;
+
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (z < minZ) minZ = z;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+                if (z > maxZ) maxZ = z;
+                hasPlaced = true;
+
+                if (volume <= 500000) {
+                  storedBlocksForStructure.push({ pos: [x, y, z], state: paletteIndex });
+                }
+
+                const state = palette[paletteIndex];
+                const blockName = state.getName();
+                const props = state.getProperties();
+
+                const blockDef = currentResources.getBlockDefinition(blockName);
+                const cull = Cull.none();
+
+                const mesh = new Lodestone.Mesh();
+                if (blockDef) {
+                  mesh.merge(blockDef.getMesh(blockName, props, currentResources, currentResources, cull));
+                }
+
+                const specialMesh = SpecialRenderers.getBlockMesh(state, undefined, currentResources, cull);
+                if (!specialMesh.isEmpty()) {
+                  mesh.merge(specialMesh);
+                }
+
+                if (!mesh.isEmpty()) {
+                  const t = mat4.create();
+                  mat4.translate(t, t, [x, y, z]);
+                  mesh.transform(t);
+
+                  const flags = currentResources.getBlockFlags(blockName);
+                  if (flags?.semi_transparent) {
+                    chunkTransparentMesh.merge(mesh);
+                  } else {
+                    chunkMesh.merge(mesh);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Add chunk meshes to scene immediately for progressive streaming display
+        if (!chunkMesh.isEmpty()) {
+          const geometry = meshToBufferGeometry(chunkMesh);
+          const threeMesh = new THREE.Mesh(geometry, (renderer as any).opaqueMaterial);
+          threeMesh.visible = true;
+          threeMesh.frustumCulled = false;
+          (renderer as any).structureScene.add(threeMesh);
+          (renderer as any).chunkMeshes.push(threeMesh);
+        }
+
+        if (!chunkTransparentMesh.isEmpty()) {
+          const geometry = meshToBufferGeometry(chunkTransparentMesh);
+          const threeMesh = new THREE.Mesh(geometry, (renderer as any).transparentMaterial);
+          threeMesh.renderOrder = 1;
+          threeMesh.visible = true;
+          threeMesh.frustumCulled = false;
+          (renderer as any).structureScene.add(threeMesh);
+          (renderer as any).chunkMeshes.push(threeMesh);
+        }
+
+        const now = performance.now();
+        if (now - lastYield >= 12) {
+          const pct = Math.floor((processedChunks / totalChunks) * 100);
+          if (window.AndroidHost) {
+            window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+          }
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          lastYield = performance.now();
+        }
+      }
+    }
+  }
+
+  if (hasPlaced) {
+    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
+    const dx = maxX - minX + 1;
+    const dy = maxY - minY + 1;
+    const dz = maxZ - minZ + 1;
+    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
+  } else {
+    tightCenter = [width / 2, height / 2, depth / 2];
+    tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
+  }
+
+  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
   const fitDistance = Math.max(tightRadius * 2.2, 10.0);
   activeCamera.position.set(
     tightCenter[0] + fitDistance,
@@ -400,76 +703,21 @@ async function buildRendererForRegion(regionName: string) {
   );
   controls.update();
 
-  window.addEventListener('resize', () => {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const newAspect = width / height;
+  if (storedBlocksForStructure.length > 0) {
+    currentStructure = new Structure(size, palette, storedBlocksForStructure);
+  }
 
-    renderer.setViewport(0, 0, width, height);
-
-    perspectiveCamera.aspect = newAspect;
-    perspectiveCamera.updateProjectionMatrix();
-
-    if (activeCamera === orthographicCamera) {
-      const distance = activeCamera.position.distanceTo(controls.target);
-      const frustumHeight = distance * Math.tan((perspectiveCamera.fov * Math.PI) / 360) * 2;
-      const frustumWidth = frustumHeight * newAspect;
-      orthographicCamera.left = -frustumWidth / 2;
-      orthographicCamera.right = frustumWidth / 2;
-      orthographicCamera.top = frustumHeight / 2;
-      orthographicCamera.bottom = -frustumHeight / 2;
-      orthographicCamera.far = 100000.0;
-      orthographicCamera.updateProjectionMatrix();
+  // Send block statistics
+  const blockStats: { [key: string]: number } = {};
+  for (let i = 0; i < palette.length; i++) {
+    if (paletteStats[i] > 0) {
+      blockStats[palette[i].getName().toString()] = paletteStats[i];
     }
-  });
+  }
 
-  tick();
-
-  // Wait for mesh building to be 100% complete before finishing progress
-  await renderer.whenReady();
-
-  calculateAndSendStatistics();
-}
-
-function calculateAndSendStatistics() {
-  if (!currentStructure) return;
-
-  try {
-    const rawStructure = currentStructure as any;
-    const blocks = rawStructure.blocks || [];
-    const palette = rawStructure.palette || [];
-
-    const blockStats: { [key: string]: number } = {};
-    let totalBlocks = 0;
-    const totalCount = blocks.length;
-    let index = 0;
-
-    const batchSize = 100000;
-    function processBatch() {
-      const end = Math.min(index + batchSize, totalCount);
-      for (; index < end; index++) {
-        const block = blocks[index];
-        if (block) {
-          const stateIdx = block.state;
-          const state = palette[stateIdx];
-          if (state) {
-            const blockName = state.getName().toString();
-            blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-            totalBlocks++;
-          }
-        }
-      }
-      if (index < totalCount) {
-        setTimeout(processBatch, 0);
-      } else {
-        if (window.AndroidHost) {
-          window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
-        }
-      }
-    }
-    processBatch();
-  } catch (err) {
-    console.error("Error collecting block statistics: ", err);
+  if (window.AndroidHost) {
+    window.AndroidHost.onStatisticsUpdated(totalPlacedBlocks, JSON.stringify(blockStats));
+    window.AndroidHost.onLoadingProgress('RENDERING_100%');
   }
 }
 
@@ -521,7 +769,7 @@ window.toggleCameraView = function () {
 };
 
 window.resetCamera = function () {
-  if (!currentStructure || !controls) return;
+  if (!controls) return;
 
   const fitDistance = Math.max(tightRadius * 2.2, 10.0);
   controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
