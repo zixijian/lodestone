@@ -52,53 +52,13 @@ let animFrameId: number | null = null;
 // Double Chest Half Models
 // Unrotated local block space: facing = north.
 // In Minecraft standard chest texture:
-// - Left half chest uses normal_left / trapped_left texture.
-// - Right half chest uses normal_right / trapped_right texture.
-// For type='left': chest body spans x=1..16, z=1..15, y=0..10. Seam is at x=16 (east face touching right half at x=0).
-// For type='right': chest body spans x=0..15, z=1..15, y=0..10. Seam is at x=0 (west face touching left half at x=16).
+// - Left half chest (type='left') is at +X (East). Seam is at WEST (x=0). Exterior side face is at EAST (x=15).
+// - Right half chest (type='right') is at -X (West). Seam is at EAST (x=16). Exterior side face is at WEST (x=1).
 function createChestHalfModel(type: 'left' | 'right', textureName: string) {
   const tex = `#0`;
   const textures = { '0': `entity/chest/${textureName}` };
 
   if (type === 'left') {
-    return new BlockModel(undefined, textures, [
-      { // body
-        from: [1, 0, 1],
-        to: [16, 10, 15],
-        faces: {
-          north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
-          south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex }, // exterior side face
-          up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
-          down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
-          // east face omitted (joining seam face at x=16)
-        },
-      },
-      { // lid
-        from: [1, 10, 1],
-        to: [16, 14, 15],
-        faces: {
-          north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
-          south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex }, // exterior side face
-          up: { uv: [7, 0, 10.75, 3.5], texture: tex },
-          down: { uv: [3.25, 0, 7, 3.5], texture: tex },
-          // east face omitted (joining seam face at x=16)
-        },
-      },
-      { // latch knob
-        from: [15, 7, 0],
-        to: [16, 11, 1],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
-          south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
-          west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
-          up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
-          down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
-        },
-      },
-    ]);
-  } else {
     return new BlockModel(undefined, textures, [
       { // body
         from: [0, 0, 1],
@@ -131,6 +91,44 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
           south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
           east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
+          up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
+          down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
+        },
+      },
+    ]);
+  } else {
+    return new BlockModel(undefined, textures, [
+      { // body
+        from: [1, 0, 1],
+        to: [16, 10, 15],
+        faces: {
+          north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
+          south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
+          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex }, // exterior side face
+          up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
+          down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
+          // east face omitted (joining seam face at x=16)
+        },
+      },
+      { // lid
+        from: [1, 10, 1],
+        to: [16, 14, 15],
+        faces: {
+          north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
+          south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
+          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex }, // exterior side face
+          up: { uv: [7, 0, 10.75, 3.5], texture: tex },
+          down: { uv: [3.25, 0, 7, 3.5], texture: tex },
+          // east face omitted (joining seam face at x=16)
+        },
+      },
+      { // latch knob
+        from: [15, 7, 0],
+        to: [16, 11, 1],
+        faces: {
+          north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
+          south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
+          west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
           up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
           down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
         },
@@ -504,10 +502,10 @@ async function buildRendererForRegion(regionName: string) {
     const low = BigInt(pair[1] >>> 0);
     bigArray[i] = (high << 32n) | low;
 
-    if ((i & 0x7fff) === 0) {
+    if ((i & 0x7ff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
-        const pct = Math.floor((i / Math.max(1, longs.length)) * 100);
+        const pct = Math.floor((i / Math.max(1, longs.length)) * 50); // First 50% for NBT long array conversion
         if (window.AndroidHost) {
           window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
         }
@@ -515,10 +513,6 @@ async function buildRendererForRegion(regionName: string) {
         lastYield = performance.now();
       }
     }
-  }
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('DECODING_100%');
   }
 
   const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
@@ -529,10 +523,11 @@ async function buildRendererForRegion(regionName: string) {
   const depth = size[2];
   const volume = width * height * depth;
 
-  // Immediately compute block statistics from decoded bit array
+  // Compute block statistics with time-sliced yields for large volumes
   const paletteStats = new Uint32Array(palette.length);
   let totalPlacedBlocks = 0;
 
+  lastYield = performance.now();
   for (let index = 0; index < volume; index++) {
     let paletteIndex = 0;
     if (bigArray.length > 0) {
@@ -553,9 +548,25 @@ async function buildRendererForRegion(regionName: string) {
       paletteStats[paletteIndex]++;
       totalPlacedBlocks++;
     }
+
+    if ((index & 0x7ff) === 0) {
+      const now = performance.now();
+      if (now - lastYield >= 12) {
+        const pct = 50 + Math.floor((index / Math.max(1, volume)) * 50); // Second 50% for block unpacking
+        if (window.AndroidHost) {
+          window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
+        }
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        lastYield = performance.now();
+      }
+    }
   }
 
-  // Send block statistics immediately right after NBT parsing completes (before WebGL mesh generation starts)
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_100%');
+  }
+
+  // Send block statistics immediately right after NBT parsing completes
   const blockStats: { [key: string]: number } = {};
   for (let i = 0; i < palette.length; i++) {
     if (paletteStats[i] > 0) {
@@ -760,6 +771,10 @@ async function buildRendererForRegion(regionName: string) {
     }
   }
 
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('RENDERING_100%');
+  }
+
   if (hasPlaced) {
     tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
     const dx = maxX - minX + 1;
@@ -832,13 +847,21 @@ window.toggleCameraView = function () {
 window.resetCamera = function () {
   if (!controls) return;
 
-  const oldTarget = controls.target.clone();
-  const newTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
-  const offset = new THREE.Vector3().subVectors(newTarget, oldTarget);
+  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
+  const defaultPos = new THREE.Vector3(
+    tightCenter[0] + fitDistance,
+    tightCenter[1] + fitDistance * 0.8,
+    tightCenter[2] + fitDistance
+  );
+  const defaultTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
 
-  controls.target.copy(newTarget);
-  perspectiveCamera.position.add(offset);
-  orthographicCamera.position.add(offset);
+  controls.target.copy(defaultTarget);
+  perspectiveCamera.position.copy(defaultPos);
+  perspectiveCamera.lookAt(defaultTarget);
+
+  orthographicCamera.position.copy(defaultPos);
+  orthographicCamera.lookAt(defaultTarget);
+
   controls.update();
 };
 
