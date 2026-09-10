@@ -66,7 +66,104 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   }
 };
 
-// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
+// Convert Lodestone Mesh to Three.js BufferGeometry with pre-allocated typed arrays
+function meshToBufferGeometry(mesh: any): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  if (!mesh || !mesh.quads || mesh.quads.length === 0) {
+    return geometry;
+  }
+  const quadCount = mesh.quads.length;
+  const vertCount = quadCount * 4;
+
+  const positions = new Float32Array(vertCount * 3);
+  const normals = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const texLimits = new Float32Array(vertCount * 4);
+  const colors = new Float32Array(vertCount * 3);
+  const blockPositions = new Float32Array(vertCount * 3);
+  const emissives = new Float32Array(vertCount);
+
+  const indexCount = quadCount * 6;
+  const indices = vertCount > 65536 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
+
+  let vIdx = 0;
+  let iIdx = 0;
+  let offset = 0;
+
+  for (let q = 0; q < quadCount; q++) {
+    const quad = mesh.quads[q];
+    const verts = quad.vertices();
+    const defaultNormal = quad.normal ? quad.normal() : { x: 0, y: 1, z: 0 };
+
+    for (let i = 0; i < 4; i++) {
+      const v = verts[i];
+      const pIdx = vIdx * 3;
+      positions[pIdx] = v.pos.x;
+      positions[pIdx + 1] = v.pos.y;
+      positions[pIdx + 2] = v.pos.z;
+
+      const norm = v.normal ?? defaultNormal;
+      normals[pIdx] = norm.x;
+      normals[pIdx + 1] = norm.y;
+      normals[pIdx + 2] = norm.z;
+
+      const uvIdx = vIdx * 2;
+      uvs[uvIdx] = v.texture?.[0] ?? 0;
+      uvs[uvIdx + 1] = v.texture?.[1] ?? 0;
+
+      const tlIdx = vIdx * 4;
+      if (v.textureLimit) {
+        texLimits[tlIdx] = v.textureLimit[0];
+        texLimits[tlIdx + 1] = v.textureLimit[1];
+        texLimits[tlIdx + 2] = v.textureLimit[2];
+        texLimits[tlIdx + 3] = v.textureLimit[3];
+      } else {
+        texLimits[tlIdx] = 0;
+        texLimits[tlIdx + 1] = 0;
+        texLimits[tlIdx + 2] = 0;
+        texLimits[tlIdx + 3] = 0;
+      }
+
+      const col = v.color ?? [1, 1, 1];
+      colors[pIdx] = col[0];
+      colors[pIdx + 1] = col[1];
+      colors[pIdx + 2] = col[2];
+
+      const bPos = v.blockPos ?? v.pos;
+      blockPositions[pIdx] = bPos.x;
+      blockPositions[pIdx + 1] = bPos.y;
+      blockPositions[pIdx + 2] = bPos.z;
+
+      emissives[vIdx] = v.emissive ?? 0;
+
+      vIdx++;
+    }
+
+    indices[iIdx] = offset;
+    indices[iIdx + 1] = offset + 1;
+    indices[iIdx + 2] = offset + 2;
+    indices[iIdx + 3] = offset;
+    indices[iIdx + 4] = offset + 2;
+    indices[iIdx + 5] = offset + 3;
+
+    iIdx += 6;
+    offset += 4;
+  }
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('texLimit', new THREE.BufferAttribute(texLimits, 4));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('blockPos', new THREE.BufferAttribute(blockPositions, 3));
+  geometry.setAttribute('emissive', new THREE.BufferAttribute(emissives, 1));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+// Fast Streaming Chunk Builder & Incremental Real-Time Scene Progressive Chunk Rendering
 ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
 
@@ -74,35 +171,111 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
-  await (this as any).chunkBuilder.updateStructureBuffersAsync({
-    chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
-    onProgress: (done: number, total: number) => {
-      if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 50);
-        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+  // Clear existing chunk meshes from scene
+  if ((this as any).chunkMeshes) {
+    for (const mesh of (this as any).chunkMeshes) {
+      (this as any).structureScene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+    }
+  }
+  (this as any).chunkMeshes = [];
+
+  const cb = (this as any).chunkBuilder;
+  const origProcessBlock = cb.processBlock.bind(cb);
+
+  // Buffer to batch chunk meshes during processBlock so they show up on screen in real-time
+  const pendingChunkMeshes = new Set<any>();
+  const chunkMeshMap = new Map<any, { opaque?: THREE.Mesh; transparent?: THREE.Mesh }>();
+
+  cb.processBlock = function (block: any, chunkFilter: any) {
+    const chunkPos = [
+      Math.floor(block.pos[0] / this.chunkSize[0]),
+      Math.floor(block.pos[1] / this.chunkSize[1]),
+      Math.floor(block.pos[2] / this.chunkSize[2]),
+    ];
+    const chunk = this.getChunk(chunkPos);
+    const result = origProcessBlock(block, chunkFilter);
+    pendingChunkMeshes.add(chunk);
+    return result;
+  };
+
+  const self = this;
+  let lastSceneUpdate = performance.now();
+
+  const flushNewChunkMeshes = () => {
+    if (token !== (self as any).buildToken || pendingChunkMeshes.size === 0) return;
+
+    for (const chunk of pendingChunkMeshes) {
+      let existing = chunkMeshMap.get(chunk);
+      if (!existing) {
+        existing = {};
+        chunkMeshMap.set(chunk, existing);
+      }
+
+      if (!chunk.mesh.isEmpty()) {
+        if (existing.opaque) {
+          (self as any).structureScene.remove(existing.opaque);
+          existing.opaque.geometry.dispose();
+        }
+        const geometry = meshToBufferGeometry(chunk.mesh);
+        const mesh = new THREE.Mesh(geometry, (self as any).opaqueMaterial);
+        mesh.renderOrder = 0;
+        mesh.visible = true;
+        mesh.frustumCulled = false;
+        mesh.userData.origin = chunk.origin;
+        (self as any).structureScene.add(mesh);
+        (self as any).chunkMeshes.push(mesh);
+        existing.opaque = mesh;
+      }
+
+      if (!chunk.transparentMesh.isEmpty()) {
+        if (existing.transparent) {
+          (self as any).structureScene.remove(existing.transparent);
+          existing.transparent.geometry.dispose();
+        }
+        const transparentGeometry = meshToBufferGeometry(chunk.transparentMesh);
+        const transMesh = new THREE.Mesh(transparentGeometry, (self as any).transparentMaterial);
+        transMesh.renderOrder = 1;
+        transMesh.visible = true;
+        transMesh.frustumCulled = false;
+        transMesh.userData.origin = chunk.origin;
+        (self as any).structureScene.add(transMesh);
+        (self as any).chunkMeshes.push(transMesh);
+        existing.transparent = transMesh;
       }
     }
-  });
+    pendingChunkMeshes.clear();
+  };
+
+  try {
+    await cb.updateStructureBuffersAsync({
+      chunkPositions,
+      timeSliceMs: 16,
+      onProgress: (done: number, total: number) => {
+        const now = performance.now();
+        if (now - lastSceneUpdate >= 60) {
+          flushNewChunkMeshes();
+          lastSceneUpdate = now;
+        }
+
+        if (window.AndroidHost) {
+          const pct = Math.floor((done / Math.max(1, total)) * 100);
+          window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+        }
+      }
+    });
+  } finally {
+    cb.processBlock = origProcessBlock;
+  }
 
   if (token !== (this as any).buildToken) return;
 
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
-    if (window.AndroidHost && token === (this as any).buildToken) {
-      window.AndroidHost.onLoadingProgress('RENDERING_100%');
-    }
-  });
+  // Final flush of remaining chunk meshes
+  flushNewChunkMeshes();
 
-  (this as any).buildPromise = buildPromise;
-  return buildPromise;
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('RENDERING_100%');
+  }
 };
 
 // Clean exit resource disposal handler
@@ -181,7 +354,7 @@ function tick() {
   }
 }
 
-// Streaming Time-Sliced NBT Decoder
+// Fast Streaming NBT Decoder using BigUint64Array bit-unpacking and pre-allocated arrays
 async function loadRegionAsync(
   regionCompound: any,
   onProgress?: (pct: number) => void
@@ -215,22 +388,30 @@ async function loadRegionAsync(
     palette.push(new BlockState(name, properties));
   });
 
-  const isAir = palette.map(state => state.is('minecraft:air'));
+  const isAir = new Uint8Array(palette.map(state => state.is('minecraft:air') ? 1 : 0));
 
-  const blockStatesNbt = regionCompound.has('BlockStates')
-    ? regionCompound.getLongArray('BlockStates')
-    : null;
-  const blockStates = blockStatesNbt
-    ? blockStatesNbt.getItems().map((item: any) => item.getAsPair())
-    : [];
+  let longArray64: BigUint64Array | null = null;
+  if (regionCompound.has('BlockStates')) {
+    const blockStatesNbt = regionCompound.getLongArray('BlockStates');
+    const items = blockStatesNbt.getItems();
+    longArray64 = new BigUint64Array(items.length);
+    for (let i = 0; i < items.length; i++) {
+      const pair = items[i].getAsPair();
+      const high = BigInt(pair[0] >>> 0);
+      const low = BigInt(pair[1] >>> 0);
+      longArray64[i] = (high << 32n) | low;
+    }
+  }
 
   const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
-  const mask = (1 << bitsPerBlock) - 1;
+  const maskBig = (1n << BigInt(bitsPerBlock)) - 1n;
+  const bitsPerBlockBig = BigInt(bitsPerBlock);
 
   const width = size[0];
   const height = size[1];
   const depth = size[2];
   const volume = width * height * depth;
+  const area = width * depth;
 
   const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
 
@@ -242,38 +423,24 @@ async function loadRegionAsync(
 
   for (let index = 0; index < volume; index++) {
     let paletteIndex = 0;
-    if (blockStates.length > 0) {
-      const startOffset = index * bitsPerBlock;
-      const startArrIndex = startOffset >>> 5;
-      const endArrIndex = ((index + 1) * bitsPerBlock - 1) >>> 5;
-      const startBitOffset = startOffset & 0x1f;
-      const halfInd = startArrIndex >>> 1;
+    if (longArray64 && longArray64.length > 0) {
+      const bitIndex = BigInt(index) * bitsPerBlockBig;
+      const startWord = Number(bitIndex >> 6n);
+      const startBit = Number(bitIndex & 63n);
 
-      let blockStart: number;
-      let blockEnd: number;
-
-      if ((startArrIndex & 0x1) === 0) {
-        blockStart = blockStates[halfInd]?.[1] ?? 0;
-        blockEnd = blockStates[halfInd]?.[0] ?? 0;
-      } else {
-        blockStart = blockStates[halfInd]?.[0] ?? 0;
-        blockEnd = blockStates[halfInd + 1]?.[1] ?? 0;
-      }
-
-      if (startArrIndex === endArrIndex) {
-        paletteIndex = (blockStart >>> startBitOffset) & mask;
-      } else {
-        const endOffset = 32 - startBitOffset;
-        paletteIndex =
-          ((blockStart >>> startBitOffset) & mask) |
-          ((blockEnd << endOffset) & mask);
+      if (startWord < longArray64.length) {
+        let val = longArray64[startWord] >> BigInt(startBit);
+        if (startBit + bitsPerBlock > 64 && startWord + 1 < longArray64.length) {
+          val |= longArray64[startWord + 1] << BigInt(64 - startBit);
+        }
+        paletteIndex = Number(val & maskBig);
       }
     }
 
-    if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
+    if (paletteIndex >= 0 && paletteIndex < palette.length && isAir[paletteIndex] === 0) {
       const x = index % width;
-      const y = Math.floor(index / (width * depth));
-      const z = Math.floor(index / width) % depth;
+      const y = (index / area) | 0;
+      const z = ((index / width) | 0) % depth;
       storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
 
       if (x < minX) minX = x;
@@ -285,11 +452,11 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0x7ff) === 0) {
+    if ((index & 0x1fff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
         if (onProgress) {
-          onProgress(Math.floor((index / volume) * 100));
+          onProgress((index / volume * 100) | 0);
         }
         await new Promise(resolve => requestAnimationFrame(resolve));
         lastYield = performance.now();
