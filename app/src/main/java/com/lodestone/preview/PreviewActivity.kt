@@ -210,8 +210,9 @@ class PreviewActivity : AppCompatActivity() {
                     binding.llLoadingOverlay.visibility = View.VISIBLE
                     binding.tvLoadingStatus.text = "解析数据 $pct%"
                 } else if (state.startsWith("RENDERING_")) {
-                    // Remove "构建网格" prompt overlay during chunk rendering so 3D model is 100% visible
-                    binding.llLoadingOverlay.visibility = View.GONE
+                    val pct = state.removePrefix("RENDERING_").removeSuffix("%")
+                    binding.llLoadingOverlay.visibility = View.VISIBLE
+                    binding.tvLoadingStatus.text = "构建网格 $pct%"
                 } else if (state.startsWith("ERROR:")) {
                     binding.llLoadingOverlay.visibility = View.GONE
                     Toast.makeText(this@PreviewActivity, state, Toast.LENGTH_LONG).show()

@@ -49,23 +49,29 @@ let tightRadius: number = 10;
 let isRendering: boolean = true;
 let animFrameId: number | null = null;
 
-// Double Chest Half Models with all 6 faces specified on body and lid
+// Double Chest Half Models
+// Unrotated local block space: facing = north.
+// In Minecraft standard chest texture:
+// - Left half chest uses normal_left / trapped_left texture.
+// - Right half chest uses normal_right / trapped_right texture.
+// For type='left': chest body spans x=1..16, z=1..15, y=0..10. Seam is at x=16 (east face touching right half at x=0).
+// For type='right': chest body spans x=0..15, z=1..15, y=0..10. Seam is at x=0 (west face touching left half at x=16).
 function createChestHalfModel(type: 'left' | 'right', textureName: string) {
   const tex = `#0`;
   const textures = { '0': `entity/chest/${textureName}` };
+
   if (type === 'left') {
-    // Left half: extends from x=1 to x=16 (touches right half at x=16)
     return new BlockModel(undefined, textures, [
       { // body
         from: [1, 0, 1],
         to: [16, 10, 15],
         faces: {
           north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
-          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: tex },
           south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
           west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex },
           up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
           down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
+          // east face omitted (seam at x=16)
         },
       },
       { // lid
@@ -73,19 +79,18 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
         to: [16, 14, 15],
         faces: {
           north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
-          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: tex },
           south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
           west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex },
           up: { uv: [7, 0, 10.75, 3.5], texture: tex },
           down: { uv: [3.25, 0, 7, 3.5], texture: tex },
+          // east face omitted (seam at x=16)
         },
       },
-      { // latch knob (latch attached at connection edge x=15 to x=16)
+      { // latch knob
         from: [15, 7, 0],
         to: [16, 11, 1],
         faces: {
           north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
-          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
           south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
           west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
           up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
@@ -94,7 +99,6 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
       },
     ]);
   } else {
-    // Right half: extends from x=0 to x=15 (touches left half at x=0)
     return new BlockModel(undefined, textures, [
       { // body
         from: [0, 0, 1],
@@ -103,9 +107,9 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
           east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: tex },
           south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex },
           up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
           down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
+          // west face omitted (seam at x=0)
         },
       },
       { // lid
@@ -115,19 +119,18 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
           north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
           east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: tex },
           south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex },
           up: { uv: [7, 0, 10.75, 3.5], texture: tex },
           down: { uv: [3.25, 0, 7, 3.5], texture: tex },
+          // west face omitted (seam at x=0)
         },
       },
-      { // latch knob (latch attached at connection edge x=0 to x=1)
+      { // latch knob
         from: [0, 7, 0],
         to: [1, 11, 1],
         faces: {
           north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
           east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
           south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
-          west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
           up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
           down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
         },
