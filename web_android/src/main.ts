@@ -148,9 +148,27 @@ function liquidRendererWaterlogged(atlas: any) {
   }]).getMesh(atlas, Cull.none());
 }
 
-// Override getBlockMesh only for waterlogged stairs Z-fighting (chests render as default single chest blocks)
+// Override SpecialRenderers.getBlockMesh
+// Force all chests (type='left'/'right') to render as standard SINGLE chests to eliminate double chest missing faces / misalignment
 const origGetBlockMesh = SpecialRenderers.getBlockMesh;
 SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+  const name = block.getName().toString();
+
+  if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+    const type = block.getProperty('type');
+    if (type === 'left' || type === 'right') {
+      const singleBlock = new BlockState(name, { ...block.getProperties(), type: 'single' });
+      const mesh = origGetBlockMesh.call(SpecialRenderers, singleBlock, nbt, atlas, cull);
+      if (block.isWaterlogged()) {
+        const waterMesh = liquidRendererWaterlogged(atlas);
+        const scaleMat = mat4.create();
+        mat4.scale(scaleMat, scaleMat, [0.0625, 0.0625, 0.0625]);
+        mesh.merge(waterMesh.transform(scaleMat));
+      }
+      return mesh;
+    }
+  }
+
   const mesh = origGetBlockMesh.call(SpecialRenderers, block, nbt, atlas, cull);
 
   if (!block.is('water') && !block.is('lava') && block.isWaterlogged()) {
@@ -426,9 +444,9 @@ async function buildRendererForRegion(regionName: string) {
     const low = BigInt(pair[1] >>> 0);
     bigArray[i] = (high << 32n) | low;
 
-    if ((i & 0x7ff) === 0) {
+    if ((i & 0x3ff) === 0) {
       const now = performance.now();
-      if (now - lastYield >= 12) {
+      if (now - lastYield >= 16) {
         const pct = Math.floor((i / Math.max(1, longs.length)) * 30); // First 30% for NBT long array conversion
         if (window.AndroidHost) {
           window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
@@ -447,7 +465,7 @@ async function buildRendererForRegion(regionName: string) {
   const depth = size[2];
   const volume = width * height * depth;
 
-  // Unpack bit stream directly into flat grid Array (~7 MB for 3.5M blocks)
+  // Unpack bit stream directly into flat grid Uint16Array (~7 MB for 3.5M blocks)
   const grid = new Uint16Array(volume);
   const paletteStats = new Uint32Array(palette.length);
   let totalPlacedBlocks = 0;
@@ -478,7 +496,7 @@ async function buildRendererForRegion(regionName: string) {
 
     if ((index & 0x7ff) === 0) {
       const now = performance.now();
-      if (now - lastYield >= 12) {
+      if (now - lastYield >= 16) {
         const pct = 30 + Math.floor((index / Math.max(1, volume)) * 70); // Remaining 70% for grid unpacking
         if (window.AndroidHost) {
           window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
@@ -504,6 +522,9 @@ async function buildRendererForRegion(regionName: string) {
   if (window.AndroidHost) {
     window.AndroidHost.onStatisticsUpdated(totalPlacedBlocks, JSON.stringify(blockStats));
   }
+
+  // Brief yield so native Android UI updates block statistics bottom sheet before starting WebGL rendering
+  await new Promise(resolve => setTimeout(resolve, 80));
 
   const maxDim = Math.max(width, height, depth);
   const CSIZE = volume > 2000000 ? 64 : volume > 500000 || maxDim > 128 ? 32 : 16;
@@ -577,13 +598,15 @@ async function buildRendererForRegion(regionName: string) {
   );
   controls.update();
 
+  // Start tick render loop before chunk building so WebGL canvas is live (no black screen)
   window.startRenderLoop();
 
+  // Send RENDERING_0% to dismiss native loading overlay
   if (window.AndroidHost) {
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
-  // Streaming Chunk-by-Chunk Mesh Generation Pipeline ("按litemapy库解析逻辑，流式渲染")
+  // Streaming Chunk-by-Chunk Mesh Generation Pipeline ("按litemapy库解析逻辑，分区分时间切片进行渲染")
   const numChunksX = Math.ceil(width / CSIZE);
   const numChunksY = Math.ceil(height / CSIZE);
   const numChunksZ = Math.ceil(depth / CSIZE);
@@ -594,8 +617,6 @@ async function buildRendererForRegion(regionName: string) {
   let minX = width, minY = height, minZ = depth;
   let maxX = 0, maxY = 0, maxZ = 0;
   let hasPlaced = false;
-
-  lastYield = performance.now();
 
   for (let cy = 0; cy < numChunksY; cy++) {
     for (let cz = 0; cz < numChunksZ; cz++) {
@@ -818,15 +839,8 @@ async function buildRendererForRegion(regionName: string) {
           (renderer as any).chunkMeshes.push(threeMesh);
         }
 
-        const now = performance.now();
-        if (now - lastYield >= 12) {
-          const pct = Math.floor((processedChunks / totalChunks) * 100);
-          if (window.AndroidHost) {
-            window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-          }
-          await new Promise(resolve => requestAnimationFrame(resolve));
-          lastYield = performance.now();
-        }
+        // True time-sliced streaming rendering: Yield frame after each chunk so newly added chunk meshes draw incrementally
+        await new Promise(resolve => requestAnimationFrame(resolve));
       }
     }
   }
@@ -904,15 +918,16 @@ window.resetCamera = function () {
   if (!controls) return;
 
   const currentTarget = controls.target.clone();
-  const newTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
-  const offset = new THREE.Vector3().subVectors(newTarget, currentTarget);
+  const targetCenter = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
+  const offset = new THREE.Vector3().subVectors(targetCenter, currentTarget);
 
   // Shift focus target to structure tightCenter while preserving current camera distance, zoom and rotation angles!
-  controls.target.copy(newTarget);
-  perspectiveCamera.position.add(offset);
-  orthographicCamera.position.add(offset);
-
-  controls.update();
+  if (offset.lengthSq() > 0.0001) {
+    controls.target.copy(targetCenter);
+    perspectiveCamera.position.add(offset);
+    orthographicCamera.position.add(offset);
+    controls.update();
+  }
 };
 
 window.switchRegion = async function (regionName: string) {
