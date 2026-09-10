@@ -49,94 +49,6 @@ let tightRadius: number = 10;
 let isRendering: boolean = true;
 let animFrameId: number | null = null;
 
-// Double Chest Half Models
-// Unrotated local block space: facing = north.
-// In Minecraft standard chest texture:
-// - Left half chest (type='left') is at +X (East). Seam is at WEST (x=0). Exterior side face is at EAST (x=15).
-// - Right half chest (type='right') is at -X (West). Seam is at EAST (x=16). Exterior side face is at WEST (x=1).
-function createChestHalfModel(type: 'left' | 'right', textureName: string) {
-  const tex = `#0`;
-  const textures = { '0': `entity/chest/${textureName}` };
-
-  if (type === 'left') {
-    return new BlockModel(undefined, textures, [
-      { // body
-        from: [0, 0, 1],
-        to: [15, 10, 15],
-        faces: {
-          north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
-          south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
-          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: tex }, // exterior side face
-          up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
-          down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
-          // west face omitted (joining seam face at x=0)
-        },
-      },
-      { // lid
-        from: [0, 10, 1],
-        to: [15, 14, 15],
-        faces: {
-          north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
-          south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
-          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: tex }, // exterior side face
-          up: { uv: [7, 0, 10.75, 3.5], texture: tex },
-          down: { uv: [3.25, 0, 7, 3.5], texture: tex },
-          // west face omitted (joining seam face at x=0)
-        },
-      },
-      { // latch knob
-        from: [0, 7, 0],
-        to: [1, 11, 1],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
-          south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
-          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
-          up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
-          down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
-        },
-      },
-    ]);
-  } else {
-    return new BlockModel(undefined, textures, [
-      { // body
-        from: [1, 0, 1],
-        to: [16, 10, 15],
-        faces: {
-          north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
-          south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex }, // exterior side face
-          up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
-          down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
-          // east face omitted (joining seam face at x=16)
-        },
-      },
-      { // lid
-        from: [1, 10, 1],
-        to: [16, 14, 15],
-        faces: {
-          north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
-          south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex }, // exterior side face
-          up: { uv: [7, 0, 10.75, 3.5], texture: tex },
-          down: { uv: [3.25, 0, 7, 3.5], texture: tex },
-          // east face omitted (joining seam face at x=16)
-        },
-      },
-      { // latch knob
-        from: [15, 7, 0],
-        to: [16, 11, 1],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
-          south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
-          west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: tex },
-          up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
-          down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
-        },
-      },
-    ]);
-  }
-}
-
 function liquidRendererWaterlogged(atlas: any) {
   // Inset water box slightly (0.01) to prevent Z-fighting depth flickering with solid stair faces
   return new BlockModel(undefined, {
@@ -156,36 +68,9 @@ function liquidRendererWaterlogged(atlas: any) {
   }]).getMesh(atlas, Cull.none());
 }
 
-// Override getBlockMesh to fix chest type (single/left/right) and waterlogged stairs Z-fighting
+// Override getBlockMesh only for waterlogged stairs Z-fighting (chests render as default single chest blocks)
 const origGetBlockMesh = SpecialRenderers.getBlockMesh;
 SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
-  const name = block.getName().toString();
-  if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-    const type = block.getProperty('type') ?? 'single';
-    const facing = block.getProperty('facing') ?? 'south';
-    const baseTex = name === 'minecraft:trapped_chest' ? 'trapped' : 'normal';
-
-    let model: any;
-    if (type === 'left') {
-      model = createChestHalfModel('left', `${baseTex}_left`).getMesh(atlas, Cull.none());
-    } else if (type === 'right') {
-      model = createChestHalfModel('right', `${baseTex}_right`).getMesh(atlas, Cull.none());
-    }
-
-    if (model) {
-      const mesh = new Lodestone.Mesh();
-      const t = mat4.create();
-      mat4.translate(t, t, [8, 8, 8]);
-      mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0);
-      mat4.translate(t, t, [-8, -8, -8]);
-      mesh.merge(model.transform(t));
-
-      const scaleMat = mat4.create();
-      mat4.scale(scaleMat, scaleMat, [0.0625, 0.0625, 0.0625]);
-      return mesh.transform(scaleMat);
-    }
-  }
-
   const mesh = origGetBlockMesh.call(SpecialRenderers, block, nbt, atlas, cull);
 
   if (!block.is('water') && !block.is('lava') && block.isWaterlogged()) {
