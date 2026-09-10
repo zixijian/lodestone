@@ -181,8 +181,9 @@ ThreeStructureRenderer.prototype.rebuildChunkObjectsAsync = async function (toke
     (this as any).structureScene.add(mesh);
     (this as any).chunkMeshes.push(mesh);
 
+    // Yield to main thread every 4 chunk meshes or after 8ms to force immediate streaming 3D frame updates
     const now = performance.now();
-    if ((i & 0x7) === 0 && now - lastYield >= ((this as any).asyncChunkBuildTimeMs || 12)) {
+    if ((i % 4 === 0) || (now - lastYield >= 8)) {
       if (window.AndroidHost) {
         const pct = 50 + Math.floor((i / Math.max(1, meshes.length)) * 50);
         window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
