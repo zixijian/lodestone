@@ -7,8 +7,7 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  BlockState,
-  NbtFile
+  BlockState
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -23,6 +22,8 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    destroyRenderer(): void;
+    stopRenderLoop(): void;
   }
 }
 
@@ -40,6 +41,8 @@ let canvasElement: HTMLCanvasElement;
 let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
+let animationFrameId: number | null = null;
+let isDestroyed = false;
 
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
@@ -102,6 +105,41 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   return buildPromise;
 };
 
+// Clean exit resource disposal handler
+window.destroyRenderer = window.stopRenderLoop = function () {
+  isDestroyed = true;
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+  if (controls) {
+    try {
+      controls.dispose();
+    } catch (e) {
+      // ignore
+    }
+  }
+  if (renderer) {
+    try {
+      if ((renderer as any).chunkMeshes) {
+        for (const mesh of (renderer as any).chunkMeshes) {
+          if (mesh.geometry) mesh.geometry.dispose();
+        }
+        (renderer as any).chunkMeshes = [];
+      }
+      if (renderer.renderer) {
+        renderer.renderer.dispose();
+        renderer.renderer.forceContextLoss();
+      }
+    } catch (e) {
+      console.error("Error disposing renderer: ", e);
+    }
+  }
+  if (container) {
+    container.innerHTML = '';
+  }
+};
+
 // Initialize Web application
 async function init() {
   container = document.getElementById('renderer-container')!;
@@ -130,18 +168,12 @@ async function init() {
 
 // Render loop to keep view and OrbitControls synchronized
 function tick() {
-  requestAnimationFrame(tick);
+  if (isDestroyed) return;
+  animationFrameId = requestAnimationFrame(tick);
   if (controls) {
     controls.update();
   }
   if (renderer && activeCamera) {
-    if ((renderer as any).chunkMeshes) {
-      for (let i = 0; i < (renderer as any).chunkMeshes.length; i++) {
-        const mesh = (renderer as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
     activeCamera.updateMatrixWorld(true);
     const viewMatrix = mat4.create();
     mat4.copy(viewMatrix, activeCamera.matrixWorldInverse.elements as any);
@@ -253,7 +285,7 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0x7fff) === 0) {
+    if ((index & 0x7ff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
         if (onProgress) {
@@ -285,6 +317,7 @@ async function loadRegionAsync(
 
 // Main loader function called from Android native side
 window.loadLitematic = async function () {
+  isDestroyed = false;
   try {
     const response = await fetch('./model.litematic');
     currentLitematicBuffer = await response.arrayBuffer();
@@ -346,11 +379,19 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
+  // Calculate and transmit block statistics IMMEDIATELY after NBT parsing completes
+  calculateAndSendStatisticsSync();
+
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
   const maxDim = Math.max(size[0], size[1], size[2]);
 
-  const chunkSize = volume > 1000000 || maxDim > 128 ? 32 : 16;
+  let chunkSize = 16;
+  if (volume > 3000000 || maxDim > 256) {
+    chunkSize = 64;
+  } else if (volume > 1000000 || maxDim > 128) {
+    chunkSize = 32;
+  }
 
   const rendererOptions: any = {
     asyncBuild: true,
@@ -425,13 +466,11 @@ async function buildRendererForRegion(regionName: string) {
 
   tick();
 
-  // Wait for mesh building to be 100% complete before finishing progress
-  await renderer.whenReady();
-
-  calculateAndSendStatistics();
+  // Progressively stream and render chunk meshes frame-by-frame
+  await renderer.rebuildChunksAsync();
 }
 
-function calculateAndSendStatistics() {
+function calculateAndSendStatisticsSync() {
   if (!currentStructure) return;
 
   try {
@@ -441,33 +480,21 @@ function calculateAndSendStatistics() {
 
     const blockStats: { [key: string]: number } = {};
     let totalBlocks = 0;
-    const totalCount = blocks.length;
-    let index = 0;
 
-    const batchSize = 100000;
-    function processBatch() {
-      const end = Math.min(index + batchSize, totalCount);
-      for (; index < end; index++) {
-        const block = blocks[index];
-        if (block) {
-          const stateIdx = block.state;
-          const state = palette[stateIdx];
-          if (state) {
-            const blockName = state.getName().toString();
-            blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-            totalBlocks++;
-          }
-        }
-      }
-      if (index < totalCount) {
-        setTimeout(processBatch, 0);
-      } else {
-        if (window.AndroidHost) {
-          window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
-        }
+    const paletteNames: string[] = palette.map((st: any) => st ? st.getName().toString() : '');
+
+    for (let i = 0; i < blocks.length; i++) {
+      const stateIdx = blocks[i].state;
+      const name = paletteNames[stateIdx];
+      if (name && name !== 'minecraft:air') {
+        blockStats[name] = (blockStats[name] || 0) + 1;
+        totalBlocks++;
       }
     }
-    processBatch();
+
+    if (window.AndroidHost) {
+      window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
+    }
   } catch (err) {
     console.error("Error collecting block statistics: ", err);
   }
