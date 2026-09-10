@@ -297,6 +297,33 @@ function meshToBufferGeometry(mesh: any): THREE.BufferGeometry {
   return geometry;
 }
 
+// Fast quad translation into target mesh without object re-allocation
+function addTransformedQuads(targetMesh: any, sourceMesh: any, offsetX: number, offsetY: number, offsetZ: number) {
+  if (!sourceMesh || !sourceMesh.quads || sourceMesh.quads.length === 0) return;
+
+  for (let q = 0; q < sourceMesh.quads.length; q++) {
+    const origQuad = sourceMesh.quads[q];
+    const origVerts = origQuad.vertices();
+
+    const v0 = origVerts[0].clone();
+    const v1 = origVerts[1].clone();
+    const v2 = origVerts[2].clone();
+    const v3 = origVerts[3].clone();
+
+    v0.pos.x += offsetX; v0.pos.y += offsetY; v0.pos.z += offsetZ;
+    v1.pos.x += offsetX; v1.pos.y += offsetY; v1.pos.z += offsetZ;
+    v2.pos.x += offsetX; v2.pos.y += offsetY; v2.pos.z += offsetZ;
+    v3.pos.x += offsetX; v3.pos.y += offsetY; v3.pos.z += offsetZ;
+
+    v0.blockPos = { x: offsetX, y: offsetY, z: offsetZ };
+    v1.blockPos = { x: offsetX, y: offsetY, z: offsetZ };
+    v2.blockPos = { x: offsetX, y: offsetY, z: offsetZ };
+    v3.blockPos = { x: offsetX, y: offsetY, z: offsetZ };
+
+    targetMesh.quads.push(new Lodestone.Quad(v0, v1, v2, v3));
+  }
+}
+
 // Infinite View: chunk visibility handling
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   if ((this as any).chunkMeshes) {
@@ -488,6 +515,51 @@ async function buildRendererForRegion(regionName: string) {
 
   const isAir = palette.map(state => state.is('minecraft:air') || state.is('minecraft:cave_air') || state.is('minecraft:void_air'));
 
+  // Pre-build cached meshes and opacity flags for palette entries ONCE
+  const paletteMesh: any[] = new Array(palette.length);
+  const paletteTransparentMesh: any[] = new Array(palette.length);
+  const isOpaque: boolean[] = new Array(palette.length);
+
+  for (let i = 0; i < palette.length; i++) {
+    if (isAir[i]) {
+      isOpaque[i] = false;
+      continue;
+    }
+
+    const state = palette[i];
+    const blockName = state.getName();
+    const props = state.getProperties();
+
+    const blockDef = currentResources.getBlockDefinition(blockName);
+    const cull = Cull.none();
+
+    const opaqueMesh = new Lodestone.Mesh();
+    const transMesh = new Lodestone.Mesh();
+
+    const mesh = new Lodestone.Mesh();
+    if (blockDef) {
+      mesh.merge(blockDef.getMesh(blockName, props, currentResources, currentResources, cull));
+    }
+
+    const specialMesh = SpecialRenderers.getBlockMesh(state, undefined, currentResources, cull);
+    if (!specialMesh.isEmpty()) {
+      mesh.merge(specialMesh);
+    }
+
+    const flags = currentResources.getBlockFlags(blockName);
+    if (flags?.semi_transparent) {
+      transMesh.merge(mesh);
+      isOpaque[i] = false;
+    } else {
+      opaqueMesh.merge(mesh);
+      // Blocks that have solid meshes and are non-transparent are opaque for occlusion culling
+      isOpaque[i] = !mesh.isEmpty() && !flags?.semi_transparent;
+    }
+
+    paletteMesh[i] = opaqueMesh;
+    paletteTransparentMesh[i] = transMesh;
+  }
+
   const blockStatesNbt = region.has('BlockStates')
     ? region.getLongArray('BlockStates')
     : null;
@@ -579,7 +651,40 @@ async function buildRendererForRegion(regionName: string) {
   }
 
   const maxDim = Math.max(width, height, depth);
-  const CSIZE = volume > 500000 || maxDim > 128 ? 32 : 16;
+  // Scale Chunk Size according to total schematic volume to avoid excess WebGL draw calls & VBO overhead
+  const CSIZE = volume > 2000000 ? 64 : volume > 500000 || maxDim > 128 ? 32 : 16;
+
+  // Helper function to query grid index block palette index
+  const getPaletteIndexAt = (x: number, y: number, z: number): number => {
+    if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) return -1;
+    const idx = (y * depth + z) * width + x;
+    if (bigArray.length === 0) return 0;
+    const startBit = BigInt(idx * bitsPerBlock);
+    const startWord = Number(startBit >> 6n);
+    const bitOffset = startBit & 63n;
+    if (startWord >= bigArray.length) return 0;
+    let val = bigArray[startWord] >> bitOffset;
+    if (bitOffset + BigInt(bitsPerBlock) > 64n && startWord + 1 < bigArray.length) {
+      val |= bigArray[startWord + 1] << (64n - bitOffset);
+    }
+    return Number(val & mask);
+  };
+
+  // Helper to check if a block at (x,y,z) is fully occluded by 6 opaque neighbors
+  const isOccluded = (x: number, y: number, z: number): boolean => {
+    if (x === 0 || x === width - 1 || y === 0 || y === height - 1 || z === 0 || z === depth - 1) {
+      return false; // Exterior boundary blocks are visible
+    }
+
+    const pX1 = getPaletteIndexAt(x + 1, y, z); if (pX1 < 0 || !isOpaque[pX1]) return false;
+    const pX2 = getPaletteIndexAt(x - 1, y, z); if (pX2 < 0 || !isOpaque[pX2]) return false;
+    const pY1 = getPaletteIndexAt(x, y + 1, z); if (pY1 < 0 || !isOpaque[pY1]) return false;
+    const pY2 = getPaletteIndexAt(x, y - 1, z); if (pY2 < 0 || !isOpaque[pY2]) return false;
+    const pZ1 = getPaletteIndexAt(x, y, z + 1); if (pZ1 < 0 || !isOpaque[pZ1]) return false;
+    const pZ2 = getPaletteIndexAt(x, y, z - 1); if (pZ2 < 0 || !isOpaque[pZ2]) return false;
+
+    return true; // Completely surrounded by 6 opaque solid blocks
+  };
 
   // Dummy empty Structure for ThreeStructureRenderer initialization
   currentStructure = new Structure(size, palette, []);
@@ -704,34 +809,20 @@ async function buildRendererForRegion(regionName: string) {
                   storedBlocksForStructure.push({ pos: [x, y, z], state: paletteIndex });
                 }
 
-                const state = palette[paletteIndex];
-                const blockName = state.getName();
-                const props = state.getProperties();
-
-                const blockDef = currentResources.getBlockDefinition(blockName);
-                const cull = Cull.none();
-
-                const mesh = new Lodestone.Mesh();
-                if (blockDef) {
-                  mesh.merge(blockDef.getMesh(blockName, props, currentResources, currentResources, cull));
+                // 6-Neighbor Occlusion Culling: Skip interior blocks surrounded by 6 opaque neighbors
+                if (isOpaque[paletteIndex] && isOccluded(x, y, z)) {
+                  continue;
                 }
 
-                const specialMesh = SpecialRenderers.getBlockMesh(state, undefined, currentResources, cull);
-                if (!specialMesh.isEmpty()) {
-                  mesh.merge(specialMesh);
+                // Fast Quad Translation from pre-cached palette meshes
+                const oMesh = paletteMesh[paletteIndex];
+                if (oMesh && !oMesh.isEmpty()) {
+                  addTransformedQuads(chunkMesh, oMesh, x, y, z);
                 }
 
-                if (!mesh.isEmpty()) {
-                  const t = mat4.create();
-                  mat4.translate(t, t, [x, y, z]);
-                  mesh.transform(t);
-
-                  const flags = currentResources.getBlockFlags(blockName);
-                  if (flags?.semi_transparent) {
-                    chunkTransparentMesh.merge(mesh);
-                  } else {
-                    chunkMesh.merge(mesh);
-                  }
+                const tMesh = paletteTransparentMesh[paletteIndex];
+                if (tMesh && !tMesh.isEmpty()) {
+                  addTransformedQuads(chunkTransparentMesh, tMesh, x, y, z);
                 }
               }
             }
@@ -847,20 +938,14 @@ window.toggleCameraView = function () {
 window.resetCamera = function () {
   if (!controls) return;
 
-  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
-  const defaultPos = new THREE.Vector3(
-    tightCenter[0] + fitDistance,
-    tightCenter[1] + fitDistance * 0.8,
-    tightCenter[2] + fitDistance
-  );
-  const defaultTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
+  const currentTarget = controls.target.clone();
+  const newTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
+  const offset = new THREE.Vector3().subVectors(newTarget, currentTarget);
 
-  controls.target.copy(defaultTarget);
-  perspectiveCamera.position.copy(defaultPos);
-  perspectiveCamera.lookAt(defaultTarget);
-
-  orthographicCamera.position.copy(defaultPos);
-  orthographicCamera.lookAt(defaultTarget);
+  // Shift focus target to structure tightCenter while preserving current camera distance, zoom and rotation angles!
+  controls.target.copy(newTarget);
+  perspectiveCamera.position.add(offset);
+  orthographicCamera.position.add(offset);
 
   controls.update();
 };
