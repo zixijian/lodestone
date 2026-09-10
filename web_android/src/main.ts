@@ -49,6 +49,86 @@ let tightRadius: number = 10;
 let isRendering: boolean = true;
 let animFrameId: number | null = null;
 
+// Extracted Quad data structure for zero-allocation geometry builder
+interface ExtractedQuad {
+  pos: Float32Array; // 12 floats (4 vertices * 3)
+  normal: Float32Array; // 12 floats
+  uv: Float32Array; // 8 floats
+  texLimit: Float32Array; // 16 floats
+  color: Float32Array; // 12 floats
+  emissive: Float32Array; // 4 floats
+}
+
+interface PaletteEntry {
+  opaqueQuads: ExtractedQuad[];
+  transQuads: ExtractedQuad[];
+  isOpaque: boolean;
+  isAir: boolean;
+}
+
+function extractQuadsFromMesh(mesh: any): ExtractedQuad[] {
+  if (!mesh || !mesh.quads || mesh.quads.length === 0) return [];
+  const quads: ExtractedQuad[] = [];
+
+  for (let q = 0; q < mesh.quads.length; q++) {
+    const quad = mesh.quads[q];
+    const verts = quad.vertices();
+    const quadNormal = quad.normal();
+
+    const pos = new Float32Array(12);
+    const normal = new Float32Array(12);
+    const uv = new Float32Array(8);
+    const texLimit = new Float32Array(16);
+    const color = new Float32Array(12);
+    const emissive = new Float32Array(4);
+
+    for (let i = 0; i < 4; i++) {
+      const v = verts[i];
+      const p = v.pos;
+      const n = v.normal || quadNormal;
+      const tex = v.texture;
+      const limit = v.textureLimit;
+      const c = v.color;
+
+      pos[i * 3] = p.x;
+      pos[i * 3 + 1] = p.y;
+      pos[i * 3 + 2] = p.z;
+
+      normal[i * 3] = n.x;
+      normal[i * 3 + 1] = n.y;
+      normal[i * 3 + 2] = n.z;
+
+      if (tex) {
+        uv[i * 2] = tex[0];
+        uv[i * 2 + 1] = tex[1];
+      }
+
+      if (limit) {
+        texLimit[i * 4] = limit[0];
+        texLimit[i * 4 + 1] = limit[1];
+        texLimit[i * 4 + 2] = limit[2];
+        texLimit[i * 4 + 3] = limit[3];
+      }
+
+      if (c) {
+        color[i * 3] = c[0];
+        color[i * 3 + 1] = c[1];
+        color[i * 3 + 2] = c[2];
+      } else {
+        color[i * 3] = 1;
+        color[i * 3 + 1] = 1;
+        color[i * 3 + 2] = 1;
+      }
+
+      emissive[i] = v.emissive || 0;
+    }
+
+    quads.push({ pos, normal, uv, texLimit, color, emissive });
+  }
+
+  return quads;
+}
+
 function liquidRendererWaterlogged(atlas: any) {
   // Inset water box slightly (0.01) to prevent Z-fighting depth flickering with solid stair faces
   return new BlockModel(undefined, {
@@ -82,132 +162,6 @@ SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull
 
   return mesh;
 };
-
-// Fast zero-allocation Mesh to BufferGeometry converter
-function meshToBufferGeometry(mesh: any): THREE.BufferGeometry {
-  const geometry = new THREE.BufferGeometry();
-  if (!mesh || !mesh.quads || mesh.quads.length === 0) {
-    return geometry;
-  }
-  const quadCount = mesh.quads.length;
-  const vertCount = quadCount * 4;
-
-  const positions = new Float32Array(vertCount * 3);
-  const normals = new Float32Array(vertCount * 3);
-  const uvs = new Float32Array(vertCount * 2);
-  const texLimits = new Float32Array(vertCount * 4);
-  const colors = new Float32Array(vertCount * 3);
-  const blockPositions = new Float32Array(vertCount * 3);
-  const emissives = new Float32Array(vertCount);
-  const indices = vertCount > 65535 ? new Uint32Array(quadCount * 6) : new Uint16Array(quadCount * 6);
-
-  let vIndex = 0;
-  let iIndex = 0;
-  let offset = 0;
-
-  for (let q = 0; q < quadCount; q++) {
-    const quad = mesh.quads[q];
-    const verts = quad.vertices();
-    const quadNormal = quad.normal();
-
-    for (let i = 0; i < 4; i++) {
-      const v = verts[i];
-      const pos = v.pos;
-      const normal = v.normal || quadNormal;
-      const uv = v.texture;
-      const texLimit = v.textureLimit;
-      const color = v.color;
-      const bPos = v.blockPos || pos;
-
-      positions[vIndex * 3] = pos.x;
-      positions[vIndex * 3 + 1] = pos.y;
-      positions[vIndex * 3 + 2] = pos.z;
-
-      normals[vIndex * 3] = normal.x;
-      normals[vIndex * 3 + 1] = normal.y;
-      normals[vIndex * 3 + 2] = normal.z;
-
-      if (uv) {
-        uvs[vIndex * 2] = uv[0];
-        uvs[vIndex * 2 + 1] = uv[1];
-      }
-
-      if (texLimit) {
-        texLimits[vIndex * 4] = texLimit[0];
-        texLimits[vIndex * 4 + 1] = texLimit[1];
-        texLimits[vIndex * 4 + 2] = texLimit[2];
-        texLimits[vIndex * 4 + 3] = texLimit[3];
-      }
-
-      if (color) {
-        colors[vIndex * 3] = color[0];
-        colors[vIndex * 3 + 1] = color[1];
-        colors[vIndex * 3 + 2] = color[2];
-      } else {
-        colors[vIndex * 3] = 1;
-        colors[vIndex * 3 + 1] = 1;
-        colors[vIndex * 3 + 2] = 1;
-      }
-
-      blockPositions[vIndex * 3] = bPos.x;
-      blockPositions[vIndex * 3 + 1] = bPos.y;
-      blockPositions[vIndex * 3 + 2] = bPos.z;
-
-      emissives[vIndex] = v.emissive || 0;
-
-      vIndex++;
-    }
-
-    indices[iIndex] = offset;
-    indices[iIndex + 1] = offset + 1;
-    indices[iIndex + 2] = offset + 2;
-    indices[iIndex + 3] = offset;
-    indices[iIndex + 4] = offset + 2;
-    indices[iIndex + 5] = offset + 3;
-
-    iIndex += 6;
-    offset += 4;
-  }
-
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geometry.setAttribute('texLimit', new THREE.BufferAttribute(texLimits, 4));
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.setAttribute('blockPos', new THREE.BufferAttribute(blockPositions, 3));
-  geometry.setAttribute('emissive', new THREE.BufferAttribute(emissives, 1));
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.computeBoundingSphere();
-
-  return geometry;
-}
-
-// Fast quad translation into target mesh without object re-allocation
-function addTransformedQuads(targetMesh: any, sourceMesh: any, offsetX: number, offsetY: number, offsetZ: number) {
-  if (!sourceMesh || !sourceMesh.quads || sourceMesh.quads.length === 0) return;
-
-  for (let q = 0; q < sourceMesh.quads.length; q++) {
-    const origQuad = sourceMesh.quads[q];
-    const origVerts = origQuad.vertices();
-
-    const v0 = origVerts[0].clone();
-    const v1 = origVerts[1].clone();
-    const v2 = origVerts[2].clone();
-    const v3 = origVerts[3].clone();
-
-    v0.pos.x += offsetX; v0.pos.y += offsetY; v0.pos.z += offsetZ;
-    v1.pos.x += offsetX; v1.pos.y += offsetY; v1.pos.z += offsetZ;
-    v2.pos.x += offsetX; v2.pos.y += offsetY; v2.pos.z += offsetZ;
-    v3.pos.x += offsetX; v3.pos.y += offsetY; v3.pos.z += offsetZ;
-
-    v0.blockPos = { x: offsetX, y: offsetY, z: offsetZ };
-    v1.blockPos = { x: offsetX, y: offsetY, z: offsetZ };
-    v2.blockPos = { x: offsetX, y: offsetY, z: offsetZ };
-    v3.blockPos = { x: offsetX, y: offsetY, z: offsetZ };
-
-    targetMesh.quads.push(new Lodestone.Quad(v0, v1, v2, v3));
-  }
-}
 
 // Infinite View: chunk visibility handling
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
@@ -246,6 +200,9 @@ async function init() {
   }
 }
 
+// Pre-allocate reusable gl-matrix view matrix to prevent per-frame garbage collection
+const cachedViewMatrix = mat4.create();
+
 // Render loop to keep view and OrbitControls synchronized
 function tick() {
   if (!isRendering) return;
@@ -255,17 +212,9 @@ function tick() {
     controls.update();
   }
   if (renderer && activeCamera) {
-    if ((renderer as any).chunkMeshes) {
-      for (let i = 0; i < (renderer as any).chunkMeshes.length; i++) {
-        const mesh = (renderer as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
     activeCamera.updateMatrixWorld(true);
-    const viewMatrix = mat4.create();
-    mat4.copy(viewMatrix, activeCamera.matrixWorldInverse.elements as any);
-    renderer.drawStructure(viewMatrix);
+    mat4.copy(cachedViewMatrix, activeCamera.matrixWorldInverse.elements as any);
+    renderer.drawStructure(cachedViewMatrix);
   }
 }
 
@@ -287,16 +236,26 @@ window.startRenderLoop = function () {
 
 window.destroyRenderer = function () {
   window.stopRenderLoop();
+
   if (renderer) {
+    if ((renderer as any).chunkMeshes) {
+      for (let i = 0; i < (renderer as any).chunkMeshes.length; i++) {
+        const mesh = (renderer as any).chunkMeshes[i];
+        if (mesh.geometry) mesh.geometry.dispose();
+      }
+      (renderer as any).chunkMeshes.length = 0;
+    }
     try {
       renderer.dispose();
     } catch (e) {
       console.error(e);
     }
   }
+
   if (controls) {
     controls.dispose();
   }
+
   if (canvasElement) {
     try {
       const gl = canvasElement.getContext('webgl2') || canvasElement.getContext('webgl');
@@ -398,20 +357,23 @@ async function buildRendererForRegion(regionName: string) {
     palette.push(new BlockState(name, properties));
   });
 
-  const isAir = palette.map(state => state.is('minecraft:air') || state.is('minecraft:cave_air') || state.is('minecraft:void_air'));
-
-  // Pre-build cached meshes and opacity flags for palette entries ONCE
-  const paletteMesh: any[] = new Array(palette.length);
-  const paletteTransparentMesh: any[] = new Array(palette.length);
-  const isOpaque: boolean[] = new Array(palette.length);
+  // Pre-build cached palette entries ONCE
+  const paletteEntries: PaletteEntry[] = new Array(palette.length);
 
   for (let i = 0; i < palette.length; i++) {
-    if (isAir[i]) {
-      isOpaque[i] = false;
+    const state = palette[i];
+    const air = state.is('minecraft:air') || state.is('minecraft:cave_air') || state.is('minecraft:void_air');
+
+    if (air) {
+      paletteEntries[i] = {
+        opaqueQuads: [],
+        transQuads: [],
+        isOpaque: false,
+        isAir: true
+      };
       continue;
     }
 
-    const state = palette[i];
     const blockName = state.getName();
     const props = state.getProperties();
 
@@ -434,15 +396,20 @@ async function buildRendererForRegion(regionName: string) {
     const flags = currentResources.getBlockFlags(blockName);
     if (flags?.semi_transparent) {
       transMesh.merge(mesh);
-      isOpaque[i] = false;
     } else {
       opaqueMesh.merge(mesh);
-      // Blocks that have solid meshes and are non-transparent are opaque for occlusion culling
-      isOpaque[i] = !mesh.isEmpty() && !flags?.semi_transparent;
     }
 
-    paletteMesh[i] = opaqueMesh;
-    paletteTransparentMesh[i] = transMesh;
+    const opaqueQuads = extractQuadsFromMesh(opaqueMesh);
+    const transQuads = extractQuadsFromMesh(transMesh);
+    const isOpaque = opaqueQuads.length > 0 && !flags?.semi_transparent;
+
+    paletteEntries[i] = {
+      opaqueQuads,
+      transQuads,
+      isOpaque,
+      isAir: false
+    };
   }
 
   const blockStatesNbt = region.has('BlockStates')
@@ -462,7 +429,7 @@ async function buildRendererForRegion(regionName: string) {
     if ((i & 0x7ff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
-        const pct = Math.floor((i / Math.max(1, longs.length)) * 50); // First 50% for NBT long array conversion
+        const pct = Math.floor((i / Math.max(1, longs.length)) * 30); // First 30% for NBT long array conversion
         if (window.AndroidHost) {
           window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
         }
@@ -480,7 +447,8 @@ async function buildRendererForRegion(regionName: string) {
   const depth = size[2];
   const volume = width * height * depth;
 
-  // Compute block statistics with time-sliced yields for large volumes
+  // Unpack bit stream directly into flat grid Array (~7 MB for 3.5M blocks)
+  const grid = new Uint16Array(volume);
   const paletteStats = new Uint32Array(palette.length);
   let totalPlacedBlocks = 0;
 
@@ -501,7 +469,9 @@ async function buildRendererForRegion(regionName: string) {
       }
     }
 
-    if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
+    grid[index] = paletteIndex;
+
+    if (paletteIndex >= 0 && paletteIndex < palette.length && !paletteEntries[paletteIndex].isAir) {
       paletteStats[paletteIndex]++;
       totalPlacedBlocks++;
     }
@@ -509,7 +479,7 @@ async function buildRendererForRegion(regionName: string) {
     if ((index & 0x7ff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
-        const pct = 50 + Math.floor((index / Math.max(1, volume)) * 50); // Second 50% for block unpacking
+        const pct = 30 + Math.floor((index / Math.max(1, volume)) * 70); // Remaining 70% for grid unpacking
         if (window.AndroidHost) {
           window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
         }
@@ -536,37 +506,20 @@ async function buildRendererForRegion(regionName: string) {
   }
 
   const maxDim = Math.max(width, height, depth);
-  // Scale Chunk Size according to total schematic volume to avoid excess WebGL draw calls & VBO overhead
   const CSIZE = volume > 2000000 ? 64 : volume > 500000 || maxDim > 128 ? 32 : 16;
 
-  // Helper function to query grid index block palette index
-  const getPaletteIndexAt = (x: number, y: number, z: number): number => {
-    if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) return -1;
-    const idx = (y * depth + z) * width + x;
-    if (bigArray.length === 0) return 0;
-    const startBit = BigInt(idx * bitsPerBlock);
-    const startWord = Number(startBit >> 6n);
-    const bitOffset = startBit & 63n;
-    if (startWord >= bigArray.length) return 0;
-    let val = bigArray[startWord] >> bitOffset;
-    if (bitOffset + BigInt(bitsPerBlock) > 64n && startWord + 1 < bigArray.length) {
-      val |= bigArray[startWord + 1] << (64n - bitOffset);
-    }
-    return Number(val & mask);
-  };
-
-  // Helper to check if a block at (x,y,z) is fully occluded by 6 opaque neighbors
+  // Fast O(1) 6-Neighbor Occlusion Culling lookup
   const isOccluded = (x: number, y: number, z: number): boolean => {
     if (x === 0 || x === width - 1 || y === 0 || y === height - 1 || z === 0 || z === depth - 1) {
       return false; // Exterior boundary blocks are visible
     }
 
-    const pX1 = getPaletteIndexAt(x + 1, y, z); if (pX1 < 0 || !isOpaque[pX1]) return false;
-    const pX2 = getPaletteIndexAt(x - 1, y, z); if (pX2 < 0 || !isOpaque[pX2]) return false;
-    const pY1 = getPaletteIndexAt(x, y + 1, z); if (pY1 < 0 || !isOpaque[pY1]) return false;
-    const pY2 = getPaletteIndexAt(x, y - 1, z); if (pY2 < 0 || !isOpaque[pY2]) return false;
-    const pZ1 = getPaletteIndexAt(x, y, z + 1); if (pZ1 < 0 || !isOpaque[pZ1]) return false;
-    const pZ2 = getPaletteIndexAt(x, y, z - 1); if (pZ2 < 0 || !isOpaque[pZ2]) return false;
+    const pX1 = grid[(y * depth + z) * width + (x + 1)]; if (!paletteEntries[pX1]?.isOpaque) return false;
+    const pX2 = grid[(y * depth + z) * width + (x - 1)]; if (!paletteEntries[pX2]?.isOpaque) return false;
+    const pY1 = grid[((y + 1) * depth + z) * width + x]; if (!paletteEntries[pY1]?.isOpaque) return false;
+    const pY2 = grid[((y - 1) * depth + z) * width + x]; if (!paletteEntries[pY2]?.isOpaque) return false;
+    const pZ1 = grid[(y * depth + (z + 1)) * width + x]; if (!paletteEntries[pZ1]?.isOpaque) return false;
+    const pZ2 = grid[(y * depth + (z - 1)) * width + x]; if (!paletteEntries[pZ2]?.isOpaque) return false;
 
     return true; // Completely surrounded by 6 opaque solid blocks
   };
@@ -644,15 +597,10 @@ async function buildRendererForRegion(regionName: string) {
 
   lastYield = performance.now();
 
-  const storedBlocksForStructure: Array<{ pos: [number, number, number]; state: number }> = [];
-
   for (let cy = 0; cy < numChunksY; cy++) {
     for (let cz = 0; cz < numChunksZ; cz++) {
       for (let cx = 0; cx < numChunksX; cx++) {
         processedChunks++;
-
-        const chunkMesh = new Lodestone.Mesh();
-        const chunkTransparentMesh = new Lodestone.Mesh();
 
         const xStart = cx * CSIZE;
         const xEnd = Math.min(width, (cx + 1) * CSIZE);
@@ -661,75 +609,211 @@ async function buildRendererForRegion(regionName: string) {
         const zStart = cz * CSIZE;
         const zEnd = Math.min(depth, (cz + 1) * CSIZE);
 
+        let opaqueQuadCount = 0;
+        let transQuadCount = 0;
+
+        // First pass: Count quads to allocate exact zero-fragmentation TypedArrays
         for (let y = yStart; y < yEnd; y++) {
           for (let z = zStart; z < zEnd; z++) {
             for (let x = xStart; x < xEnd; x++) {
-              const index = (y * depth + z) * width + x;
+              const pIdx = grid[(y * depth + z) * width + x];
+              const entry = paletteEntries[pIdx];
+              if (!entry || entry.isAir) continue;
 
-              let paletteIndex = 0;
-              if (bigArray.length > 0) {
-                const startBit = BigInt(index * bitsPerBlock);
-                const startWord = Number(startBit >> 6n);
-                const bitOffset = startBit & 63n;
+              if (x < minX) minX = x;
+              if (y < minY) minY = y;
+              if (z < minZ) minZ = z;
+              if (x > maxX) maxX = x;
+              if (y > maxY) maxY = y;
+              if (z > maxZ) maxZ = z;
+              hasPlaced = true;
 
-                if (startWord < bigArray.length) {
-                  let val = bigArray[startWord] >> bitOffset;
-                  if (bitOffset + BigInt(bitsPerBlock) > 64n && startWord + 1 < bigArray.length) {
-                    val |= bigArray[startWord + 1] << (64n - bitOffset);
-                  }
-                  paletteIndex = Number(val & mask);
-                }
-              }
+              if (entry.isOpaque && isOccluded(x, y, z)) continue;
 
-              if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-                if (x < minX) minX = x;
-                if (y < minY) minY = y;
-                if (z < minZ) minZ = z;
-                if (x > maxX) maxX = x;
-                if (y > maxY) maxY = y;
-                if (z > maxZ) maxZ = z;
-                hasPlaced = true;
-
-                if (volume <= 500000) {
-                  storedBlocksForStructure.push({ pos: [x, y, z], state: paletteIndex });
-                }
-
-                // 6-Neighbor Occlusion Culling: Skip interior blocks surrounded by 6 opaque neighbors
-                if (isOpaque[paletteIndex] && isOccluded(x, y, z)) {
-                  continue;
-                }
-
-                // Fast Quad Translation from pre-cached palette meshes
-                const oMesh = paletteMesh[paletteIndex];
-                if (oMesh && !oMesh.isEmpty()) {
-                  addTransformedQuads(chunkMesh, oMesh, x, y, z);
-                }
-
-                const tMesh = paletteTransparentMesh[paletteIndex];
-                if (tMesh && !tMesh.isEmpty()) {
-                  addTransformedQuads(chunkTransparentMesh, tMesh, x, y, z);
-                }
-              }
+              opaqueQuadCount += entry.opaqueQuads.length;
+              transQuadCount += entry.transQuads.length;
             }
           }
         }
 
-        // Add chunk meshes to scene immediately for progressive streaming display ("加载多少显示多少")
-        if (!chunkMesh.isEmpty()) {
-          const geometry = meshToBufferGeometry(chunkMesh);
+        // Build Opaque Geometry
+        if (opaqueQuadCount > 0) {
+          const vertCount = opaqueQuadCount * 4;
+          const posArr = new Float32Array(vertCount * 3);
+          const normArr = new Float32Array(vertCount * 3);
+          const uvArr = new Float32Array(vertCount * 2);
+          const texLimitArr = new Float32Array(vertCount * 4);
+          const colArr = new Float32Array(vertCount * 3);
+          const bPosArr = new Float32Array(vertCount * 3);
+          const emissiveArr = new Float32Array(vertCount);
+          const indexArr = vertCount > 65535 ? new Uint32Array(opaqueQuadCount * 6) : new Uint16Array(opaqueQuadCount * 6);
+
+          let vIdx = 0;
+          let iIdx = 0;
+          let offset = 0;
+
+          for (let y = yStart; y < yEnd; y++) {
+            for (let z = zStart; z < zEnd; z++) {
+              for (let x = xStart; x < xEnd; x++) {
+                const pIdx = grid[(y * depth + z) * width + x];
+                const entry = paletteEntries[pIdx];
+                if (!entry || entry.isAir) continue;
+                if (entry.isOpaque && isOccluded(x, y, z)) continue;
+
+                for (let q = 0; q < entry.opaqueQuads.length; q++) {
+                  const quad = entry.opaqueQuads[q];
+                  for (let i = 0; i < 4; i++) {
+                    posArr[vIdx * 3] = quad.pos[i * 3] + x;
+                    posArr[vIdx * 3 + 1] = quad.pos[i * 3 + 1] + y;
+                    posArr[vIdx * 3 + 2] = quad.pos[i * 3 + 2] + z;
+
+                    normArr[vIdx * 3] = quad.normal[i * 3];
+                    normArr[vIdx * 3 + 1] = quad.normal[i * 3 + 1];
+                    normArr[vIdx * 3 + 2] = quad.normal[i * 3 + 2];
+
+                    uvArr[vIdx * 2] = quad.uv[i * 2];
+                    uvArr[vIdx * 2 + 1] = quad.uv[i * 2 + 1];
+
+                    texLimitArr[vIdx * 4] = quad.texLimit[i * 4];
+                    texLimitArr[vIdx * 4 + 1] = quad.texLimit[i * 4 + 1];
+                    texLimitArr[vIdx * 4 + 2] = quad.texLimit[i * 4 + 2];
+                    texLimitArr[vIdx * 4 + 3] = quad.texLimit[i * 4 + 3];
+
+                    colArr[vIdx * 3] = quad.color[i * 3];
+                    colArr[vIdx * 3 + 1] = quad.color[i * 3 + 1];
+                    colArr[vIdx * 3 + 2] = quad.color[i * 3 + 2];
+
+                    bPosArr[vIdx * 3] = x;
+                    bPosArr[vIdx * 3 + 1] = y;
+                    bPosArr[vIdx * 3 + 2] = z;
+
+                    emissiveArr[vIdx] = quad.emissive[i];
+
+                    vIdx++;
+                  }
+
+                  indexArr[iIdx] = offset;
+                  indexArr[iIdx + 1] = offset + 1;
+                  indexArr[iIdx + 2] = offset + 2;
+                  indexArr[iIdx + 3] = offset;
+                  indexArr[iIdx + 4] = offset + 2;
+                  indexArr[iIdx + 5] = offset + 3;
+
+                  iIdx += 6;
+                  offset += 4;
+                }
+              }
+            }
+          }
+
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+          geometry.setAttribute('normal', new THREE.BufferAttribute(normArr, 3));
+          geometry.setAttribute('uv', new THREE.BufferAttribute(uvArr, 2));
+          geometry.setAttribute('texLimit', new THREE.BufferAttribute(texLimitArr, 4));
+          geometry.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+          geometry.setAttribute('blockPos', new THREE.BufferAttribute(bPosArr, 3));
+          geometry.setAttribute('emissive', new THREE.BufferAttribute(emissiveArr, 1));
+          geometry.setIndex(new THREE.BufferAttribute(indexArr, 1));
+          geometry.computeBoundingSphere();
+
           const threeMesh = new THREE.Mesh(geometry, (renderer as any).opaqueMaterial);
           threeMesh.visible = true;
           threeMesh.frustumCulled = false;
+          threeMesh.matrixAutoUpdate = false;
+          threeMesh.updateMatrix();
+
           (renderer as any).structureScene.add(threeMesh);
           (renderer as any).chunkMeshes.push(threeMesh);
         }
 
-        if (!chunkTransparentMesh.isEmpty()) {
-          const geometry = meshToBufferGeometry(chunkTransparentMesh);
+        // Build Transparent Geometry
+        if (transQuadCount > 0) {
+          const vertCount = transQuadCount * 4;
+          const posArr = new Float32Array(vertCount * 3);
+          const normArr = new Float32Array(vertCount * 3);
+          const uvArr = new Float32Array(vertCount * 2);
+          const texLimitArr = new Float32Array(vertCount * 4);
+          const colArr = new Float32Array(vertCount * 3);
+          const bPosArr = new Float32Array(vertCount * 3);
+          const emissiveArr = new Float32Array(vertCount);
+          const indexArr = vertCount > 65535 ? new Uint32Array(transQuadCount * 6) : new Uint16Array(transQuadCount * 6);
+
+          let vIdx = 0;
+          let iIdx = 0;
+          let offset = 0;
+
+          for (let y = yStart; y < yEnd; y++) {
+            for (let z = zStart; z < zEnd; z++) {
+              for (let x = xStart; x < xEnd; x++) {
+                const pIdx = grid[(y * depth + z) * width + x];
+                const entry = paletteEntries[pIdx];
+                if (!entry || entry.isAir) continue;
+
+                for (let q = 0; q < entry.transQuads.length; q++) {
+                  const quad = entry.transQuads[q];
+                  for (let i = 0; i < 4; i++) {
+                    posArr[vIdx * 3] = quad.pos[i * 3] + x;
+                    posArr[vIdx * 3 + 1] = quad.pos[i * 3 + 1] + y;
+                    posArr[vIdx * 3 + 2] = quad.pos[i * 3 + 2] + z;
+
+                    normArr[vIdx * 3] = quad.normal[i * 3];
+                    normArr[vIdx * 3 + 1] = quad.normal[i * 3 + 1];
+                    normArr[vIdx * 3 + 2] = quad.normal[i * 3 + 2];
+
+                    uvArr[vIdx * 2] = quad.uv[i * 2];
+                    uvArr[vIdx * 2 + 1] = quad.uv[i * 2 + 1];
+
+                    texLimitArr[vIdx * 4] = quad.texLimit[i * 4];
+                    texLimitArr[vIdx * 4 + 1] = quad.texLimit[i * 4 + 1];
+                    texLimitArr[vIdx * 4 + 2] = quad.texLimit[i * 4 + 2];
+                    texLimitArr[vIdx * 4 + 3] = quad.texLimit[i * 4 + 3];
+
+                    colArr[vIdx * 3] = quad.color[i * 3];
+                    colArr[vIdx * 3 + 1] = quad.color[i * 3 + 1];
+                    colArr[vIdx * 3 + 2] = quad.color[i * 3 + 2];
+
+                    bPosArr[vIdx * 3] = x;
+                    bPosArr[vIdx * 3 + 1] = y;
+                    bPosArr[vIdx * 3 + 2] = z;
+
+                    emissiveArr[vIdx] = quad.emissive[i];
+
+                    vIdx++;
+                  }
+
+                  indexArr[iIdx] = offset;
+                  indexArr[iIdx + 1] = offset + 1;
+                  indexArr[iIdx + 2] = offset + 2;
+                  indexArr[iIdx + 3] = offset;
+                  indexArr[iIdx + 4] = offset + 2;
+                  indexArr[iIdx + 5] = offset + 3;
+
+                  iIdx += 6;
+                  offset += 4;
+                }
+              }
+            }
+          }
+
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+          geometry.setAttribute('normal', new THREE.BufferAttribute(normArr, 3));
+          geometry.setAttribute('uv', new THREE.BufferAttribute(uvArr, 2));
+          geometry.setAttribute('texLimit', new THREE.BufferAttribute(texLimitArr, 4));
+          geometry.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+          geometry.setAttribute('blockPos', new THREE.BufferAttribute(bPosArr, 3));
+          geometry.setAttribute('emissive', new THREE.BufferAttribute(emissiveArr, 1));
+          geometry.setIndex(new THREE.BufferAttribute(indexArr, 1));
+          geometry.computeBoundingSphere();
+
           const threeMesh = new THREE.Mesh(geometry, (renderer as any).transparentMaterial);
           threeMesh.renderOrder = 1;
           threeMesh.visible = true;
           threeMesh.frustumCulled = false;
+          threeMesh.matrixAutoUpdate = false;
+          threeMesh.updateMatrix();
+
           (renderer as any).structureScene.add(threeMesh);
           (renderer as any).chunkMeshes.push(threeMesh);
         }
@@ -766,10 +850,6 @@ async function buildRendererForRegion(regionName: string) {
     controls.target.copy(newTarget);
     activeCamera.position.add(targetOffset);
     controls.update();
-  }
-
-  if (storedBlocksForStructure.length > 0) {
-    currentStructure = new Structure(size, palette, storedBlocksForStructure);
   }
 }
 
