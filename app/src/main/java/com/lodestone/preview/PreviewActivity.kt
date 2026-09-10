@@ -210,9 +210,8 @@ class PreviewActivity : AppCompatActivity() {
                     binding.llLoadingOverlay.visibility = View.VISIBLE
                     binding.tvLoadingStatus.text = "解析数据 $pct%"
                 } else if (state.startsWith("RENDERING_")) {
-                    val pct = state.removePrefix("RENDERING_").removeSuffix("%")
-                    binding.llLoadingOverlay.visibility = View.VISIBLE
-                    binding.tvLoadingStatus.text = "构建网格 $pct%"
+                    // Mesh rendering requires no status overlay prompt; dismiss loading overlay immediately when rendering starts
+                    binding.llLoadingOverlay.visibility = View.GONE
                 } else if (state.startsWith("ERROR:")) {
                     binding.llLoadingOverlay.visibility = View.GONE
                     Toast.makeText(this@PreviewActivity, state, Toast.LENGTH_LONG).show()

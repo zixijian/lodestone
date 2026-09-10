@@ -68,10 +68,10 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
         faces: {
           north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
           south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex },
+          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: tex }, // exterior side face
           up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
           down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
-          // east face omitted (seam at x=16)
+          // east face omitted (joining seam face at x=16)
         },
       },
       { // lid
@@ -80,10 +80,10 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
         faces: {
           north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
           south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex },
+          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: tex }, // exterior side face
           up: { uv: [7, 0, 10.75, 3.5], texture: tex },
           down: { uv: [3.25, 0, 7, 3.5], texture: tex },
-          // east face omitted (seam at x=16)
+          // east face omitted (joining seam face at x=16)
         },
       },
       { // latch knob
@@ -105,11 +105,11 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
         to: [15, 10, 15],
         faces: {
           north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: tex },
-          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: tex },
           south: { uv: [3.25, 8.25, 7, 10.75], rotation: 180, texture: tex },
+          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: tex }, // exterior side face
           up: { uv: [7, 4.75, 10.75, 8.25], texture: tex },
           down: { uv: [3.25, 4.75, 7, 8.25], texture: tex },
-          // west face omitted (seam at x=0)
+          // west face omitted (joining seam face at x=0)
         },
       },
       { // lid
@@ -117,11 +117,11 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
         to: [15, 14, 15],
         faces: {
           north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: tex },
-          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: tex },
           south: { uv: [3.25, 3.75, 7, 4.75], rotation: 180, texture: tex },
+          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: tex }, // exterior side face
           up: { uv: [7, 0, 10.75, 3.5], texture: tex },
           down: { uv: [3.25, 0, 7, 3.5], texture: tex },
-          // west face omitted (seam at x=0)
+          // west face omitted (joining seam face at x=0)
         },
       },
       { // latch knob
@@ -129,8 +129,8 @@ function createChestHalfModel(type: 'left' | 'right', textureName: string) {
         to: [1, 11, 1],
         faces: {
           north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: tex },
-          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
           south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: tex },
+          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: tex },
           up: { uv: [0.25, 0, 0.5, 0.25], texture: tex },
           down: { uv: [0.5, 0, 0.75, 0.25], texture: tex },
         },
@@ -529,6 +529,44 @@ async function buildRendererForRegion(regionName: string) {
   const depth = size[2];
   const volume = width * height * depth;
 
+  // Immediately compute block statistics from decoded bit array
+  const paletteStats = new Uint32Array(palette.length);
+  let totalPlacedBlocks = 0;
+
+  for (let index = 0; index < volume; index++) {
+    let paletteIndex = 0;
+    if (bigArray.length > 0) {
+      const startBit = BigInt(index * bitsPerBlock);
+      const startWord = Number(startBit >> 6n);
+      const bitOffset = startBit & 63n;
+
+      if (startWord < bigArray.length) {
+        let val = bigArray[startWord] >> bitOffset;
+        if (bitOffset + BigInt(bitsPerBlock) > 64n && startWord + 1 < bigArray.length) {
+          val |= bigArray[startWord + 1] << (64n - bitOffset);
+        }
+        paletteIndex = Number(val & mask);
+      }
+    }
+
+    if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
+      paletteStats[paletteIndex]++;
+      totalPlacedBlocks++;
+    }
+  }
+
+  // Send block statistics immediately right after NBT parsing completes (before WebGL mesh generation starts)
+  const blockStats: { [key: string]: number } = {};
+  for (let i = 0; i < palette.length; i++) {
+    if (paletteStats[i] > 0) {
+      blockStats[palette[i].getName().toString()] = paletteStats[i];
+    }
+  }
+
+  if (window.AndroidHost) {
+    window.AndroidHost.onStatisticsUpdated(totalPlacedBlocks, JSON.stringify(blockStats));
+  }
+
   const maxDim = Math.max(width, height, depth);
   const CSIZE = volume > 500000 || maxDim > 128 ? 32 : 16;
 
@@ -598,8 +636,6 @@ async function buildRendererForRegion(regionName: string) {
   const totalChunks = numChunksX * numChunksY * numChunksZ;
 
   let processedChunks = 0;
-  const paletteStats = new Uint32Array(palette.length);
-  let totalPlacedBlocks = 0;
 
   let minX = width, minY = height, minZ = depth;
   let maxX = 0, maxY = 0, maxZ = 0;
@@ -645,9 +681,6 @@ async function buildRendererForRegion(regionName: string) {
               }
 
               if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-                paletteStats[paletteIndex]++;
-                totalPlacedBlocks++;
-
                 if (x < minX) minX = x;
                 if (y < minY) minY = y;
                 if (z < minZ) minZ = z;
@@ -747,19 +780,6 @@ async function buildRendererForRegion(regionName: string) {
   if (storedBlocksForStructure.length > 0) {
     currentStructure = new Structure(size, palette, storedBlocksForStructure);
   }
-
-  // Send block statistics
-  const blockStats: { [key: string]: number } = {};
-  for (let i = 0; i < palette.length; i++) {
-    if (paletteStats[i] > 0) {
-      blockStats[palette[i].getName().toString()] = paletteStats[i];
-    }
-  }
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onStatisticsUpdated(totalPlacedBlocks, JSON.stringify(blockStats));
-    window.AndroidHost.onLoadingProgress('RENDERING_100%');
-  }
 }
 
 window.toggleCameraView = function () {
@@ -817,7 +837,8 @@ window.resetCamera = function () {
   const offset = new THREE.Vector3().subVectors(newTarget, oldTarget);
 
   controls.target.copy(newTarget);
-  activeCamera.position.add(offset);
+  perspectiveCamera.position.add(offset);
+  orthographicCamera.position.add(offset);
   controls.update();
 };
 
