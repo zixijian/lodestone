@@ -209,7 +209,7 @@ class PreviewActivity : AppCompatActivity() {
                     binding.llLoadingOverlay.visibility = View.VISIBLE
                     binding.tvLoadingStatus.text = "解析数据 $pct%"
                 } else if (state.startsWith("RENDERING_")) {
-                    // 渲染时无需加载提示框，直接隐藏 overlay 以展现流式渲染过程
+                    // Remove "构建网格" prompt overlay during chunk rendering so 3D model is 100% visible
                     binding.llLoadingOverlay.visibility = View.GONE
                 } else if (state.startsWith("ERROR:")) {
                     binding.llLoadingOverlay.visibility = View.GONE

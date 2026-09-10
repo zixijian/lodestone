@@ -67,44 +67,6 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   }
 };
 
-// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
-ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
-  const token = ++(this as any).buildToken;
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('RENDERING_0%');
-  }
-
-  await (this as any).chunkBuilder.updateStructureBuffersAsync({
-    chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
-    onProgress: (done: number, total: number) => {
-      if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 50);
-        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-      }
-    }
-  });
-
-  if (token !== (this as any).buildToken) return;
-
-  const buildPromise = (this as any).rebuildChunkObjectsAsync(token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
-    if (window.AndroidHost && token === (this as any).buildToken) {
-      window.AndroidHost.onLoadingProgress('RENDERING_100%');
-    }
-  });
-
-  (this as any).buildPromise = buildPromise;
-  return buildPromise;
-};
-
 function meshToBufferGeometry(mesh: any): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   if (!mesh.quads || mesh.quads.length === 0) {
@@ -133,25 +95,51 @@ function meshToBufferGeometry(mesh: any): THREE.BufferGeometry {
       }
       const color = v.color ?? [1, 1, 1];
       colors.push(color[0], color[1], color[2]);
-      const blockPos = quad.blockPos ?? [0, 0, 0];
-      blockPositions.push(blockPos[0], blockPos[1], blockPos[2]);
-      emissives.push(quad.emissive ? 1 : 0);
+      const blockPos = v.blockPos ?? v.pos;
+      blockPositions.push(blockPos.x, blockPos.y, blockPos.z);
+      emissives.push(v.emissive ?? 0);
     }
-    indices.push(offset, offset + 1, offset + 2, offset + 2, offset + 3, offset);
+    // Correct face winding order matching Lodestone's native meshToBufferGeometry: (0, 1, 2) and (0, 2, 3)
+    indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
     offset += 4;
   }
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setAttribute('texLimit', new THREE.Float32BufferAttribute(texLimits, 4));
-  geometry.setAttribute('blockPosition', new THREE.Float32BufferAttribute(blockPositions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('blockPos', new THREE.Float32BufferAttribute(blockPositions, 3));
   geometry.setAttribute('emissive', new THREE.Float32BufferAttribute(emissives, 1));
   geometry.setIndex(indices);
   return geometry;
 }
 
-// Override rebuildChunkObjectsAsync for real-time section-by-section streaming chunk rendering
+// Hook rebuildChunksAsync for progressive streaming 3D chunk loading
+ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
+  const token = ++(this as any).buildToken;
+
+  await (this as any).chunkBuilder.updateStructureBuffersAsync({
+    chunkPositions,
+    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12
+  });
+
+  if (token !== (this as any).buildToken) return;
+
+  const buildPromise = (this as any).rebuildChunkObjectsAsync(token).then(() => {
+    if ((this as any).chunkMeshes) {
+      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
+        const mesh = (this as any).chunkMeshes[i];
+        mesh.visible = true;
+        mesh.frustumCulled = false;
+      }
+    }
+  });
+
+  (this as any).buildPromise = buildPromise;
+  return buildPromise;
+};
+
+// Override rebuildChunkObjectsAsync for real-time streaming chunk rendering
 ThreeStructureRenderer.prototype.rebuildChunkObjectsAsync = async function (token: number) {
   if ((this as any).chunkMeshes) {
     (this as any).chunkMeshes.forEach((mesh: THREE.Mesh) => {
@@ -181,13 +169,9 @@ ThreeStructureRenderer.prototype.rebuildChunkObjectsAsync = async function (toke
     (this as any).structureScene.add(mesh);
     (this as any).chunkMeshes.push(mesh);
 
-    // Yield to main thread every 4 chunk meshes or after 8ms to force immediate streaming 3D frame updates
+    // Yield to main thread every 4 chunk meshes or after 8ms so chunks appear incrementally on screen
     const now = performance.now();
     if ((i % 4 === 0) || (now - lastYield >= 8)) {
-      if (window.AndroidHost) {
-        const pct = 50 + Math.floor((i / Math.max(1, meshes.length)) * 50);
-        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-      }
       await new Promise(resolve => requestAnimationFrame(resolve));
       lastYield = performance.now();
     }
@@ -395,7 +379,7 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0x7fff) === 0) {
+    if ((index & 0x3ff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
         if (onProgress) {
@@ -488,10 +472,10 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
-  // Calculate and send statistics immediately after NBT parsing completes, before 3D mesh building
+  // Calculate and send statistics immediately after NBT parsing completes, before 3D rendering
   calculateAndSendStatistics();
 
-  // Initialize camera position, FOV fit, and OrbitControls target to structure center prior to chunk building
+  // Pre-initialize camera and controls to structure center before starting chunk mesh generation
   const aspect = window.innerWidth / window.innerHeight;
   perspectiveCamera.far = 100000.0;
   perspectiveCamera.aspect = aspect;
