@@ -23,6 +23,8 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    stopRenderLoop(): void;
+    destroyRenderer(): void;
   }
 }
 
@@ -40,6 +42,8 @@ let canvasElement: HTMLCanvasElement;
 let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
+let animationFrameId: number | null = null;
+let isDestroyed: boolean = false;
 
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
@@ -84,8 +88,7 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
 
   if (token !== (this as any).buildToken) return;
 
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
+  const buildPromise = (this as any).rebuildChunkObjectsAsync(token).then(() => {
     if ((this as any).chunkMeshes) {
       for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
         const mesh = (this as any).chunkMeshes[i];
@@ -100,6 +103,101 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
 
   (this as any).buildPromise = buildPromise;
   return buildPromise;
+};
+
+function meshToBufferGeometry(mesh: any): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  if (!mesh.quads || mesh.quads.length === 0) {
+    return geometry;
+  }
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const colors: number[] = [];
+  const texLimits: number[] = [];
+  const blockPositions: number[] = [];
+  const emissives: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const quad of mesh.quads) {
+    const verts = quad.vertices();
+    for (const v of verts) {
+      positions.push(v.pos.x, v.pos.y, v.pos.z);
+      const normal = v.normal ?? quad.normal();
+      normals.push(normal.x, normal.y, normal.z);
+      uvs.push(v.texture?.[0] ?? 0, v.texture?.[1] ?? 0);
+      if (v.textureLimit) {
+        texLimits.push(v.textureLimit[0], v.textureLimit[1], v.textureLimit[2], v.textureLimit[3]);
+      } else {
+        texLimits.push(0, 0, 0, 0);
+      }
+      const color = v.color ?? [1, 1, 1];
+      colors.push(color[0], color[1], color[2]);
+      const blockPos = quad.blockPos ?? [0, 0, 0];
+      blockPositions.push(blockPos[0], blockPos[1], blockPos[2]);
+      emissives.push(quad.emissive ? 1 : 0);
+    }
+    indices.push(offset, offset + 1, offset + 2, offset + 2, offset + 3, offset);
+    offset += 4;
+  }
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('texLimit', new THREE.Float32BufferAttribute(texLimits, 4));
+  geometry.setAttribute('blockPosition', new THREE.Float32BufferAttribute(blockPositions, 3));
+  geometry.setAttribute('emissive', new THREE.Float32BufferAttribute(emissives, 1));
+  geometry.setIndex(indices);
+  return geometry;
+}
+
+// Override rebuildChunkObjectsAsync for real-time section-by-section streaming chunk rendering
+ThreeStructureRenderer.prototype.rebuildChunkObjectsAsync = async function (token: number) {
+  if ((this as any).chunkMeshes) {
+    (this as any).chunkMeshes.forEach((mesh: THREE.Mesh) => {
+      (this as any).structureScene.remove(mesh);
+      mesh.geometry.dispose();
+    });
+  }
+  (this as any).chunkMeshes = [];
+
+  const meshes = (this as any).chunkBuilder.getMeshEntries();
+  let lastYield = performance.now();
+
+  for (let i = 0; i < meshes.length; i++) {
+    if (token !== (this as any).buildToken) return;
+
+    const entry = meshes[i];
+    if (entry.mesh.isEmpty()) continue;
+
+    const geometry = meshToBufferGeometry(entry.mesh);
+    const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.renderOrder = entry.transparent ? 1 : 0;
+    mesh.userData.origin = entry.origin;
+    mesh.visible = true;
+    mesh.frustumCulled = false;
+
+    (this as any).structureScene.add(mesh);
+    (this as any).chunkMeshes.push(mesh);
+
+    const now = performance.now();
+    if ((i & 0x7) === 0 && now - lastYield >= ((this as any).asyncChunkBuildTimeMs || 12)) {
+      if (window.AndroidHost) {
+        const pct = 50 + Math.floor((i / Math.max(1, meshes.length)) * 50);
+        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+      }
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      lastYield = performance.now();
+    }
+  }
+
+  if (token !== (this as any).buildToken) return;
+
+  const emissiveLights = (this as any).chunkBuilder.getEmissiveLights();
+  (this as any).updateEmissiveLightUniforms(emissiveLights);
+  (this as any).emissiveSelectionDirty = true;
+  (this as any).shadowDirty = true;
 };
 
 // Initialize Web application
@@ -130,7 +228,8 @@ async function init() {
 
 // Render loop to keep view and OrbitControls synchronized
 function tick() {
-  requestAnimationFrame(tick);
+  if (isDestroyed) return;
+  animationFrameId = requestAnimationFrame(tick);
   if (controls) {
     controls.update();
   }
@@ -148,6 +247,48 @@ function tick() {
     renderer.drawStructure(viewMatrix);
   }
 }
+
+window.stopRenderLoop = function () {
+  isDestroyed = true;
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+};
+
+window.destroyRenderer = function () {
+  window.stopRenderLoop();
+  if (renderer) {
+    try {
+      if (typeof (renderer as any).dispose === 'function') {
+        (renderer as any).dispose();
+      }
+      if (renderer.renderer) {
+        const gl = renderer.renderer.getContext();
+        const loseContext = gl.getExtension('WEBGL_lose_context');
+        if (loseContext) {
+          loseContext.loseContext();
+        }
+        renderer.renderer.dispose();
+      }
+    } catch (e) {
+      console.error('Error disposing renderer:', e);
+    }
+    (renderer as any) = null;
+  }
+  if (controls) {
+    try {
+      controls.dispose();
+    } catch (e) {}
+    (controls as any) = null;
+  }
+  if (container) {
+    container.innerHTML = '';
+  }
+  currentLitematicBuffer = null;
+  currentStructure = null;
+  parsedRootCompound = null;
+};
 
 // Streaming Time-Sliced NBT Decoder
 async function loadRegionAsync(
@@ -346,6 +487,34 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
+  // Calculate and send statistics immediately after NBT parsing completes, before 3D mesh building
+  calculateAndSendStatistics();
+
+  // Initialize camera position, FOV fit, and OrbitControls target to structure center prior to chunk building
+  const aspect = window.innerWidth / window.innerHeight;
+  perspectiveCamera.far = 100000.0;
+  perspectiveCamera.aspect = aspect;
+  perspectiveCamera.updateProjectionMatrix();
+
+  orthographicCamera.far = 100000.0;
+  orthographicCamera.updateProjectionMatrix();
+
+  if (controls) {
+    controls.dispose();
+  }
+  controls = new OrbitControls(activeCamera, canvasElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
+
+  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
+  activeCamera.position.set(
+    tightCenter[0] + fitDistance,
+    tightCenter[1] + fitDistance * 0.8,
+    tightCenter[2] + fitDistance
+  );
+  controls.update();
+
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
   const maxDim = Math.max(size[0], size[1], size[2]);
@@ -376,36 +545,14 @@ async function buildRendererForRegion(regionName: string) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
   }
 
-  const aspect = window.innerWidth / window.innerHeight;
-  perspectiveCamera.far = 100000.0;
-  perspectiveCamera.aspect = aspect;
-  perspectiveCamera.updateProjectionMatrix();
-
-  orthographicCamera.far = 100000.0;
-  orthographicCamera.updateProjectionMatrix();
-
-  if (controls) {
-    controls.dispose();
-  }
-  controls = new OrbitControls(activeCamera, canvasElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
-  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
-
-  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
-  activeCamera.position.set(
-    tightCenter[0] + fitDistance,
-    tightCenter[1] + fitDistance * 0.8,
-    tightCenter[2] + fitDistance
-  );
-  controls.update();
-
   window.addEventListener('resize', () => {
     const width = window.innerWidth;
     const height = window.innerHeight;
     const newAspect = width / height;
 
-    renderer.setViewport(0, 0, width, height);
+    if (renderer) {
+      renderer.setViewport(0, 0, width, height);
+    }
 
     perspectiveCamera.aspect = newAspect;
     perspectiveCamera.updateProjectionMatrix();
@@ -427,8 +574,6 @@ async function buildRendererForRegion(regionName: string) {
 
   // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
-
-  calculateAndSendStatistics();
 }
 
 function calculateAndSendStatistics() {

@@ -79,6 +79,26 @@ class PreviewActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        binding.webviewRenderer.evaluateJavascript("if (window.stopRenderLoop) window.stopRenderLoop();", null)
+        binding.webviewRenderer.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        binding.webviewRenderer.onResume()
+    }
+
+    override fun onDestroy() {
+        binding.webviewRenderer.evaluateJavascript("if (window.destroyRenderer) window.destroyRenderer();", null)
+        binding.webviewRenderer.stopLoading()
+        binding.webviewRenderer.clearHistory()
+        binding.webviewRenderer.removeAllViews()
+        binding.webviewRenderer.destroy()
+        super.onDestroy()
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         val webSettings = binding.webviewRenderer.settings
