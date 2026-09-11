@@ -385,6 +385,9 @@ async function loadRegionAsync(
         });
       }
     }
+    if ((name === 'minecraft:chest' || name === 'minecraft:trapped_chest' || name === 'minecraft:ender_chest') && !properties.facing) {
+      properties.facing = 'north';
+    }
     palette.push(new BlockState(name, properties));
   });
 
