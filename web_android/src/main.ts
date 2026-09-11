@@ -47,17 +47,6 @@ let tightRadius: number = 10;
 let animationFrameId: number | null = null;
 let isRenderingPaused = false;
 
-// High-performance block caching patch
-(Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksCache.length === this.blocks.length) return;
-  this.placedBlocksCache = this.blocks.map((block: any) => this.toPlacedBlock(block));
-  this.placedBlocksMapCache = [];
-  for (let i = 0; i < this.placedBlocksCache.length; i++) {
-    const placed = this.placedBlocksCache[i];
-    this.placedBlocksMapCache[this.getIndex(placed.pos)] = placed;
-  }
-};
-
 // Infinite View: override applyDrawDistance so chunks are never culled when zooming out
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   if ((this as any).chunkMeshes) {
@@ -133,61 +122,91 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   }
   (this as any).chunkMeshes = [];
 
-  const meshMapByChunkKey = new Map<string, { meshObj: THREE.Mesh; quadCount: number }>();
+  const chunkBuilder = (this as any).chunkBuilder;
+  const chunkSize = (this as any).chunkSize || [16, 16, 16];
+  const structure = (this as any).structure;
+  if (!structure) return;
 
-  const syncIncrementalChunkMeshes = () => {
+  chunkBuilder.markDirty();
+  chunkBuilder.prepareRebuild(chunkPositions);
+
+  const blocks = structure.getBlocks();
+
+  // Group blocks by chunk coordinates
+  const chunkMap = new Map<string, { chunkPos: [number, number, number]; blocks: any[] }>();
+
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const cx = Math.floor(b.pos[0] / chunkSize[0]);
+    const cy = Math.floor(b.pos[1] / chunkSize[1]);
+    const cz = Math.floor(b.pos[2] / chunkSize[2]);
+    const key = `${cx},${cy},${cz}`;
+
+    let group = chunkMap.get(key);
+    if (!group) {
+      group = { chunkPos: [cx, cy, cz], blocks: [] };
+      chunkMap.set(key, group);
+    }
+    group.blocks.push(b);
+  }
+
+  const chunkGroups = Array.from(chunkMap.values());
+  const totalChunks = chunkGroups.length;
+
+  let processedChunks = 0;
+  let lastYield = performance.now();
+
+  for (let i = 0; i < chunkGroups.length; i++) {
     if (token !== (this as any).buildToken) return;
-    const entries = (this as any).chunkBuilder.getMeshEntries();
 
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i];
-      if (!entry.mesh || entry.mesh.isEmpty()) continue;
+    const group = chunkGroups[i];
+    const chunkPos = group.chunkPos;
 
-      const chunkKey = `${entry.origin[0]},${entry.origin[1]},${entry.origin[2]}_${entry.transparent ? 'T' : 'O'}`;
-      const quadsLength = entry.mesh.quads.length;
-      const existing = meshMapByChunkKey.get(chunkKey);
+    for (let j = 0; j < group.blocks.length; j++) {
+      chunkBuilder.processBlock(group.blocks[j], null);
+    }
 
-      if (!existing) {
-        const geometry = meshToBufferGeometry(entry.mesh);
-        const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
-        const meshObj = new THREE.Mesh(geometry, material);
-        meshObj.renderOrder = entry.transparent ? 1 : 0;
-        meshObj.userData.origin = entry.origin;
+    const chunk = chunkBuilder.getChunk(chunkPos);
+    if (chunk) {
+      if (!chunk.mesh.isEmpty()) {
+        const geometry = meshToBufferGeometry(chunk.mesh);
+        const meshObj = new THREE.Mesh(geometry, (this as any).opaqueMaterial);
         meshObj.visible = true;
         meshObj.frustumCulled = false;
         meshObj.matrixAutoUpdate = false;
-
+        meshObj.userData.origin = chunk.origin;
         (this as any).structureScene.add(meshObj);
         (this as any).chunkMeshes.push(meshObj);
-        meshMapByChunkKey.set(chunkKey, { meshObj, quadCount: quadsLength });
-      } else if (existing.quadCount !== quadsLength) {
-        existing.meshObj.geometry.dispose();
-        existing.meshObj.geometry = meshToBufferGeometry(entry.mesh);
-        existing.quadCount = quadsLength;
+      }
+      if (!chunk.transparentMesh.isEmpty()) {
+        const geometry = meshToBufferGeometry(chunk.transparentMesh);
+        const meshObj = new THREE.Mesh(geometry, (this as any).transparentMaterial);
+        meshObj.renderOrder = 1;
+        meshObj.visible = true;
+        meshObj.frustumCulled = false;
+        meshObj.matrixAutoUpdate = false;
+        meshObj.userData.origin = chunk.origin;
+        (this as any).structureScene.add(meshObj);
+        (this as any).chunkMeshes.push(meshObj);
       }
     }
-  };
 
-  await (this as any).chunkBuilder.updateStructureBuffersAsync({
-    chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
-    onProgress: (done: number, total: number) => {
-      if (token !== (this as any).buildToken) return;
+    processedChunks++;
 
-      syncIncrementalChunkMeshes();
-
+    const now = performance.now();
+    if (now - lastYield >= 12 || i === chunkGroups.length - 1) {
       if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 100);
+        const pct = Math.floor((processedChunks / Math.max(1, totalChunks)) * 100);
         window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
       }
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      lastYield = performance.now();
     }
-  });
+  }
 
   if (token !== (this as any).buildToken) return;
 
-  syncIncrementalChunkMeshes();
-
-  const emissiveLights = (this as any).chunkBuilder.getEmissiveLights();
+  const emissiveLights = chunkBuilder.getEmissiveLights();
   (this as any).updateEmissiveLightUniforms(emissiveLights);
   (this as any).emissiveSelectionDirty = true;
   (this as any).shadowDirty = true;
@@ -276,8 +295,19 @@ async function loadRegionAsync(
     if (entry.has('Properties')) {
       const propsTag = entry.get('Properties');
       if (propsTag && propsTag.isCompound()) {
-        propsTag.forEach((key: string, value: any) => {
-          properties[key] = value.getAsString?.() ?? '';
+        propsTag.forEach((key: any, val: any) => {
+          let propKey = '';
+          let propVal = '';
+          if (typeof key === 'string') {
+            propKey = key;
+            propVal = typeof val?.getAsString === 'function' ? val.getAsString() : (val?.value ?? String(val ?? ''));
+          } else if (typeof val === 'string') {
+            propKey = val;
+            propVal = typeof key?.getAsString === 'function' ? key.getAsString() : (key?.value ?? String(key ?? ''));
+          }
+          if (propKey) {
+            properties[propKey] = propVal;
+          }
         });
       }
     }
@@ -302,11 +332,6 @@ async function loadRegionAsync(
   const volume = width * height * depth;
 
   const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
-  const placedBlocksCache: any[] = [];
-  const placedBlocksMapCache: any[] = [];
-  const xStride = height * depth;
-  const yStride = depth;
-
   const blockStatsCount: number[] = new Array(palette.length).fill(0);
 
   let minX = width, minY = height, minZ = depth;
@@ -314,6 +339,7 @@ async function loadRegionAsync(
   let hasPlaced = false;
 
   let lastYield = performance.now();
+  let lastReportedPct = -1;
 
   for (let index = 0; index < volume; index++) {
     let paletteIndex = 0;
@@ -352,13 +378,6 @@ async function loadRegionAsync(
       const pos: [number, number, number] = [x, y, z];
       storedBlocks.push({ pos, state: paletteIndex });
 
-      const stateObj = palette[paletteIndex];
-      const placed = { pos, state: stateObj, nbt: undefined };
-      placedBlocksCache.push(placed);
-
-      const structIdx = x * xStride + y * yStride + z;
-      placedBlocksMapCache[structIdx] = placed;
-
       blockStatsCount[paletteIndex]++;
 
       if (x < minX) minX = x;
@@ -370,12 +389,14 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0x3ff) === 0) {
+    const currentPct = Math.floor((index / volume) * 100);
+    if (currentPct !== lastReportedPct) {
+      lastReportedPct = currentPct;
+      if (onProgress) {
+        onProgress(currentPct);
+      }
       const now = performance.now();
-      if (now - lastYield >= 12) {
-        if (onProgress) {
-          onProgress(Math.floor((index / volume) * 100));
-        }
+      if (now - lastYield >= 10) {
         await new Promise(resolve => requestAnimationFrame(resolve));
         lastYield = performance.now();
       }
@@ -393,13 +414,11 @@ async function loadRegionAsync(
     tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
   }
 
-  if (onProgress) {
+  if (onProgress && lastReportedPct !== 100) {
     onProgress(100);
   }
 
   const structure = new Structure(size, palette, storedBlocks);
-  (structure as any).placedBlocksCache = placedBlocksCache;
-  (structure as any).placedBlocksMapCache = placedBlocksMapCache;
   (structure as any)._precomputedStats = { blockStatsCount, palette };
 
   return structure;
