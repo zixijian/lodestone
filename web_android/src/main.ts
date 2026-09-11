@@ -420,6 +420,7 @@ async function loadRegionAsync(
   let hasPlaced = false;
 
   let lastYield = performance.now();
+  let lastReportedPct = -1;
 
   for (let index = 0; index < volume; index++) {
     let paletteIndex = 0;
@@ -452,12 +453,16 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0x1fff) === 0) {
+    if ((index & 0x3ff) === 0) {
+      const pct = Math.min(99, (index / volume * 100) | 0);
+      if (pct !== lastReportedPct) {
+        lastReportedPct = pct;
+        if (onProgress) {
+          onProgress(pct);
+        }
+      }
       const now = performance.now();
       if (now - lastYield >= 12) {
-        if (onProgress) {
-          onProgress((index / volume * 100) | 0);
-        }
         await new Promise(resolve => requestAnimationFrame(resolve));
         lastYield = performance.now();
       }
@@ -539,14 +544,14 @@ async function buildRendererForRegion(regionName: string) {
   const regionsTag = parsedRootCompound.getCompound('Regions');
   const region = regionsTag.getCompound(regionName);
 
-  // Time-sliced streaming NBT parsing
+  // 1. Step 1: Parsing NBT file with percentage callbacks (DECODING_X%)
   currentStructure = await loadRegionAsync(region, (pct) => {
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
     }
   });
 
-  // Calculate and transmit block statistics IMMEDIATELY after NBT parsing completes
+  // 2. Step 2: Show block statistics IMMEDIATELY on the native UI before starting 3D mesh building
   calculateAndSendStatisticsSync();
 
   const size = currentStructure.getSize();
@@ -633,7 +638,7 @@ async function buildRendererForRegion(regionName: string) {
 
   tick();
 
-  // Progressively stream and render chunk meshes frame-by-frame
+  // 3. Step 3: Stream chunks progressively and render 3D meshes & textures frame-by-frame
   await renderer.rebuildChunksAsync();
 }
 
