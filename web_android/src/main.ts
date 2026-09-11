@@ -106,7 +106,7 @@ function meshToBufferGeometry(mesh: any) {
   return geometry;
 }
 
-// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
+// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable streaming chunk display
 ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
 
@@ -295,18 +295,11 @@ async function loadRegionAsync(
     if (entry.has('Properties')) {
       const propsTag = entry.get('Properties');
       if (propsTag && propsTag.isCompound()) {
-        propsTag.forEach((key: any, val: any) => {
-          let propKey = '';
-          let propVal = '';
+        const keys = Array.from((propsTag as any).keys());
+        keys.forEach((key: any) => {
           if (typeof key === 'string') {
-            propKey = key;
-            propVal = typeof val?.getAsString === 'function' ? val.getAsString() : (val?.value ?? String(val ?? ''));
-          } else if (typeof val === 'string') {
-            propKey = val;
-            propVal = typeof key?.getAsString === 'function' ? key.getAsString() : (key?.value ?? String(key ?? ''));
-          }
-          if (propKey) {
-            properties[propKey] = propVal;
+            const valTag = propsTag.get(key);
+            properties[key] = valTag ? valTag.getAsString() : '';
           }
         });
       }
@@ -332,11 +325,6 @@ async function loadRegionAsync(
   const volume = width * height * depth;
 
   const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
-  const blockStatsCount: number[] = new Array(palette.length).fill(0);
-
-  let minX = width, minY = height, minZ = depth;
-  let maxX = 0, maxY = 0, maxZ = 0;
-  let hasPlaced = false;
 
   let lastYield = performance.now();
   let lastReportedPct = -1;
@@ -375,18 +363,7 @@ async function loadRegionAsync(
       const x = index % width;
       const y = Math.floor(index / (width * depth));
       const z = Math.floor(index / width) % depth;
-      const pos: [number, number, number] = [x, y, z];
-      storedBlocks.push({ pos, state: paletteIndex });
-
-      blockStatsCount[paletteIndex]++;
-
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (z < minZ) minZ = z;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      if (z > maxZ) maxZ = z;
-      hasPlaced = true;
+      storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
     }
 
     const currentPct = Math.floor((index / volume) * 100);
@@ -403,25 +380,11 @@ async function loadRegionAsync(
     }
   }
 
-  if (hasPlaced) {
-    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
-    const dx = maxX - minX + 1;
-    const dy = maxY - minY + 1;
-    const dz = maxZ - minZ + 1;
-    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-  } else {
-    tightCenter = [width / 2, height / 2, depth / 2];
-    tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
-  }
-
   if (onProgress && lastReportedPct !== 100) {
     onProgress(100);
   }
 
-  const structure = new Structure(size, palette, storedBlocks);
-  (structure as any)._precomputedStats = { blockStatsCount, palette };
-
-  return structure;
+  return new Structure(size, palette, storedBlocks);
 }
 
 // Main loader function called from Android native side
@@ -432,6 +395,7 @@ window.loadLitematic = async function () {
 
     const nbt = Lodestone.NbtFile.read(new Uint8Array(currentLitematicBuffer));
     parsedRootCompound = nbt.root;
+
     const regionsTag = parsedRootCompound.getCompound('Regions');
 
     let regions: string[] = [];
@@ -487,10 +451,35 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
+  const size = currentStructure.getSize();
+
+  // Compute tight center & radius for camera target
+  const blocks = currentStructure.getBlocks();
+  if (blocks.length > 0) {
+    let minX = size[0], minY = size[1], minZ = size[2];
+    let maxX = 0, maxY = 0, maxZ = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      const p = blocks[i].pos;
+      if (p[0] < minX) minX = p[0];
+      if (p[1] < minY) minY = p[1];
+      if (p[2] < minZ) minZ = p[2];
+      if (p[0] > maxX) maxX = p[0];
+      if (p[1] > maxY) maxY = p[1];
+      if (p[2] > maxZ) maxZ = p[2];
+    }
+    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
+    const dx = maxX - minX + 1;
+    const dy = maxY - minY + 1;
+    const dz = maxZ - minZ + 1;
+    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
+  } else {
+    tightCenter = [size[0] / 2, size[1] / 2, size[2] / 2];
+    tightRadius = Math.max(1.0, Math.max(size[0], size[1], size[2]) / 2);
+  }
+
   // Prioritize calculating and displaying block statistics right after parsing finishes!
   calculateAndSendStatistics();
 
-  const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
   const maxDim = Math.max(size[0], size[1], size[2]);
 
@@ -579,60 +568,23 @@ function calculateAndSendStatistics() {
 
   try {
     const rawStructure = currentStructure as any;
-    const precomputed = rawStructure._precomputedStats;
-
-    if (precomputed) {
-      const { blockStatsCount, palette } = precomputed;
-      const blockStats: { [key: string]: number } = {};
-      let totalBlocks = 0;
-
-      for (let i = 0; i < blockStatsCount.length; i++) {
-        const count = blockStatsCount[i];
-        if (count > 0 && palette[i]) {
-          const blockName = palette[i].getName().toString();
-          blockStats[blockName] = (blockStats[blockName] || 0) + count;
-          totalBlocks += count;
-        }
-      }
-
-      if (window.AndroidHost) {
-        window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
-      }
-      return;
-    }
-
-    const blocks = rawStructure.blocks || [];
-    const palette = rawStructure.palette || [];
+    const blocks = rawStructure.getBlocks() || [];
 
     const blockStats: { [key: string]: number } = {};
     let totalBlocks = 0;
-    const totalCount = blocks.length;
-    let index = 0;
 
-    const batchSize = 100000;
-    function processBatch() {
-      const end = Math.min(index + batchSize, totalCount);
-      for (; index < end; index++) {
-        const block = blocks[index];
-        if (block) {
-          const stateIdx = block.state;
-          const state = palette[stateIdx];
-          if (state) {
-            const blockName = state.getName().toString();
-            blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-            totalBlocks++;
-          }
-        }
-      }
-      if (index < totalCount) {
-        setTimeout(processBatch, 0);
-      } else {
-        if (window.AndroidHost) {
-          window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
-        }
+    for (let index = 0; index < blocks.length; index++) {
+      const block = blocks[index];
+      if (block && block.state) {
+        const blockName = block.state.getName().toString();
+        blockStats[blockName] = (blockStats[blockName] || 0) + 1;
+        totalBlocks++;
       }
     }
-    processBatch();
+
+    if (window.AndroidHost) {
+      window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
+    }
   } catch (err) {
     console.error("Error collecting block statistics: ", err);
   }
