@@ -7,7 +7,7 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  BlockState
+  LitematicLoader
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -189,156 +189,6 @@ window.destroyRenderer = function () {
   parsedRootCompound = null;
 };
 
-// Fast time-sliced streaming NBT decoder with percentage reporting
-async function loadRegionAsync(
-  regionCompound: any,
-  onProgress?: (pct: number) => void
-): Promise<Structure> {
-  const sizeNbt = regionCompound.getCompound('Size');
-  const rawSize = [
-    sizeNbt.getNumber('x') ?? 0,
-    sizeNbt.getNumber('y') ?? 0,
-    sizeNbt.getNumber('z') ?? 0,
-  ];
-  const size: [number, number, number] = [
-    Math.abs(rawSize[0]),
-    Math.abs(rawSize[1]),
-    Math.abs(rawSize[2]),
-  ];
-
-  const paletteList = regionCompound.getList('BlockStatePalette');
-  const palette: BlockState[] = [];
-  paletteList.forEach((entry: any) => {
-    if (!entry.isCompound()) return;
-    const name = entry.getString('Name') ?? 'minecraft:air';
-    const properties: { [key: string]: string } = {};
-    if (entry.has('Properties')) {
-      const propsTag = entry.get('Properties');
-      if (propsTag && propsTag.isCompound()) {
-        propsTag.forEach((key: string, value: any) => {
-          properties[key] = value.getAsString?.() ?? '';
-        });
-      }
-    }
-    palette.push(new BlockState(name, properties));
-  });
-
-  const isAir = palette.map(state => state.is('minecraft:air'));
-
-  const blockStatesNbt = regionCompound.has('BlockStates')
-    ? regionCompound.getLongArray('BlockStates')
-    : null;
-
-  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
-  const mask = (1 << bitsPerBlock) - 1;
-
-  const width = size[0];
-  const height = size[1];
-  const depth = size[2];
-  const volume = width * height * depth;
-
-  let numWords = 0;
-  let blockStatesHigh: Uint32Array | null = null;
-  let blockStatesLow: Uint32Array | null = null;
-
-  if (blockStatesNbt) {
-    const items = blockStatesNbt.getItems();
-    numWords = items.length;
-    blockStatesHigh = new Uint32Array(numWords);
-    blockStatesLow = new Uint32Array(numWords);
-    for (let i = 0; i < numWords; i++) {
-      const pair = items[i].getAsPair();
-      blockStatesHigh[i] = pair[0] >>> 0;
-      blockStatesLow[i] = pair[1] >>> 0;
-    }
-  }
-
-  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
-
-  let minX = width, minY = height, minZ = depth;
-  let maxX = 0, maxY = 0, maxZ = 0;
-  let hasPlaced = false;
-
-  let lastYield = performance.now();
-  let lastReportedPct = -1;
-
-  for (let index = 0; index < volume; index++) {
-    let paletteIndex = 0;
-    if (blockStatesHigh && blockStatesLow && numWords > 0) {
-      const startOffset = index * bitsPerBlock;
-      const startArrIndex = startOffset >>> 5;
-      const endArrIndex = ((index + 1) * bitsPerBlock - 1) >>> 5;
-      const startBitOffset = startOffset & 0x1f;
-      const halfInd = startArrIndex >>> 1;
-
-      let blockStart: number;
-      let blockEnd: number;
-
-      if ((startArrIndex & 0x1) === 0) {
-        blockStart = blockStatesLow[halfInd] ?? 0;
-        blockEnd = blockStatesHigh[halfInd] ?? 0;
-      } else {
-        blockStart = blockStatesHigh[halfInd] ?? 0;
-        blockEnd = blockStatesLow[halfInd + 1] ?? 0;
-      }
-
-      if (startArrIndex === endArrIndex) {
-        paletteIndex = (blockStart >>> startBitOffset) & mask;
-      } else {
-        const endOffset = 32 - startBitOffset;
-        paletteIndex =
-          ((blockStart >>> startBitOffset) & mask) |
-          ((blockEnd << endOffset) & mask);
-      }
-    }
-
-    if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-      const x = index % width;
-      const y = Math.floor(index / (width * depth));
-      const z = Math.floor(index / width) % depth;
-      storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
-
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (z < minZ) minZ = z;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      if (z > maxZ) maxZ = z;
-      hasPlaced = true;
-    }
-
-    if ((index & 0x7ff) === 0) {
-      const pct = Math.floor((index / volume) * 100);
-      if (pct !== lastReportedPct && onProgress) {
-        lastReportedPct = pct;
-        onProgress(pct);
-      }
-      const now = performance.now();
-      if (now - lastYield >= 12) {
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        lastYield = performance.now();
-      }
-    }
-  }
-
-  if (hasPlaced) {
-    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
-    const dx = maxX - minX + 1;
-    const dy = maxY - minY + 1;
-    const dz = maxZ - minZ + 1;
-    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-  } else {
-    tightCenter = [width / 2, height / 2, depth / 2];
-    tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
-  }
-
-  if (onProgress) {
-    onProgress(100);
-  }
-
-  return new Structure(size, palette, storedBlocks);
-}
-
 // Send block statistics right after parsing
 function calculateAndSendStatistics() {
   if (!currentStructure) return;
@@ -425,22 +275,36 @@ async function buildRendererForRegion(regionName: string) {
   canvasElement.style.height = '100%';
   container.appendChild(canvasElement);
 
-  const regionsTag = parsedRootCompound.getCompound('Regions');
-  const region = regionsTag.getCompound(regionName);
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_10%');
+  }
+  await new Promise(resolve => requestAnimationFrame(resolve));
 
-  // Time-sliced streaming NBT parsing with continuous percentage updates
-  currentStructure = await loadRegionAsync(region, (pct) => {
-    if (window.AndroidHost) {
-      window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
-    }
-  });
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_50%');
+  }
 
-  // REQUIREMENT: Send statistics FIRST right after parsing finishes, before starting 3D chunk build
+  // Use Lodestone native LitematicLoader.fromNbt to preserve block properties (facing, type, etc.)
+  currentStructure = LitematicLoader.fromNbt(parsedRootCompound, regionName);
+
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_100%');
+  }
+
+  // Calculate center and radius for camera controls
+  const size = currentStructure.getSize();
+  const width = size[0];
+  const height = size[1];
+  const depth = size[2];
+
+  tightCenter = [width / 2, height / 2, depth / 2];
+  tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
+
+  // Send block statistics FIRST right after parsing completes
   calculateAndSendStatistics();
 
-  const size = currentStructure.getSize();
-  const volume = size[0] * size[1] * size[2];
-  const maxDim = Math.max(size[0], size[1], size[2]);
+  const volume = width * height * depth;
+  const maxDim = Math.max(width, height, depth);
 
   const chunkSize = volume > 1000000 || maxDim > 128 ? 32 : 16;
 
@@ -492,11 +356,11 @@ async function buildRendererForRegion(regionName: string) {
   controls.update();
 
   window.addEventListener('resize', () => {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const newAspect = width / height;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const newAspect = w / h;
 
-    renderer.setViewport(0, 0, width, height);
+    renderer.setViewport(0, 0, w, h);
 
     perspectiveCamera.aspect = newAspect;
     perspectiveCamera.updateProjectionMatrix();
