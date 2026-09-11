@@ -7,7 +7,8 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  LitematicLoader
+  LitematicLoader,
+  meshToBufferGeometry
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -54,6 +55,119 @@ let animFrameId: number | null = null;
   }
 };
 
+// Override LitematicLoader.loadRegion with time-sliced async decoding to support smooth percentage updates
+(LitematicLoader as any).loadRegionAsync = async function (region: any, onProgress?: (pct: number) => void): Promise<any> {
+  const sizeNbt = region.getCompound('Size');
+  const rawSize = [
+    sizeNbt.getNumber('x') ?? 0,
+    sizeNbt.getNumber('y') ?? 0,
+    sizeNbt.getNumber('z') ?? 0,
+  ];
+  const size: [number, number, number] = [
+    Math.abs(rawSize[0]),
+    Math.abs(rawSize[1]),
+    Math.abs(rawSize[2]),
+  ];
+
+  const paletteList = region.getList('BlockStatePalette');
+  const palette: any[] = [];
+  paletteList.forEach((entry: any) => {
+    if (!entry.isCompound()) return;
+    const name = entry.getString('Name') ?? 'minecraft:air';
+    const properties: { [key: string]: string } = {};
+    if (entry.has('Properties')) {
+      const propsTag = entry.get('Properties');
+      if (propsTag && propsTag.isCompound()) {
+        propsTag.forEach((key: string, value: any) => {
+          properties[key] = value.getAsString?.() ?? '';
+        });
+      }
+    }
+    palette.push(new (Lodestone as any).BlockState(name, properties));
+  });
+
+  const blockStatesNbt = region.getLongArray('BlockStates');
+  const blockStates = blockStatesNbt.getItems().map((item: any) => item.getAsPair());
+  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
+
+  const volume = size[0] * size[1] * size[2];
+  const blocks = new Array(volume);
+  const mask = (1 << bitsPerBlock) - 1;
+
+  let lastYield = performance.now();
+  for (let index = 0; index < volume; index++) {
+    const startOffset = index * bitsPerBlock;
+    const startArrIndex = startOffset >>> 5;
+    const endArrIndex = ((index + 1) * bitsPerBlock - 1) >>> 5;
+    const startBitOffset = startOffset & 0x1f;
+
+    const halfInd = startArrIndex >>> 1;
+    let blockStart: number;
+    let blockEnd: number;
+
+    if ((startArrIndex & 0x1) === 0) {
+      blockStart = blockStates[halfInd]?.[1] ?? 0;
+      blockEnd = blockStates[halfInd]?.[0] ?? 0;
+    } else {
+      blockStart = blockStates[halfInd]?.[0] ?? 0;
+      blockEnd = blockStates[halfInd + 1]?.[1] ?? 0;
+    }
+
+    let value: number;
+    if (startArrIndex === endArrIndex) {
+      value = (blockStart >>> startBitOffset) & mask;
+    } else {
+      const endOffset = 32 - startBitOffset;
+      value = ((blockStart >>> startBitOffset) & mask) | ((blockEnd << endOffset) & mask);
+    }
+    blocks[index] = value;
+
+    if ((index & 0x1fff) === 0 && performance.now() - lastYield >= 12) {
+      if (onProgress) {
+        onProgress(Math.floor((index / volume) * 100));
+      }
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      lastYield = performance.now();
+    }
+  }
+  if (onProgress) {
+    onProgress(100);
+  }
+
+  const isAir = palette.map(state => state.is('minecraft:air'));
+  const storedBlocks: any[] = [];
+
+  for (let index = 0; index < blocks.length; index++) {
+    const paletteIndex = blocks[index];
+    if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
+      const x = index % size[0];
+      const y = Math.floor(index / (size[0] * size[2]));
+      const z = Math.floor(index / size[0]) % size[2];
+      storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
+    }
+  }
+
+  return new Structure(size, palette, storedBlocks);
+};
+
+(LitematicLoader as any).fromNbtAsync = async function (root: any, regionName?: string, onProgress?: (pct: number) => void): Promise<any> {
+  const regions = root.getCompound('Regions');
+  let region: any;
+  if (regionName !== undefined) {
+    if (!regions.hasCompound(regionName)) {
+      throw new Error(`Region '${regionName}' not found in litematic file`);
+    }
+    region = regions.getCompound(regionName);
+  } else {
+    const firstKey = regions.keys()[Symbol.iterator]().next().value;
+    if (firstKey === undefined) {
+      throw new Error('No regions found in litematic file');
+    }
+    region = regions.getCompound(firstKey);
+  }
+  return await (this as any).loadRegionAsync(region, onProgress);
+};
+
 // Infinite View: override applyDrawDistance so chunks are never culled when zooming out
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   if ((this as any).chunkMeshes) {
@@ -65,7 +179,59 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   }
 };
 
-// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
+// Progressive Chunk Mesh Building
+ThreeStructureRenderer.prototype.rebuildChunkObjectsAsync = async function (token: number) {
+  this.chunkMeshes.forEach(mesh => {
+    this.structureScene.remove(mesh);
+    mesh.geometry.dispose();
+  });
+  this.chunkMeshes = [];
+
+  const meshes = (this as any).chunkBuilder.getMeshEntries();
+  const total = meshes.length;
+  let lastYield = (this as any).now();
+
+  for (let i = 0; i < total; i++) {
+    if (token !== (this as any).buildToken) return;
+
+    const entry = meshes[i];
+    if (entry.mesh.isEmpty()) continue;
+
+    const geometry = meshToBufferGeometry(entry.mesh);
+    const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.renderOrder = entry.transparent ? 1 : 0;
+    mesh.userData.origin = entry.origin;
+    mesh.visible = true;
+    mesh.frustumCulled = false;
+
+    this.structureScene.add(mesh);
+    this.chunkMeshes.push(mesh);
+
+    if (window.AndroidHost && (i & 0x7) === 0) {
+      const pct = Math.floor(((i + 1) / Math.max(1, total)) * 100);
+      window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+    }
+
+    if ((i & 0x3) === 0 && (this as any).now() - lastYield >= ((this as any).asyncChunkBuildTimeMs || 12)) {
+      await (this as any).yieldControl();
+      lastYield = (this as any).now();
+    }
+  }
+
+  if (token !== (this as any).buildToken) return;
+
+  const emissiveLights = (this as any).chunkBuilder.getEmissiveLights();
+  (this as any).updateEmissiveLightUniforms(emissiveLights);
+  (this as any).emissiveSelectionDirty = true;
+  (this as any).shadowDirty = true;
+
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('RENDERING_100%');
+  }
+};
+
+// Hook rebuildChunksAsync to report progress and execute streaming chunk building
 ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
 
@@ -76,32 +242,11 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   await (this as any).chunkBuilder.updateStructureBuffersAsync({
     chunkPositions,
     timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
-    onProgress: (done: number, total: number) => {
-      if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 100);
-        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-      }
-    }
   });
 
   if (token !== (this as any).buildToken) return;
 
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
-    if (window.AndroidHost && token === (this as any).buildToken) {
-      window.AndroidHost.onLoadingProgress('RENDERING_100%');
-    }
-  });
-
-  (this as any).buildPromise = buildPromise;
-  return buildPromise;
+  await (this as any).rebuildChunkObjectsAsync(token);
 };
 
 // Initialize Web application
@@ -276,16 +421,15 @@ async function buildRendererForRegion(regionName: string) {
   container.appendChild(canvasElement);
 
   if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('DECODING_10%');
-  }
-  await new Promise(resolve => requestAnimationFrame(resolve));
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('DECODING_50%');
+    window.AndroidHost.onLoadingProgress('DECODING_0%');
   }
 
-  // Use Lodestone native LitematicLoader.fromNbt to preserve block properties (facing, type, etc.)
-  currentStructure = LitematicLoader.fromNbt(parsedRootCompound, regionName);
+  // Use loadRegionAsync for smooth progress callbacks while retaining exact BlockState properties (facing, type, etc.)
+  currentStructure = await (LitematicLoader as any).fromNbtAsync(parsedRootCompound, regionName, (pct: number) => {
+    if (window.AndroidHost) {
+      window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
+    }
+  });
 
   if (window.AndroidHost) {
     window.AndroidHost.onLoadingProgress('DECODING_100%');
