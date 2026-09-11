@@ -23,6 +23,9 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    destroyRenderer(): void;
+    pauseRenderer(): void;
+    resumeRenderer(): void;
   }
 }
 
@@ -40,6 +43,9 @@ let canvasElement: HTMLCanvasElement;
 let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
+
+let animationFrameId: number | null = null;
+let isRenderingPaused = false;
 
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
@@ -63,6 +69,54 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   }
 };
 
+function meshToBufferGeometry(mesh: any) {
+  const geometry = new THREE.BufferGeometry();
+  if (!mesh || !mesh.quads || mesh.quads.length === 0) {
+    return geometry;
+  }
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const colors: number[] = [];
+  const texLimits: number[] = [];
+  const blockPositions: number[] = [];
+  const emissives: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const quad of mesh.quads) {
+    const verts = quad.vertices();
+    for (const v of verts) {
+      positions.push(v.pos.x, v.pos.y, v.pos.z);
+      const normal = v.normal ?? quad.normal();
+      normals.push(normal.x, normal.y, normal.z);
+      uvs.push(v.texture?.[0] ?? 0, v.texture?.[1] ?? 0);
+      if (v.textureLimit) {
+        texLimits.push(v.textureLimit[0], v.textureLimit[1], v.textureLimit[2], v.textureLimit[3]);
+      } else {
+        texLimits.push(0, 0, 0, 0);
+      }
+      const color = v.color ?? [1, 1, 1];
+      colors.push(color[0], color[1], color[2]);
+      const pos = v.blockPos ?? v.pos;
+      blockPositions.push(pos.x, pos.y, pos.z);
+      emissives.push(v.emissive ?? 0);
+    }
+    indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
+    offset += 4;
+  }
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('texLimit', new THREE.Float32BufferAttribute(texLimits, 4));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('blockPos', new THREE.Float32BufferAttribute(blockPositions, 3));
+  geometry.setAttribute('emissive', new THREE.Float32BufferAttribute(emissives, 1));
+  const indexArray = positions.length / 3 > 0x10000 ? new Uint32Array(indices) : new Uint16Array(indices);
+  geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 // Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
 ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
@@ -71,12 +125,59 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
+  if ((this as any).chunkMeshes) {
+    for (const mesh of (this as any).chunkMeshes) {
+      (this as any).structureScene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+    }
+  }
+  (this as any).chunkMeshes = [];
+
+  const meshMapByChunkKey = new Map<string, { meshObj: THREE.Mesh; quadCount: number }>();
+
+  const syncIncrementalChunkMeshes = () => {
+    if (token !== (this as any).buildToken) return;
+    const entries = (this as any).chunkBuilder.getMeshEntries();
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (!entry.mesh || entry.mesh.isEmpty()) continue;
+
+      const chunkKey = `${entry.origin[0]},${entry.origin[1]},${entry.origin[2]}_${entry.transparent ? 'T' : 'O'}`;
+      const quadsLength = entry.mesh.quads.length;
+      const existing = meshMapByChunkKey.get(chunkKey);
+
+      if (!existing) {
+        const geometry = meshToBufferGeometry(entry.mesh);
+        const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
+        const meshObj = new THREE.Mesh(geometry, material);
+        meshObj.renderOrder = entry.transparent ? 1 : 0;
+        meshObj.userData.origin = entry.origin;
+        meshObj.visible = true;
+        meshObj.frustumCulled = false;
+        meshObj.matrixAutoUpdate = false;
+
+        (this as any).structureScene.add(meshObj);
+        (this as any).chunkMeshes.push(meshObj);
+        meshMapByChunkKey.set(chunkKey, { meshObj, quadCount: quadsLength });
+      } else if (existing.quadCount !== quadsLength) {
+        existing.meshObj.geometry.dispose();
+        existing.meshObj.geometry = meshToBufferGeometry(entry.mesh);
+        existing.quadCount = quadsLength;
+      }
+    }
+  };
+
   await (this as any).chunkBuilder.updateStructureBuffersAsync({
     chunkPositions,
     timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
     onProgress: (done: number, total: number) => {
+      if (token !== (this as any).buildToken) return;
+
+      syncIncrementalChunkMeshes();
+
       if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 50);
+        const pct = Math.floor((done / Math.max(1, total)) * 100);
         window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
       }
     }
@@ -84,22 +185,16 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
 
   if (token !== (this as any).buildToken) return;
 
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
-    if (window.AndroidHost && token === (this as any).buildToken) {
-      window.AndroidHost.onLoadingProgress('RENDERING_100%');
-    }
-  });
+  syncIncrementalChunkMeshes();
 
-  (this as any).buildPromise = buildPromise;
-  return buildPromise;
+  const emissiveLights = (this as any).chunkBuilder.getEmissiveLights();
+  (this as any).updateEmissiveLightUniforms(emissiveLights);
+  (this as any).emissiveSelectionDirty = true;
+  (this as any).shadowDirty = true;
+
+  if (window.AndroidHost && token === (this as any).buildToken) {
+    window.AndroidHost.onLoadingProgress('RENDERING_100%');
+  }
 };
 
 // Initialize Web application
@@ -130,7 +225,13 @@ async function init() {
 
 // Render loop to keep view and OrbitControls synchronized
 function tick() {
-  requestAnimationFrame(tick);
+  if (!isRenderingPaused) {
+    animationFrameId = requestAnimationFrame(tick);
+  } else {
+    animationFrameId = null;
+    return;
+  }
+
   if (controls) {
     controls.update();
   }
@@ -201,6 +302,12 @@ async function loadRegionAsync(
   const volume = width * height * depth;
 
   const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
+  const placedBlocksCache: any[] = [];
+  const placedBlocksMapCache: any[] = [];
+  const xStride = height * depth;
+  const yStride = depth;
+
+  const blockStatsCount: number[] = new Array(palette.length).fill(0);
 
   let minX = width, minY = height, minZ = depth;
   let maxX = 0, maxY = 0, maxZ = 0;
@@ -242,7 +349,17 @@ async function loadRegionAsync(
       const x = index % width;
       const y = Math.floor(index / (width * depth));
       const z = Math.floor(index / width) % depth;
-      storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
+      const pos: [number, number, number] = [x, y, z];
+      storedBlocks.push({ pos, state: paletteIndex });
+
+      const stateObj = palette[paletteIndex];
+      const placed = { pos, state: stateObj, nbt: undefined };
+      placedBlocksCache.push(placed);
+
+      const structIdx = x * xStride + y * yStride + z;
+      placedBlocksMapCache[structIdx] = placed;
+
+      blockStatsCount[paletteIndex]++;
 
       if (x < minX) minX = x;
       if (y < minY) minY = y;
@@ -253,7 +370,7 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0x7fff) === 0) {
+    if ((index & 0x3ff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
         if (onProgress) {
@@ -280,7 +397,12 @@ async function loadRegionAsync(
     onProgress(100);
   }
 
-  return new Structure(size, palette, storedBlocks);
+  const structure = new Structure(size, palette, storedBlocks);
+  (structure as any).placedBlocksCache = placedBlocksCache;
+  (structure as any).placedBlocksMapCache = placedBlocksMapCache;
+  (structure as any)._precomputedStats = { blockStatsCount, palette };
+
+  return structure;
 }
 
 // Main loader function called from Android native side
@@ -345,6 +467,9 @@ async function buildRendererForRegion(regionName: string) {
       window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
     }
   });
+
+  // Prioritize calculating and displaying block statistics right after parsing finishes!
+  calculateAndSendStatistics();
 
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
@@ -423,12 +548,11 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
+  isRenderingPaused = false;
   tick();
 
   // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
-
-  calculateAndSendStatistics();
 }
 
 function calculateAndSendStatistics() {
@@ -436,6 +560,28 @@ function calculateAndSendStatistics() {
 
   try {
     const rawStructure = currentStructure as any;
+    const precomputed = rawStructure._precomputedStats;
+
+    if (precomputed) {
+      const { blockStatsCount, palette } = precomputed;
+      const blockStats: { [key: string]: number } = {};
+      let totalBlocks = 0;
+
+      for (let i = 0; i < blockStatsCount.length; i++) {
+        const count = blockStatsCount[i];
+        if (count > 0 && palette[i]) {
+          const blockName = palette[i].getName().toString();
+          blockStats[blockName] = (blockStats[blockName] || 0) + count;
+          totalBlocks += count;
+        }
+      }
+
+      if (window.AndroidHost) {
+        window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
+      }
+      return;
+    }
+
     const blocks = rawStructure.blocks || [];
     const palette = rawStructure.palette || [];
 
@@ -545,6 +691,61 @@ window.switchRegion = async function (regionName: string) {
 
   if (window.AndroidHost) {
     window.AndroidHost.onLoadingProgress('SUCCESS');
+  }
+};
+
+window.destroyRenderer = function () {
+  isRenderingPaused = true;
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+  if (controls) {
+    try {
+      controls.dispose();
+    } catch (e) { }
+  }
+  if (renderer) {
+    try {
+      (renderer as any).buildToken++;
+      if ((renderer as any).chunkBuilder) {
+        (renderer as any).chunkBuilder.cancelPendingBuilds();
+      }
+      renderer.dispose();
+    } catch (e) {
+      console.error("Error disposing renderer: ", e);
+    }
+    renderer = null as any;
+  }
+  if (canvasElement) {
+    try {
+      const gl = canvasElement.getContext('webgl2') || canvasElement.getContext('webgl');
+      if (gl) {
+        const loseContextExt = gl.getExtension('WEBGL_lose_context');
+        if (loseContextExt) {
+          loseContextExt.loseContext();
+        }
+      }
+    } catch (e) { }
+  }
+  currentLitematicBuffer = null;
+  currentStructure = null;
+  parsedRootCompound = null;
+  currentResources = null;
+};
+
+window.pauseRenderer = function () {
+  isRenderingPaused = true;
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+};
+
+window.resumeRenderer = function () {
+  if (isRenderingPaused) {
+    isRenderingPaused = false;
+    tick();
   }
 };
 

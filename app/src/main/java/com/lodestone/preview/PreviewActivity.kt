@@ -172,6 +172,29 @@ class PreviewActivity : AppCompatActivity() {
             .show()
     }
 
+    override fun onPause() {
+        super.onPause()
+        binding.webviewRenderer.evaluateJavascript("if (window.pauseRenderer) window.pauseRenderer();", null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        binding.webviewRenderer.evaluateJavascript("if (window.resumeRenderer) window.resumeRenderer();", null)
+    }
+
+    override fun onDestroy() {
+        try {
+            binding.webviewRenderer.evaluateJavascript("if (window.destroyRenderer) window.destroyRenderer();", null)
+            binding.webviewRenderer.stopLoading()
+            binding.webviewRenderer.clearHistory()
+            binding.webviewRenderer.removeAllViews()
+            binding.webviewRenderer.destroy()
+        } catch (e: Exception) {
+            Log.e("PreviewActivity", "Error destroying WebView", e)
+        }
+        super.onDestroy()
+    }
+
     // Inner class for JS-Android communications
     inner class AndroidJSBridge {
 
