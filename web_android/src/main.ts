@@ -7,7 +7,8 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  BlockState
+  BlockState,
+  NbtFile
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -43,6 +44,41 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animationFrameId: number | null = null;
 let isDestroyed = false;
+
+// Clean exit resource disposal handler
+window.destroyRenderer = window.stopRenderLoop = function () {
+  isDestroyed = true;
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+  if (controls) {
+    try {
+      controls.dispose();
+    } catch (e) {
+      // ignore
+    }
+  }
+  if (renderer) {
+    try {
+      if ((renderer as any).chunkMeshes) {
+        for (const mesh of (renderer as any).chunkMeshes) {
+          if (mesh.geometry) mesh.geometry.dispose();
+        }
+        (renderer as any).chunkMeshes = [];
+      }
+      if (renderer.renderer) {
+        renderer.renderer.dispose();
+        renderer.renderer.forceContextLoss();
+      }
+    } catch (e) {
+      console.error("Error disposing renderer: ", e);
+    }
+  }
+  if (container) {
+    container.innerHTML = '';
+  }
+};
 
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
@@ -216,6 +252,8 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
         if (existing.opaque) {
           (self as any).structureScene.remove(existing.opaque);
           existing.opaque.geometry.dispose();
+          const oldIdx = (self as any).chunkMeshes.indexOf(existing.opaque);
+          if (oldIdx !== -1) (self as any).chunkMeshes.splice(oldIdx, 1);
         }
         const geometry = meshToBufferGeometry(chunk.mesh);
         const mesh = new THREE.Mesh(geometry, (self as any).opaqueMaterial);
@@ -232,6 +270,8 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
         if (existing.transparent) {
           (self as any).structureScene.remove(existing.transparent);
           existing.transparent.geometry.dispose();
+          const oldIdx = (self as any).chunkMeshes.indexOf(existing.transparent);
+          if (oldIdx !== -1) (self as any).chunkMeshes.splice(oldIdx, 1);
         }
         const transparentGeometry = meshToBufferGeometry(chunk.transparentMesh);
         const transMesh = new THREE.Mesh(transparentGeometry, (self as any).transparentMaterial);
@@ -278,41 +318,6 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
   }
 };
 
-// Clean exit resource disposal handler
-window.destroyRenderer = window.stopRenderLoop = function () {
-  isDestroyed = true;
-  if (animationFrameId !== null) {
-    cancelAnimationFrame(animationFrameId);
-    animationFrameId = null;
-  }
-  if (controls) {
-    try {
-      controls.dispose();
-    } catch (e) {
-      // ignore
-    }
-  }
-  if (renderer) {
-    try {
-      if ((renderer as any).chunkMeshes) {
-        for (const mesh of (renderer as any).chunkMeshes) {
-          if (mesh.geometry) mesh.geometry.dispose();
-        }
-        (renderer as any).chunkMeshes = [];
-      }
-      if (renderer.renderer) {
-        renderer.renderer.dispose();
-        renderer.renderer.forceContextLoss();
-      }
-    } catch (e) {
-      console.error("Error disposing renderer: ", e);
-    }
-  }
-  if (container) {
-    container.innerHTML = '';
-  }
-};
-
 // Initialize Web application
 async function init() {
   container = document.getElementById('renderer-container')!;
@@ -354,7 +359,7 @@ function tick() {
   }
 }
 
-// Fast Streaming NBT Decoder using BigUint64Array bit-unpacking and pre-allocated arrays
+// Fast Time-Sliced Streaming NBT Decoder with BigUint64Array bit-unpacking
 async function loadRegionAsync(
   regionCompound: any,
   onProgress?: (pct: number) => void

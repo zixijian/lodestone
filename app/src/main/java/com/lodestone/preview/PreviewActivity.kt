@@ -79,25 +79,6 @@ class PreviewActivity : AppCompatActivity() {
         }
     }
 
-    override fun onPause() {
-        super.onPause()
-        binding.webviewRenderer.evaluateJavascript("if (window.stopRenderLoop) window.stopRenderLoop();", null)
-    }
-
-    override fun onDestroy() {
-        binding.webviewRenderer.evaluateJavascript("if (window.destroyRenderer) window.destroyRenderer();", null)
-        try {
-            binding.webviewRenderer.loadUrl("about:blank")
-            binding.webviewRenderer.stopLoading()
-            binding.webviewRenderer.clearHistory()
-            binding.webviewRenderer.removeAllViews()
-            binding.webviewRenderer.destroy()
-        } catch (e: Exception) {
-            Log.e("Lodestone", "Error destroying WebView", e)
-        }
-        super.onDestroy()
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         val webSettings = binding.webviewRenderer.settings
@@ -208,7 +189,7 @@ class PreviewActivity : AppCompatActivity() {
                     binding.llLoadingOverlay.visibility = View.VISIBLE
                     binding.tvLoadingStatus.text = "解析数据 $pct%"
                 } else if (state.startsWith("RENDERING_")) {
-                    // Remove loading overlay during chunk rendering so 3D model is 100% visible
+                    // Remove "构建网格" prompt overlay during chunk rendering so 3D model is 100% visible
                     binding.llLoadingOverlay.visibility = View.GONE
                 } else if (state.startsWith("ERROR:")) {
                     binding.llLoadingOverlay.visibility = View.GONE
