@@ -46,12 +46,14 @@ let animFrameId: number | null = null;
 
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksCache.length === this.blocks.length) return;
-  this.placedBlocksCache = this.blocks.map((block: any) => this.toPlacedBlock(block));
+  if (this.placedBlocksCache && this.placedBlocksMapCache) return;
+  this.placedBlocksCache = [];
   this.placedBlocksMapCache = [];
-  for (let i = 0; i < this.placedBlocksCache.length; i++) {
-    const placed = this.placedBlocksCache[i];
-    this.placedBlocksMapCache[this.getIndex(placed.pos)] = placed;
+  for (let i = 0; i < this.blocks.length; i++) {
+    const block = this.blocks[i];
+    const placed = this.toPlacedBlock(block);
+    this.placedBlocksCache.push(placed);
+    this.placedBlocksMapCache[this.getIndex(block.pos)] = placed;
   }
 };
 
@@ -91,52 +93,12 @@ let animFrameId: number | null = null;
   const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
 
   const volume = size[0] * size[1] * size[2];
-  const blocks = new Array(volume);
-  const mask = (1 << bitsPerBlock) - 1;
-
-  let lastYield = performance.now();
-  for (let index = 0; index < volume; index++) {
-    const startOffset = index * bitsPerBlock;
-    const startArrIndex = startOffset >>> 5;
-    const endArrIndex = ((index + 1) * bitsPerBlock - 1) >>> 5;
-    const startBitOffset = startOffset & 0x1f;
-
-    const halfInd = startArrIndex >>> 1;
-    let blockStart: number;
-    let blockEnd: number;
-
-    if ((startArrIndex & 0x1) === 0) {
-      blockStart = blockStates[halfInd]?.[1] ?? 0;
-      blockEnd = blockStates[halfInd]?.[0] ?? 0;
-    } else {
-      blockStart = blockStates[halfInd]?.[0] ?? 0;
-      blockEnd = blockStates[halfInd + 1]?.[1] ?? 0;
-    }
-
-    let value: number;
-    if (startArrIndex === endArrIndex) {
-      value = (blockStart >>> startBitOffset) & mask;
-    } else {
-      const endOffset = 32 - startBitOffset;
-      value = ((blockStart >>> startBitOffset) & mask) | ((blockEnd << endOffset) & mask);
-    }
-    blocks[index] = value;
-
-    if ((index & 0x1fff) === 0 && performance.now() - lastYield >= 12) {
-      if (onProgress) {
-        onProgress(Math.floor((index / volume) * 100));
-      }
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      lastYield = performance.now();
-    }
-  }
-  if (onProgress) {
-    onProgress(100);
-  }
+  const blocks = (LitematicLoader as any).unpackBlockData(blockStates, bitsPerBlock, size[0], size[1], size[2]);
 
   const isAir = palette.map(state => state.is('minecraft:air'));
   const storedBlocks: any[] = [];
 
+  let lastYield = performance.now();
   for (let index = 0; index < blocks.length; index++) {
     const paletteIndex = blocks[index];
     if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
@@ -145,6 +107,18 @@ let animFrameId: number | null = null;
       const z = Math.floor(index / size[0]) % size[2];
       storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
     }
+
+    if ((index & 0x7fff) === 0 && performance.now() - lastYield >= 12) {
+      if (onProgress) {
+        onProgress(Math.floor((index / volume) * 100));
+      }
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      lastYield = performance.now();
+    }
+  }
+
+  if (onProgress) {
+    onProgress(100);
   }
 
   return new Structure(size, palette, storedBlocks);
