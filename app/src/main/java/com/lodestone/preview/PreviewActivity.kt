@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.View
 import android.webkit.*
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -77,6 +78,13 @@ class PreviewActivity : AppCompatActivity() {
         binding.fabRegionSwitch.setOnClickListener {
             showRegionSelector()
         }
+
+        // Handle back press cleanly to prevent exit freeze
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                cleanupAndFinish()
+            }
+        })
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -170,6 +178,41 @@ class PreviewActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.dialog_ok, null)
             .show()
+    }
+
+    private fun cleanupAndFinish() {
+        try {
+            binding.webviewRenderer.evaluateJavascript("destroyRenderer();", null)
+        } catch (e: Exception) {
+            Log.e("Lodestone", "Error invoking destroyRenderer in JS", e)
+        }
+        finish()
+    }
+
+    override fun onPause() {
+
+        super.onPause()
+        try {
+            binding.webviewRenderer.evaluateJavascript("stopRenderLoop();", null)
+        } catch (e: Exception) {
+            Log.e("Lodestone", "Error stopping render loop onPause", e)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+    }
+
+    override fun onDestroy() {
+        try {
+            binding.webviewRenderer.evaluateJavascript("destroyRenderer();", null)
+            binding.webviewRenderer.stopLoading()
+            binding.webviewRenderer.loadUrl("about:blank")
+            binding.webviewRenderer.destroy()
+        } catch (e: Exception) {
+            Log.e("Lodestone", "Error destroying WebView on onDestroy", e)
+        }
+        super.onDestroy()
     }
 
     // Inner class for JS-Android communications

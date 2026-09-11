@@ -7,8 +7,7 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  BlockState,
-  NbtFile
+  BlockState
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -23,6 +22,8 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    stopRenderLoop(): void;
+    destroyRenderer(): void;
   }
 }
 
@@ -40,6 +41,7 @@ let canvasElement: HTMLCanvasElement;
 let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
+let animFrameId: number | null = null;
 
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
@@ -76,7 +78,7 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
     onProgress: (done: number, total: number) => {
       if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 50);
+        const pct = Math.floor((done / Math.max(1, total)) * 100);
         window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
       }
     }
@@ -128,9 +130,9 @@ async function init() {
   }
 }
 
-// Render loop to keep view and OrbitControls synchronized
+// Render loop
 function tick() {
-  requestAnimationFrame(tick);
+  animFrameId = requestAnimationFrame(tick);
   if (controls) {
     controls.update();
   }
@@ -149,7 +151,45 @@ function tick() {
   }
 }
 
-// Streaming Time-Sliced NBT Decoder
+window.stopRenderLoop = function () {
+  if (animFrameId !== null) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+};
+
+window.destroyRenderer = function () {
+  window.stopRenderLoop();
+  if (controls) {
+    controls.dispose();
+  }
+  if (renderer) {
+    try {
+      if ((renderer as any).renderer) {
+        const gl = (renderer as any).renderer.getContext();
+        const loseContextExt = gl?.getExtension('WEBGL_lose_context');
+        if (loseContextExt) {
+          loseContextExt.loseContext();
+        }
+        (renderer as any).renderer.dispose();
+      }
+      if ((renderer as any).destroy) {
+        (renderer as any).destroy();
+      }
+    } catch (e) {
+      console.error('Error destroying renderer:', e);
+    }
+    renderer = null as any;
+  }
+  if (container) {
+    container.innerHTML = '';
+  }
+  currentLitematicBuffer = null;
+  currentStructure = null;
+  parsedRootCompound = null;
+};
+
+// Fast time-sliced streaming NBT decoder with percentage reporting
 async function loadRegionAsync(
   regionCompound: any,
   onProgress?: (pct: number) => void
@@ -188,9 +228,6 @@ async function loadRegionAsync(
   const blockStatesNbt = regionCompound.has('BlockStates')
     ? regionCompound.getLongArray('BlockStates')
     : null;
-  const blockStates = blockStatesNbt
-    ? blockStatesNbt.getItems().map((item: any) => item.getAsPair())
-    : [];
 
   const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
   const mask = (1 << bitsPerBlock) - 1;
@@ -200,6 +237,22 @@ async function loadRegionAsync(
   const depth = size[2];
   const volume = width * height * depth;
 
+  let numWords = 0;
+  let blockStatesHigh: Uint32Array | null = null;
+  let blockStatesLow: Uint32Array | null = null;
+
+  if (blockStatesNbt) {
+    const items = blockStatesNbt.getItems();
+    numWords = items.length;
+    blockStatesHigh = new Uint32Array(numWords);
+    blockStatesLow = new Uint32Array(numWords);
+    for (let i = 0; i < numWords; i++) {
+      const pair = items[i].getAsPair();
+      blockStatesHigh[i] = pair[0] >>> 0;
+      blockStatesLow[i] = pair[1] >>> 0;
+    }
+  }
+
   const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
 
   let minX = width, minY = height, minZ = depth;
@@ -207,10 +260,11 @@ async function loadRegionAsync(
   let hasPlaced = false;
 
   let lastYield = performance.now();
+  let lastReportedPct = -1;
 
   for (let index = 0; index < volume; index++) {
     let paletteIndex = 0;
-    if (blockStates.length > 0) {
+    if (blockStatesHigh && blockStatesLow && numWords > 0) {
       const startOffset = index * bitsPerBlock;
       const startArrIndex = startOffset >>> 5;
       const endArrIndex = ((index + 1) * bitsPerBlock - 1) >>> 5;
@@ -221,11 +275,11 @@ async function loadRegionAsync(
       let blockEnd: number;
 
       if ((startArrIndex & 0x1) === 0) {
-        blockStart = blockStates[halfInd]?.[1] ?? 0;
-        blockEnd = blockStates[halfInd]?.[0] ?? 0;
+        blockStart = blockStatesLow[halfInd] ?? 0;
+        blockEnd = blockStatesHigh[halfInd] ?? 0;
       } else {
-        blockStart = blockStates[halfInd]?.[0] ?? 0;
-        blockEnd = blockStates[halfInd + 1]?.[1] ?? 0;
+        blockStart = blockStatesHigh[halfInd] ?? 0;
+        blockEnd = blockStatesLow[halfInd + 1] ?? 0;
       }
 
       if (startArrIndex === endArrIndex) {
@@ -253,12 +307,14 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0x7fff) === 0) {
+    if ((index & 0x7ff) === 0) {
+      const pct = Math.floor((index / volume) * 100);
+      if (pct !== lastReportedPct && onProgress) {
+        lastReportedPct = pct;
+        onProgress(pct);
+      }
       const now = performance.now();
       if (now - lastYield >= 12) {
-        if (onProgress) {
-          onProgress(Math.floor((index / volume) * 100));
-        }
         await new Promise(resolve => requestAnimationFrame(resolve));
         lastYield = performance.now();
       }
@@ -281,6 +337,39 @@ async function loadRegionAsync(
   }
 
   return new Structure(size, palette, storedBlocks);
+}
+
+// Send block statistics right after parsing
+function calculateAndSendStatistics() {
+  if (!currentStructure) return;
+
+  try {
+    const rawStructure = currentStructure as any;
+    const blocks = rawStructure.blocks || [];
+    const palette = rawStructure.palette || [];
+
+    const blockStats: { [key: string]: number } = {};
+    let totalBlocks = 0;
+
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      if (block) {
+        const stateIdx = block.state;
+        const state = palette[stateIdx];
+        if (state) {
+          const blockName = state.getName().toString();
+          blockStats[blockName] = (blockStats[blockName] || 0) + 1;
+          totalBlocks++;
+        }
+      }
+    }
+
+    if (window.AndroidHost) {
+      window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
+    }
+  } catch (err) {
+    console.error("Error collecting block statistics: ", err);
+  }
 }
 
 // Main loader function called from Android native side
@@ -339,12 +428,15 @@ async function buildRendererForRegion(regionName: string) {
   const regionsTag = parsedRootCompound.getCompound('Regions');
   const region = regionsTag.getCompound(regionName);
 
-  // Time-sliced streaming NBT parsing
+  // Time-sliced streaming NBT parsing with continuous percentage updates
   currentStructure = await loadRegionAsync(region, (pct) => {
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
     }
   });
+
+  // REQUIREMENT: Send statistics FIRST right after parsing finishes, before starting 3D chunk build
+  calculateAndSendStatistics();
 
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
@@ -360,7 +452,6 @@ async function buildRendererForRegion(regionName: string) {
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
 
-  // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
     (renderer as any).sunlight.fog.density = 0.0;
     (renderer as any).sunlight.fog.heightFalloff = 0.0;
@@ -423,54 +514,12 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
-  tick();
-
-  // Wait for mesh building to be 100% complete before finishing progress
-  await renderer.whenReady();
-
-  calculateAndSendStatistics();
-}
-
-function calculateAndSendStatistics() {
-  if (!currentStructure) return;
-
-  try {
-    const rawStructure = currentStructure as any;
-    const blocks = rawStructure.blocks || [];
-    const palette = rawStructure.palette || [];
-
-    const blockStats: { [key: string]: number } = {};
-    let totalBlocks = 0;
-    const totalCount = blocks.length;
-    let index = 0;
-
-    const batchSize = 100000;
-    function processBatch() {
-      const end = Math.min(index + batchSize, totalCount);
-      for (; index < end; index++) {
-        const block = blocks[index];
-        if (block) {
-          const stateIdx = block.state;
-          const state = palette[stateIdx];
-          if (state) {
-            const blockName = state.getName().toString();
-            blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-            totalBlocks++;
-          }
-        }
-      }
-      if (index < totalCount) {
-        setTimeout(processBatch, 0);
-      } else {
-        if (window.AndroidHost) {
-          window.AndroidHost.onStatisticsUpdated(totalBlocks, JSON.stringify(blockStats));
-        }
-      }
-    }
-    processBatch();
-  } catch (err) {
-    console.error("Error collecting block statistics: ", err);
+  if (animFrameId === null) {
+    tick();
   }
+
+  // Segment by segment chunk mesh building
+  await renderer.rebuildChunksAsync();
 }
 
 window.toggleCameraView = function () {
