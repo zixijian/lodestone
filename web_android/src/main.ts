@@ -226,7 +226,8 @@ async function loadRegionAsync(
       const propsTag = entry.get('Properties');
       if (propsTag && propsTag.isCompound()) {
         propsTag.forEach((key: string, value: any) => {
-          properties[key] = value.getAsString?.() ?? '';
+          const strVal = value.getAsString ? value.getAsString() : '';
+          properties[key] = strVal || String(value.value ?? value);
         });
       }
     }
