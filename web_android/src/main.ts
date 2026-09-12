@@ -8,6 +8,7 @@ const {
   ThreeStructureRenderer,
   loadDefaultPackResources,
   LitematicLoader,
+  BlockState,
   meshToBufferGeometry
 } = Lodestone;
 
@@ -57,9 +58,20 @@ let animFrameId: number | null = null;
   }
 };
 
-// Override LitematicLoader.loadRegion with time-sliced async decoding to support smooth percentage updates
-(LitematicLoader as any).loadRegionAsync = async function (region: any, onProgress?: (pct: number) => void): Promise<any> {
-  const sizeNbt = region.getCompound('Size');
+// Override applyDrawDistance so chunks are never culled when zooming out
+ThreeStructureRenderer.prototype.applyDrawDistance = function () {
+  if ((this as any).chunkMeshes) {
+    for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
+      const mesh = (this as any).chunkMeshes[i];
+      mesh.visible = true;
+      mesh.frustumCulled = false;
+    }
+  }
+};
+
+// Async time-sliced region loader with 100% accurate BlockState properties and smooth DECODING_X% progress callbacks
+async function loadRegionAsync(regionCompound: any, onProgress?: (pct: number) => void): Promise<Structure> {
+  const sizeNbt = regionCompound.getCompound('Size');
   const rawSize = [
     sizeNbt.getNumber('x') ?? 0,
     sizeNbt.getNumber('y') ?? 0,
@@ -71,8 +83,8 @@ let animFrameId: number | null = null;
     Math.abs(rawSize[2]),
   ];
 
-  const paletteList = region.getList('BlockStatePalette');
-  const palette: any[] = [];
+  const paletteList = regionCompound.getList('BlockStatePalette');
+  const palette: BlockState[] = [];
   paletteList.forEach((entry: any) => {
     if (!entry.isCompound()) return;
     const name = entry.getString('Name') ?? 'minecraft:air';
@@ -85,36 +97,72 @@ let animFrameId: number | null = null;
         });
       }
     }
-    palette.push(new (Lodestone as any).BlockState(name, properties));
+    palette.push(new BlockState(name, properties));
   });
 
-  const blockStatesNbt = region.getLongArray('BlockStates');
-  const blockStates = blockStatesNbt.getItems().map((item: any) => item.getAsPair());
+  const isAir = palette.map(state => state.is('minecraft:air'));
+
+  const blockStatesNbt = regionCompound.has('BlockStates')
+    ? regionCompound.getLongArray('BlockStates')
+    : null;
+  const blockStates = blockStatesNbt
+    ? blockStatesNbt.getItems().map((item: any) => item.getAsPair())
+    : [];
+
   const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
 
-  const volume = size[0] * size[1] * size[2];
-  const blocks = (LitematicLoader as any).unpackBlockData(blockStates, bitsPerBlock, size[0], size[1], size[2]);
+  const width = size[0];
+  const height = size[1];
+  const depth = size[2];
+  const volume = width * height * depth;
 
-  const isAir = palette.map(state => state.is('minecraft:air'));
-  const storedBlocks: any[] = [];
+  const unpackedBlocks = (LitematicLoader as any).unpackBlockData(blockStates, bitsPerBlock, width, height, depth);
+  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
+
+  let minX = width, minY = height, minZ = depth;
+  let maxX = 0, maxY = 0, maxZ = 0;
+  let hasPlaced = false;
 
   let lastYield = performance.now();
-  for (let index = 0; index < blocks.length; index++) {
-    const paletteIndex = blocks[index];
+
+  for (let index = 0; index < unpackedBlocks.length; index++) {
+    const paletteIndex = unpackedBlocks[index];
     if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-      const x = index % size[0];
-      const y = Math.floor(index / (size[0] * size[2]));
-      const z = Math.floor(index / size[0]) % size[2];
+      const x = index % width;
+      const y = Math.floor(index / (width * depth));
+      const z = Math.floor(index / width) % depth;
       storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
+
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+      if (z > maxZ) maxZ = z;
+      hasPlaced = true;
     }
 
-    if ((index & 0x7fff) === 0 && performance.now() - lastYield >= 12) {
-      if (onProgress) {
-        onProgress(Math.floor((index / volume) * 100));
+    if ((index & 0x7fff) === 0) {
+      const now = performance.now();
+      if (now - lastYield >= 12) {
+        if (onProgress) {
+          onProgress(Math.floor((index / volume) * 100));
+        }
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        lastYield = performance.now();
       }
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      lastYield = performance.now();
     }
+  }
+
+  if (hasPlaced) {
+    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
+    const dx = maxX - minX + 1;
+    const dy = maxY - minY + 1;
+    const dz = maxZ - minZ + 1;
+    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
+  } else {
+    tightCenter = [width / 2, height / 2, depth / 2];
+    tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
   }
 
   if (onProgress) {
@@ -122,90 +170,9 @@ let animFrameId: number | null = null;
   }
 
   return new Structure(size, palette, storedBlocks);
-};
+}
 
-(LitematicLoader as any).fromNbtAsync = async function (root: any, regionName?: string, onProgress?: (pct: number) => void): Promise<any> {
-  const regions = root.getCompound('Regions');
-  let region: any;
-  if (regionName !== undefined) {
-    if (!regions.hasCompound(regionName)) {
-      throw new Error(`Region '${regionName}' not found in litematic file`);
-    }
-    region = regions.getCompound(regionName);
-  } else {
-    const firstKey = regions.keys()[Symbol.iterator]().next().value;
-    if (firstKey === undefined) {
-      throw new Error('No regions found in litematic file');
-    }
-    region = regions.getCompound(firstKey);
-  }
-  return await (this as any).loadRegionAsync(region, onProgress);
-};
-
-// Infinite View: override applyDrawDistance so chunks are never culled when zooming out
-ThreeStructureRenderer.prototype.applyDrawDistance = function () {
-  if ((this as any).chunkMeshes) {
-    for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-      const mesh = (this as any).chunkMeshes[i];
-      mesh.visible = true;
-      mesh.frustumCulled = false;
-    }
-  }
-};
-
-// Progressive Chunk Mesh Building
-ThreeStructureRenderer.prototype.rebuildChunkObjectsAsync = async function (token: number) {
-  this.chunkMeshes.forEach(mesh => {
-    this.structureScene.remove(mesh);
-    mesh.geometry.dispose();
-  });
-  this.chunkMeshes = [];
-
-  const meshes = (this as any).chunkBuilder.getMeshEntries();
-  const total = meshes.length;
-  let lastYield = (this as any).now();
-
-  for (let i = 0; i < total; i++) {
-    if (token !== (this as any).buildToken) return;
-
-    const entry = meshes[i];
-    if (entry.mesh.isEmpty()) continue;
-
-    const geometry = meshToBufferGeometry(entry.mesh);
-    const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.renderOrder = entry.transparent ? 1 : 0;
-    mesh.userData.origin = entry.origin;
-    mesh.visible = true;
-    mesh.frustumCulled = false;
-
-    this.structureScene.add(mesh);
-    this.chunkMeshes.push(mesh);
-
-    if (window.AndroidHost && (i & 0x7) === 0) {
-      const pct = Math.floor(((i + 1) / Math.max(1, total)) * 100);
-      window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-    }
-
-    if ((i & 0x3) === 0 && (this as any).now() - lastYield >= ((this as any).asyncChunkBuildTimeMs || 12)) {
-      await (this as any).yieldControl();
-      lastYield = (this as any).now();
-    }
-  }
-
-  if (token !== (this as any).buildToken) return;
-
-  const emissiveLights = (this as any).chunkBuilder.getEmissiveLights();
-  (this as any).updateEmissiveLightUniforms(emissiveLights);
-  (this as any).emissiveSelectionDirty = true;
-  (this as any).shadowDirty = true;
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('RENDERING_100%');
-  }
-};
-
-// Hook rebuildChunksAsync to report progress and execute streaming chunk building
+// Intercept rebuildChunksAsync to process block meshes and stream chunk meshes progressively to screen ("加载多少显示多少")
 ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
 
@@ -213,14 +180,109 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
-  await (this as any).chunkBuilder.updateStructureBuffersAsync({
-    chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
+  // Clear existing chunk meshes
+  this.chunkMeshes.forEach(mesh => {
+    this.structureScene.remove(mesh);
+    mesh.geometry.dispose();
   });
+  this.chunkMeshes = [];
+
+  const chunkBuilder = (this as any).chunkBuilder;
+  const structure = (this as any).structure;
+  if (!structure || !chunkBuilder) return;
+
+  chunkBuilder.markDirty();
+  chunkBuilder.prepareRebuild(chunkPositions);
+
+  const blocks = structure.getBlocks();
+  const totalBlocks = blocks.length;
+  const chunkFilter = chunkBuilder.buildChunkFilter(chunkPositions);
+
+  const createdMeshesMap = new Map<string, THREE.Mesh>();
+  let lastYield = (this as any).now();
+
+  for (let i = 0; i < totalBlocks; i++) {
+    if (token !== (this as any).buildToken) return;
+
+    chunkBuilder.processBlock(blocks[i], chunkFilter);
+
+    if ((i & 0x7ff) === 0) {
+      const now = (this as any).now();
+      if (now - lastYield >= ((this as any).asyncChunkBuildTimeMs || 12)) {
+        // Incrementally flush updated chunk meshes to structureScene in real time
+        const entries = chunkBuilder.getMeshEntries();
+        for (let j = 0; j < entries.length; j++) {
+          const entry = entries[j];
+          if (entry.mesh.isEmpty()) continue;
+
+          const key = `${entry.origin.join(',')}_${entry.transparent}`;
+          if (!createdMeshesMap.has(key)) {
+            const geometry = meshToBufferGeometry(entry.mesh);
+            const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.renderOrder = entry.transparent ? 1 : 0;
+            mesh.userData.origin = entry.origin;
+            mesh.userData.key = key;
+            mesh.visible = true;
+            mesh.frustumCulled = false;
+
+            this.structureScene.add(mesh);
+            this.chunkMeshes.push(mesh);
+            createdMeshesMap.set(key, mesh);
+          }
+        }
+
+        if (window.AndroidHost) {
+          const pct = Math.floor(((i + 1) / Math.max(1, totalBlocks)) * 100);
+          window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+        }
+
+        await (this as any).yieldControl();
+        lastYield = (this as any).now();
+      }
+    }
+  }
 
   if (token !== (this as any).buildToken) return;
 
-  await (this as any).rebuildChunkObjectsAsync(token);
+  await chunkBuilder.finalizeRebuildAsync(chunkPositions, (this as any).asyncChunkBuildTimeMs || 12);
+
+  // Final mesh update pass
+  const finalEntries = chunkBuilder.getMeshEntries();
+  for (let j = 0; j < finalEntries.length; j++) {
+    const entry = finalEntries[j];
+    if (entry.mesh.isEmpty()) continue;
+
+    const key = `${entry.origin.join(',')}_${entry.transparent}`;
+    let mesh = createdMeshesMap.get(key);
+    if (!mesh) {
+      const geometry = meshToBufferGeometry(entry.mesh);
+      const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.renderOrder = entry.transparent ? 1 : 0;
+      mesh.userData.origin = entry.origin;
+      mesh.userData.key = key;
+      mesh.visible = true;
+      mesh.frustumCulled = false;
+
+      this.structureScene.add(mesh);
+      this.chunkMeshes.push(mesh);
+      createdMeshesMap.set(key, mesh);
+    } else {
+      // Rebuild geometry for finalized chunk buffers
+      mesh.geometry.dispose();
+      mesh.geometry = meshToBufferGeometry(entry.mesh);
+    }
+  }
+
+  const emissiveLights = chunkBuilder.getEmissiveLights();
+  (this as any).updateEmissiveLightUniforms(emissiveLights);
+  (this as any).emissiveSelectionDirty = true;
+  (this as any).shadowDirty = true;
+
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('RENDERING_100%');
+  }
 };
 
 // Initialize Web application
@@ -308,7 +370,7 @@ window.destroyRenderer = function () {
   parsedRootCompound = null;
 };
 
-// Send block statistics right after parsing
+// Calculate and transmit block statistics
 function calculateAndSendStatistics() {
   if (!currentStructure) return;
 
@@ -349,6 +411,7 @@ window.loadLitematic = async function () {
 
     const nbt = Lodestone.NbtFile.read(new Uint8Array(currentLitematicBuffer));
     parsedRootCompound = nbt.root;
+
     const regionsTag = parsedRootCompound.getCompound('Regions');
 
     let regions: string[] = [];
@@ -394,12 +457,15 @@ async function buildRendererForRegion(regionName: string) {
   canvasElement.style.height = '100%';
   container.appendChild(canvasElement);
 
+  const regionsTag = parsedRootCompound.getCompound('Regions');
+  const region = regionsTag.getCompound(regionName);
+
   if (window.AndroidHost) {
     window.AndroidHost.onLoadingProgress('DECODING_0%');
   }
 
-  // Use loadRegionAsync for smooth progress callbacks while retaining exact BlockState properties (facing, type, etc.)
-  currentStructure = await (LitematicLoader as any).fromNbtAsync(parsedRootCompound, regionName, (pct: number) => {
+  // Time-sliced streaming NBT parsing with DECODING_X% progress callbacks
+  currentStructure = await loadRegionAsync(region, (pct) => {
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
     }
@@ -409,20 +475,12 @@ async function buildRendererForRegion(regionName: string) {
     window.AndroidHost.onLoadingProgress('DECODING_100%');
   }
 
-  // Calculate center and radius for camera controls
-  const size = currentStructure.getSize();
-  const width = size[0];
-  const height = size[1];
-  const depth = size[2];
-
-  tightCenter = [width / 2, height / 2, depth / 2];
-  tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
-
-  // Send block statistics FIRST right after parsing completes
+  // Send block statistics FIRST right after parsing finishes
   calculateAndSendStatistics();
 
-  const volume = width * height * depth;
-  const maxDim = Math.max(width, height, depth);
+  const size = currentStructure.getSize();
+  const volume = size[0] * size[1] * size[2];
+  const maxDim = Math.max(size[0], size[1], size[2]);
 
   const chunkSize = volume > 1000000 || maxDim > 128 ? 32 : 16;
 
@@ -500,7 +558,7 @@ async function buildRendererForRegion(regionName: string) {
     tick();
   }
 
-  // Segment by segment chunk mesh building
+  // Segment by segment chunk mesh building & streaming
   await renderer.rebuildChunksAsync();
 }
 
