@@ -23,6 +23,8 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    stopRenderLoop(): void;
+    destroyRenderer(): void;
   }
 }
 
@@ -40,6 +42,7 @@ let canvasElement: HTMLCanvasElement;
 let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
+let animFrameId: number | null = null;
 
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
@@ -130,7 +133,7 @@ async function init() {
 
 // Render loop to keep view and OrbitControls synchronized
 function tick() {
-  requestAnimationFrame(tick);
+  animFrameId = requestAnimationFrame(tick);
   if (controls) {
     controls.update();
   }
@@ -148,6 +151,53 @@ function tick() {
     renderer.drawStructure(viewMatrix);
   }
 }
+
+window.stopRenderLoop = function () {
+  if (animFrameId !== null) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+};
+
+window.destroyRenderer = function () {
+  window.stopRenderLoop();
+
+  if (controls) {
+    controls.dispose();
+  }
+
+  if (renderer) {
+    try {
+      if ((renderer as any).chunkMeshes) {
+        for (const mesh of (renderer as any).chunkMeshes) {
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach((m: any) => m.dispose?.());
+            } else {
+              mesh.material.dispose?.();
+            }
+          }
+        }
+        (renderer as any).chunkMeshes = [];
+      }
+      if (renderer.renderer) {
+        renderer.renderer.dispose();
+        renderer.renderer.forceContextLoss();
+      }
+    } catch (e) {
+      console.error("Error destroying renderer: ", e);
+    }
+  }
+
+  currentStructure = null;
+  currentLitematicBuffer = null;
+  parsedRootCompound = null;
+
+  if (container) {
+    container.innerHTML = '';
+  }
+};
 
 // Streaming Time-Sliced NBT Decoder
 async function loadRegionAsync(
@@ -188,12 +238,18 @@ async function loadRegionAsync(
   const blockStatesNbt = regionCompound.has('BlockStates')
     ? regionCompound.getLongArray('BlockStates')
     : null;
-  const blockStates = blockStatesNbt
-    ? blockStatesNbt.getItems().map((item: any) => item.getAsPair())
-    : [];
+  const items = blockStatesNbt ? blockStatesNbt.getItems() : [];
+  const numLongs = items.length;
+  const longArray = new BigUint64Array(numLongs);
+  for (let i = 0; i < numLongs; i++) {
+    const pair = items[i].getAsPair(); // [high32, low32]
+    const high = BigInt(pair[0] >>> 0);
+    const low = BigInt(pair[1] >>> 0);
+    longArray[i] = (high << 32n) | low;
+  }
 
   const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
-  const mask = (1 << bitsPerBlock) - 1;
+  const maskBig = (1n << BigInt(bitsPerBlock)) - 1n;
 
   const width = size[0];
   const height = size[1];
@@ -210,31 +266,22 @@ async function loadRegionAsync(
 
   for (let index = 0; index < volume; index++) {
     let paletteIndex = 0;
-    if (blockStates.length > 0) {
-      const startOffset = index * bitsPerBlock;
-      const startArrIndex = startOffset >>> 5;
-      const endArrIndex = ((index + 1) * bitsPerBlock - 1) >>> 5;
-      const startBitOffset = startOffset & 0x1f;
-      const halfInd = startArrIndex >>> 1;
+    if (numLongs > 0) {
+      const startBit = BigInt(index * bitsPerBlock);
+      const startLong = Number(startBit >> 6n);
+      const startBitOffset = startBit & 63n;
+      const endBit = BigInt((index + 1) * bitsPerBlock - 1);
+      const endLong = Number(endBit >> 6n);
 
-      let blockStart: number;
-      let blockEnd: number;
-
-      if ((startArrIndex & 0x1) === 0) {
-        blockStart = blockStates[halfInd]?.[1] ?? 0;
-        blockEnd = blockStates[halfInd]?.[0] ?? 0;
-      } else {
-        blockStart = blockStates[halfInd]?.[0] ?? 0;
-        blockEnd = blockStates[halfInd + 1]?.[1] ?? 0;
-      }
-
-      if (startArrIndex === endArrIndex) {
-        paletteIndex = (blockStart >>> startBitOffset) & mask;
-      } else {
-        const endOffset = 32 - startBitOffset;
-        paletteIndex =
-          ((blockStart >>> startBitOffset) & mask) |
-          ((blockEnd << endOffset) & mask);
+      if (startLong < numLongs) {
+        if (startLong === endLong) {
+          paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
+        } else if (endLong < numLongs) {
+          const endOffset = 64n - startBitOffset;
+          paletteIndex = Number(
+            ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
+          );
+        }
       }
     }
 
@@ -253,7 +300,7 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0x7fff) === 0) {
+    if ((index & 0x3ff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
         if (onProgress) {
@@ -346,6 +393,9 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
+  // Immediately calculate and transmit block statistics to native UI before mesh rendering starts
+  calculateAndSendStatistics();
+
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
   const maxDim = Math.max(size[0], size[1], size[2]);
@@ -427,8 +477,6 @@ async function buildRendererForRegion(regionName: string) {
 
   // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
-
-  calculateAndSendStatistics();
 }
 
 function calculateAndSendStatistics() {

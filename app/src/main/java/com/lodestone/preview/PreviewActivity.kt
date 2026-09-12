@@ -159,6 +159,21 @@ class PreviewActivity : AppCompatActivity() {
         binding.webviewRenderer.loadUrl(cacheBusterUrl)
     }
 
+    override fun onPause() {
+        super.onPause()
+        binding.webviewRenderer.evaluateJavascript("if(window.stopRenderLoop) window.stopRenderLoop();", null)
+    }
+
+    override fun onDestroy() {
+        binding.webviewRenderer.evaluateJavascript("if(window.destroyRenderer) window.destroyRenderer();", null)
+        binding.webviewRenderer.loadUrl("about:blank")
+        binding.webviewRenderer.stopLoading()
+        binding.webviewRenderer.clearHistory()
+        binding.webviewRenderer.removeAllViews()
+        binding.webviewRenderer.destroy()
+        super.onDestroy()
+    }
+
     private fun showRegionSelector() {
         val displayList = if (regionNamesList.isEmpty()) listOf("Region1") else regionNamesList
         val items = displayList.toTypedArray()
