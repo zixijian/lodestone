@@ -44,6 +44,57 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
 
+const projScreenMatrix = new THREE.Matrix4();
+const frustum = new THREE.Frustum();
+
+function meshToBufferGeometry(mesh: any) {
+  const geometry = new THREE.BufferGeometry();
+  if (!mesh.quads || mesh.quads.length === 0) {
+    return geometry;
+  }
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const colors: number[] = [];
+  const texLimits: number[] = [];
+  const blockPositions: number[] = [];
+  const emissives: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const quad of mesh.quads) {
+    const verts = quad.vertices();
+    for (const v of verts) {
+      positions.push(v.pos.x, v.pos.y, v.pos.z);
+      const normal = v.normal ?? quad.normal();
+      normals.push(normal.x, normal.y, normal.z);
+      uvs.push(v.texture?.[0] ?? 0, v.texture?.[1] ?? 0);
+      if (v.textureLimit) {
+        texLimits.push(v.textureLimit[0], v.textureLimit[1], v.textureLimit[2], v.textureLimit[3]);
+      } else {
+        texLimits.push(0, 0, 0, 0);
+      }
+      const color = v.color ?? [1, 1, 1];
+      colors.push(color[0], color[1], color[2]);
+      const pos = v.blockPos ?? v.pos;
+      blockPositions.push(pos.x, pos.y, pos.z);
+      emissives.push(v.emissive ?? 0);
+    }
+    indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
+    offset += 4;
+  }
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('texLimit', new THREE.Float32BufferAttribute(texLimits, 4));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('blockPos', new THREE.Float32BufferAttribute(blockPositions, 3));
+  geometry.setAttribute('emissive', new THREE.Float32BufferAttribute(emissives, 1));
+  const indexArray = positions.length / 3 > 0x10000 ? new Uint32Array(indices) : new Uint16Array(indices);
+  geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 // High-performance block caching patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
   if (this.placedBlocksCache && this.placedBlocksCache.length === this.blocks.length) return;
@@ -55,18 +106,64 @@ let animFrameId: number | null = null;
   }
 };
 
-// Infinite View: override applyDrawDistance so chunks are never culled when zooming out
+// Dynamic Frustum Culling & Distance-based LOD Management
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
-  if ((this as any).chunkMeshes) {
-    for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-      const mesh = (this as any).chunkMeshes[i];
-      mesh.visible = true;
-      mesh.frustumCulled = false;
+  const meshes = (this as any).chunkMeshes;
+  if (!meshes || meshes.length === 0) return;
+
+  projScreenMatrix.multiplyMatrices(activeCamera.projectionMatrix, activeCamera.matrixWorldInverse);
+  frustum.setFromProjectionMatrix(projScreenMatrix);
+
+  const camPos = activeCamera.position;
+
+  for (let i = 0; i < meshes.length; i++) {
+    const mesh = meshes[i];
+    if (!mesh.userData.worldAABB) {
+      const origin = mesh.userData.origin || [0, 0, 0];
+      const cs = (this as any).chunkSize || [16, 16, 16];
+      mesh.userData.worldAABB = new THREE.Box3(
+        new THREE.Vector3(origin[0], origin[1], origin[2]),
+        new THREE.Vector3(origin[0] + cs[0], origin[1] + cs[1], origin[2] + cs[2])
+      );
+    }
+
+    const box: THREE.Box3 = mesh.userData.worldAABB;
+
+    // 1. Frustum Culling
+    if (!frustum.intersectsBox(box)) {
+      mesh.visible = false;
+      continue;
+    }
+
+    mesh.visible = true;
+
+    // 2. Distance-based LOD (Adjust geometry draw range for distant chunks to maximize FPS)
+    const center = box.getCenter(new THREE.Vector3());
+    const distSq = camPos.distanceToSquared(center);
+
+    if (distSq > 3000 * 3000) {
+      // Very far LOD: draw 25% of geometry indices
+      const indexCount = mesh.geometry.index ? mesh.geometry.index.count : 0;
+      const count = Math.floor(indexCount * 0.25);
+      mesh.geometry.setDrawRange(0, count - (count % 6));
+    } else if (distSq > 1500 * 1500) {
+      // Far LOD: draw 50% of geometry indices
+      const indexCount = mesh.geometry.index ? mesh.geometry.index.count : 0;
+      const count = Math.floor(indexCount * 0.5);
+      mesh.geometry.setDrawRange(0, count - (count % 6));
+    } else if (distSq > 800 * 800) {
+      // Medium LOD: draw 75% of geometry indices
+      const indexCount = mesh.geometry.index ? mesh.geometry.index.count : 0;
+      const count = Math.floor(indexCount * 0.75);
+      mesh.geometry.setDrawRange(0, count - (count % 6));
+    } else {
+      // Full detail (Near)
+      mesh.geometry.setDrawRange(0, Infinity);
     }
   }
 };
 
-// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
+// Hook rebuildChunksAsync to stream chunk objects incrementally into scene frame-by-frame
 ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
 
@@ -74,9 +171,23 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
+  // Set drawDistance so applyDrawDistance is triggered inside drawStructure() every frame
+  (this as any).drawDistance = 100000;
+
+  // Clear existing chunk meshes
+  if ((this as any).chunkMeshes) {
+    for (const mesh of (this as any).chunkMeshes) {
+      this.structureScene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+    }
+  }
+  (this as any).chunkMeshes = [];
+
+  const timeSliceMs = (this as any).asyncChunkBuildTimeMs || 12;
+
   await (this as any).chunkBuilder.updateStructureBuffersAsync({
     chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
+    timeSliceMs,
     onProgress: (done: number, total: number) => {
       if (window.AndroidHost) {
         const pct = Math.floor((done / Math.max(1, total)) * 50);
@@ -87,19 +198,52 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
 
   if (token !== (this as any).buildToken) return;
 
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
+  // Incremental chunk mesh construction & streamed addition to structureScene
+  const buildPromise = (async () => {
+    const entries = (this as any).chunkBuilder.getMeshEntries();
+    let lastYield = performance.now();
+
+    for (let i = 0; i < entries.length; i++) {
+      if (token !== (this as any).buildToken) return;
+      const entry = entries[i];
+      if (entry.mesh.isEmpty()) continue;
+
+      const geometry = meshToBufferGeometry(entry.mesh);
+
+      if (!geometry) continue;
+
+      const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.renderOrder = entry.transparent ? 1 : 0;
+      mesh.userData.origin = entry.origin;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+
+      this.structureScene.add(mesh);
+      (this as any).chunkMeshes.push(mesh);
+
+      if (window.AndroidHost && (i % 50 === 0 || i === entries.length - 1)) {
+        const pct = 50 + Math.floor(((i + 1) / entries.length) * 50);
+        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+      }
+
+      if ((i & 0x1f) === 0 && performance.now() - lastYield >= timeSliceMs) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        lastYield = performance.now();
       }
     }
+
+    if (token !== (this as any).buildToken) return;
+
+    const emissiveLights = (this as any).chunkBuilder.getEmissiveLights();
+    (this as any).updateEmissiveLightUniforms(emissiveLights);
+    (this as any).emissiveSelectionDirty = true;
+    (this as any).shadowDirty = true;
+
     if (window.AndroidHost && token === (this as any).buildToken) {
       window.AndroidHost.onLoadingProgress('RENDERING_100%');
     }
-  });
+  })();
 
   (this as any).buildPromise = buildPromise;
   return buildPromise;
@@ -138,13 +282,6 @@ function tick() {
     controls.update();
   }
   if (renderer && activeCamera) {
-    if ((renderer as any).chunkMeshes) {
-      for (let i = 0; i < (renderer as any).chunkMeshes.length; i++) {
-        const mesh = (renderer as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
     activeCamera.updateMatrixWorld(true);
     const viewMatrix = mat4.create();
     mat4.copy(viewMatrix, activeCamera.matrixWorldInverse.elements as any);
@@ -162,14 +299,15 @@ window.stopRenderLoop = function () {
 window.destroyRenderer = function () {
   window.stopRenderLoop();
 
-  if (controls) {
-    controls.dispose();
-  }
-
   if (renderer) {
     try {
+      (renderer as any).buildToken = ((renderer as any).buildToken || 0) + 1;
+      if ((renderer as any).chunkBuilder) {
+        (renderer as any).chunkBuilder.cancelPendingBuilds?.();
+      }
       if ((renderer as any).chunkMeshes) {
         for (const mesh of (renderer as any).chunkMeshes) {
+          if (mesh.parent) mesh.parent.remove(mesh);
           if (mesh.geometry) mesh.geometry.dispose();
           if (mesh.material) {
             if (Array.isArray(mesh.material)) {
@@ -181,13 +319,19 @@ window.destroyRenderer = function () {
         }
         (renderer as any).chunkMeshes = [];
       }
-      if (renderer.renderer) {
+      if (renderer.dispose) {
+        renderer.dispose();
+      } else if (renderer.renderer) {
         renderer.renderer.dispose();
         renderer.renderer.forceContextLoss();
       }
     } catch (e) {
       console.error("Error destroying renderer: ", e);
     }
+  }
+
+  if (controls) {
+    controls.dispose();
   }
 
   currentStructure = null;
@@ -403,7 +547,11 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
-  // Synchronously compute and send block statistics to Android UI before mesh rendering begins
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_100%');
+  }
+
+  // Compute and send block statistics to Android UI immediately after decoding finishes, before mesh rendering begins
   await calculateAndSendStatistics();
 
   const size = currentStructure.getSize();
