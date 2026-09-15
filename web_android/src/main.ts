@@ -136,30 +136,7 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
     }
 
     mesh.visible = true;
-
-    // 2. Distance-based LOD (Adjust geometry draw range for distant chunks to maximize FPS)
-    const center = box.getCenter(new THREE.Vector3());
-    const distSq = camPos.distanceToSquared(center);
-
-    if (distSq > 3000 * 3000) {
-      // Very far LOD: draw 25% of geometry indices
-      const indexCount = mesh.geometry.index ? mesh.geometry.index.count : 0;
-      const count = Math.floor(indexCount * 0.25);
-      mesh.geometry.setDrawRange(0, count - (count % 6));
-    } else if (distSq > 1500 * 1500) {
-      // Far LOD: draw 50% of geometry indices
-      const indexCount = mesh.geometry.index ? mesh.geometry.index.count : 0;
-      const count = Math.floor(indexCount * 0.5);
-      mesh.geometry.setDrawRange(0, count - (count % 6));
-    } else if (distSq > 800 * 800) {
-      // Medium LOD: draw 75% of geometry indices
-      const indexCount = mesh.geometry.index ? mesh.geometry.index.count : 0;
-      const count = Math.floor(indexCount * 0.75);
-      mesh.geometry.setDrawRange(0, count - (count % 6));
-    } else {
-      // Full detail (Near)
-      mesh.geometry.setDrawRange(0, Infinity);
-    }
+    mesh.geometry.setDrawRange(0, Infinity);
   }
 };
 
@@ -384,6 +361,10 @@ async function loadRegionAsync(
         });
       }
     }
+    // Default facing to north for chest blocks if omitted so chest model facing and UV textures remain intact
+    if ((name.endsWith('chest') || name.includes('chest')) && !properties.facing) {
+      properties.facing = 'north';
+    }
     palette.push(new BlockState(name, properties));
   });
 
@@ -454,7 +435,7 @@ async function loadRegionAsync(
       hasPlaced = true;
     }
 
-    if ((index & 0xff) === 0) {
+    if ((index & 0x7ff) === 0) {
       const now = performance.now();
       if (now - lastYield >= 12) {
         if (onProgress) {
@@ -558,7 +539,7 @@ async function buildRendererForRegion(regionName: string) {
   const volume = size[0] * size[1] * size[2];
   const maxDim = Math.max(size[0], size[1], size[2]);
 
-  const chunkSize = volume > 1000000 || maxDim > 128 ? 32 : 16;
+  const chunkSize = volume > 2000000 ? 64 : volume > 1000000 || maxDim > 128 ? 32 : 16;
 
   const rendererOptions: any = {
     asyncBuild: true,
@@ -731,13 +712,11 @@ window.toggleCameraView = function () {
 window.resetCamera = function () {
   if (!currentStructure || !controls) return;
 
-  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
-  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
-  activeCamera.position.set(
-    tightCenter[0] + fitDistance,
-    tightCenter[1] + fitDistance * 0.8,
-    tightCenter[2] + fitDistance
-  );
+  const newTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
+  const offset = new THREE.Vector3().subVectors(activeCamera.position, controls.target);
+
+  controls.target.copy(newTarget);
+  activeCamera.position.copy(newTarget).add(offset);
   controls.update();
 };
 
