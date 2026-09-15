@@ -1,0 +1,145 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/solarized_base03"
+    android:orientation="vertical"
+    tools:context=".MainActivity">
+
+    <!-- Header bar -->
+    <RelativeLayout
+        android:id="@+id/header_bar"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:background="@color/solarized_base02"
+        android:paddingHorizontal="16dp">
+
+        <TextView
+            android:id="@+id/app_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:text="@string/app_name"
+            android:textColor="@color/solarized_cyan"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/right_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_alignParentEnd="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <!-- SAF button (⊕) -->
+            <ImageButton
+                android:id="@+id/btn_saf"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Open SAF"
+                android:src="@android:drawable/ic_menu_add"
+                app:tint="@color/solarized_green" />
+
+            <!-- Three-dot menu button -->
+            <ImageButton
+                android:id="@+id/btn_menu"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Menu"
+                android:src="@android:drawable/ic_menu_more"
+                app:tint="@color/solarized_base1" />
+
+        </LinearLayout>
+    </RelativeLayout>
+
+    <!-- Permission Guide Banner -->
+    <LinearLayout
+        android:id="@+id/permission_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/solarized_base02"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/banner_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/banner_text"
+            android:textColor="@color/solarized_base0"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btn_grant_permission"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/solarized_blue"
+            android:text="@string/banner_action"
+            android:textColor="@color/solarized_base3" />
+    </LinearLayout>
+
+    <!-- Navigation Path & Back Row -->
+    <RelativeLayout
+        android:id="@+id/nav_bar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="@color/solarized_base03"
+        android:paddingHorizontal="16dp">
+
+        <Button
+            android:id="@+id/btn_back"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:text="@string/back_to_parent"
+            android:textColor="@color/solarized_blue" />
+
+        <TextView
+            android:id="@+id/tv_current_path"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="8dp"
+            android:layout_toEndOf="@id/btn_back"
+            android:ellipsize="start"
+            android:singleLine="true"
+            android:text="/"
+            android:textColor="@color/solarized_base1"
+            android:textSize="12sp" />
+    </RelativeLayout>
+
+    <!-- File List Browser -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_files"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingHorizontal="8dp" />
+
+        <TextView
+            android:id="@+id/tv_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="@string/file_empty"
+            android:textColor="@color/solarized_base01"
+            android:textSize="16sp"
+            android:visibility="gone" />
+    </FrameLayout>
+
+</LinearLayout>
