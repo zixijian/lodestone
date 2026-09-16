@@ -8,10 +8,10 @@ const {
   ThreeStructureRenderer,
   loadDefaultPackResources,
   BlockState,
-  NbtFile
+  NbtFile,
+  ChunkBuilder
 } = Lodestone;
 
-// Declare types for android host interface exposure
 declare global {
   interface Window {
     AndroidHost?: {
@@ -95,26 +95,87 @@ function meshToBufferGeometry(mesh: any) {
   return geometry;
 }
 
-// High-performance block caching patch
-(Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksCache.length === this.blocks.length) return;
-  this.placedBlocksCache = this.blocks.map((block: any) => this.toPlacedBlock(block));
-  this.placedBlocksMapCache = [];
-  for (let i = 0; i < this.placedBlocksCache.length; i++) {
-    const placed = this.placedBlocksCache[i];
-    this.placedBlocksMapCache[this.getIndex(placed.pos)] = placed;
+// Memory-efficient structure extensions for flat grid access
+(Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
+  if (!this._grid) {
+    if (this.placedBlocksMapCache) {
+      return this.placedBlocksMapCache[this.getIndex(pos)];
+    }
+    return undefined;
   }
+  const [x, y, z] = pos;
+  const w = this.size[0];
+  const h = this.size[1];
+  const d = this.size[2];
+  if (x < 0 || x >= w || y < 0 || y >= h || z < 0 || z >= d) return undefined;
+  const pVal = this._grid[x * (h * d) + y * d + z];
+  if (pVal === 0) return undefined;
+  return { pos, state: this.palette[pVal - 1] };
 };
 
-// Dynamic Frustum Culling & Distance-based LOD Management
+(Structure.prototype as any).getBlocks = function () {
+  if (this._flatPositions && this._flatStates) {
+    const count = this._flatCount || 0;
+    const posArray = this._flatPositions;
+    const stateArray = this._flatStates;
+    const palette = this.palette;
+    const result = new Array(count);
+    for (let i = 0; i < count; i++) {
+      const x = posArray[i * 3];
+      const y = posArray[i * 3 + 1];
+      const z = posArray[i * 3 + 2];
+      result[i] = { pos: [x, y, z], state: palette[stateArray[i]] };
+    }
+    return result;
+  }
+  return this.blocks || [];
+};
+
+// Fast occlusion culling overrides for ChunkBuilder
+ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
+  const grid = (this.structure as any)._grid;
+  if (!grid) return false;
+  const [x, y, z] = block.pos;
+  const w = (this.structure as any).size[0];
+  const h = (this.structure as any).size[1];
+  const d = (this.structure as any).size[2];
+  const palette = (this.structure as any).palette;
+
+  // 6 face directions: UP, DOWN, NORTH, SOUTH, EAST, WEST
+  if (y + 1 >= h || y - 1 < 0 || z - 1 < 0 || z + 1 >= d || x + 1 >= w || x - 1 < 0) {
+    return false;
+  }
+
+  const strideY = d;
+  const strideX = h * d;
+  const base = x * strideX + y * strideY + z;
+
+  const up = grid[base + strideY];
+  const down = grid[base - strideY];
+  const north = grid[base - 1];
+  const south = grid[base + 1];
+  const east = grid[base + strideX];
+  const west = grid[base - strideX];
+
+  if (!up || !down || !north || !south || !east || !west) return false;
+
+  const uFlag = this.resources.getBlockFlags(palette[up - 1].getName());
+  const dFlag = this.resources.getBlockFlags(palette[down - 1].getName());
+  const nFlag = this.resources.getBlockFlags(palette[north - 1].getName());
+  const sFlag = this.resources.getBlockFlags(palette[south - 1].getName());
+  const eFlag = this.resources.getBlockFlags(palette[east - 1].getName());
+  const wFlag = this.resources.getBlockFlags(palette[west - 1].getName());
+
+  return !!(uFlag?.opaque && dFlag?.opaque && nFlag?.opaque && sFlag?.opaque && eFlag?.opaque && wFlag?.opaque);
+};
+
+// Frustum Culling implementation
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   const meshes = (this as any).chunkMeshes;
   if (!meshes || meshes.length === 0) return;
 
   projScreenMatrix.multiplyMatrices(activeCamera.projectionMatrix, activeCamera.matrixWorldInverse);
   frustum.setFromProjectionMatrix(projScreenMatrix);
-
-  const camPos = activeCamera.position;
 
   for (let i = 0; i < meshes.length; i++) {
     const mesh = meshes[i];
@@ -129,18 +190,16 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
 
     const box: THREE.Box3 = mesh.userData.worldAABB;
 
-    // 1. Frustum Culling
     if (!frustum.intersectsBox(box)) {
       mesh.visible = false;
-      continue;
+    } else {
+      mesh.visible = true;
+      mesh.geometry.setDrawRange(0, Infinity);
     }
-
-    mesh.visible = true;
-    mesh.geometry.setDrawRange(0, Infinity);
   }
 };
 
-// Hook rebuildChunksAsync to stream chunk objects incrementally into scene frame-by-frame
+// Streamed Chunk Mesh Building
 ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
 
@@ -148,10 +207,8 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
-  // Set drawDistance so applyDrawDistance is triggered inside drawStructure() every frame
   (this as any).drawDistance = 100000;
 
-  // Clear existing chunk meshes
   if ((this as any).chunkMeshes) {
     for (const mesh of (this as any).chunkMeshes) {
       this.structureScene.remove(mesh);
@@ -175,7 +232,6 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
 
   if (token !== (this as any).buildToken) return;
 
-  // Incremental chunk mesh construction & streamed addition to structureScene
   const buildPromise = (async () => {
     const entries = (this as any).chunkBuilder.getMeshEntries();
     let lastYield = performance.now();
@@ -186,7 +242,6 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
       if (entry.mesh.isEmpty()) continue;
 
       const geometry = meshToBufferGeometry(entry.mesh);
-
       if (!geometry) continue;
 
       const material = entry.transparent ? (this as any).transparentMaterial : (this as any).opaqueMaterial;
@@ -199,12 +254,12 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
       this.structureScene.add(mesh);
       (this as any).chunkMeshes.push(mesh);
 
-      if (window.AndroidHost && (i % 50 === 0 || i === entries.length - 1)) {
+      if (window.AndroidHost && (i % 20 === 0 || i === entries.length - 1)) {
         const pct = 50 + Math.floor(((i + 1) / entries.length) * 50);
         window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
       }
 
-      if ((i & 0x1f) === 0 && performance.now() - lastYield >= timeSliceMs) {
+      if ((i & 0x0f) === 0 && performance.now() - lastYield >= timeSliceMs) {
         await new Promise(resolve => requestAnimationFrame(resolve));
         lastYield = performance.now();
       }
@@ -218,7 +273,7 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     (this as any).shadowDirty = true;
 
     if (window.AndroidHost && token === (this as any).buildToken) {
-      window.AndroidHost.onLoadingProgress('RENDERING_100%');
+      window.AndroidHost.onLoadingProgress('SUCCESS');
     }
   })();
 
@@ -252,7 +307,7 @@ async function init() {
   }
 }
 
-// Render loop to keep view and OrbitControls synchronized
+// Tick loop
 function tick() {
   animFrameId = requestAnimationFrame(tick);
   if (controls) {
@@ -320,7 +375,7 @@ window.destroyRenderer = function () {
   }
 };
 
-// Streaming Time-Sliced NBT Decoder
+// High-speed memory-optimized time-sliced NBT parser
 async function loadRegionAsync(
   regionCompound: any,
   onProgress?: (pct: number) => void
@@ -361,7 +416,7 @@ async function loadRegionAsync(
         });
       }
     }
-    // Default facing to north for chest blocks if omitted so chest model facing and UV textures remain intact
+    // Default chest facing to north if unstated so chest facing & UV texture coordinates remain valid
     if ((name.endsWith('chest') || name.includes('chest')) && !properties.facing) {
       properties.facing = 'north';
     }
@@ -377,7 +432,7 @@ async function loadRegionAsync(
   const numLongs = items.length;
   const longArray = new BigUint64Array(numLongs);
   for (let i = 0; i < numLongs; i++) {
-    const pair = items[i].getAsPair(); // [high32, low32]
+    const pair = items[i].getAsPair();
     const high = BigInt(pair[0] >>> 0);
     const low = BigInt(pair[1] >>> 0);
     longArray[i] = (high << 32n) | low;
@@ -391,7 +446,10 @@ async function loadRegionAsync(
   const depth = size[2];
   const volume = width * height * depth;
 
-  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
+  const grid = new Uint16Array(volume);
+  const tempPosBuffer = new Int32Array(volume * 3);
+  const tempStateBuffer = new Uint16Array(volume);
+  let placedCount = 0;
 
   let minX = width, minY = height, minZ = depth;
   let maxX = 0, maxY = 0, maxZ = 0;
@@ -424,7 +482,14 @@ async function loadRegionAsync(
       const x = index % width;
       const y = Math.floor(index / (width * depth));
       const z = Math.floor(index / width) % depth;
-      storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
+
+      grid[index] = paletteIndex + 1;
+
+      tempPosBuffer[placedCount * 3] = x;
+      tempPosBuffer[placedCount * 3 + 1] = y;
+      tempPosBuffer[placedCount * 3 + 2] = z;
+      tempStateBuffer[placedCount] = paletteIndex;
+      placedCount++;
 
       if (x < minX) minX = x;
       if (y < minY) minY = y;
@@ -462,12 +527,25 @@ async function loadRegionAsync(
     onProgress(100);
   }
 
-  return new Structure(size, palette, storedBlocks);
+  const flatPositions = new Int32Array(tempPosBuffer.buffer, 0, placedCount * 3);
+  const flatStates = new Uint16Array(tempStateBuffer.buffer, 0, placedCount);
+
+  const struct = new Structure(size, palette, []);
+  (struct as any)._grid = grid;
+  (struct as any)._flatPositions = flatPositions;
+  (struct as any)._flatStates = flatStates;
+  (struct as any)._flatCount = placedCount;
+
+  return struct;
 }
 
 // Main loader function called from Android native side
 window.loadLitematic = async function () {
   try {
+    if (window.AndroidHost) {
+      window.AndroidHost.onLoadingProgress('DECODING_0%');
+    }
+
     const response = await fetch('./model.litematic');
     currentLitematicBuffer = await response.arrayBuffer();
 
@@ -497,10 +575,6 @@ window.loadLitematic = async function () {
     }
 
     await buildRendererForRegion(activeRegionName);
-
-    if (window.AndroidHost) {
-      window.AndroidHost.onLoadingProgress('SUCCESS');
-    }
   } catch (err: any) {
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('ERROR: ' + err?.message);
@@ -532,8 +606,8 @@ async function buildRendererForRegion(regionName: string) {
     window.AndroidHost.onLoadingProgress('DECODING_100%');
   }
 
-  // Compute and send block statistics to Android UI immediately after decoding finishes, before mesh rendering begins
-  await calculateAndSendStatistics();
+  // Calculate & send block statistics immediately before 3D rendering begins
+  calculateAndSendStatistics();
 
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
@@ -549,7 +623,6 @@ async function buildRendererForRegion(regionName: string) {
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
 
-  // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
     (renderer as any).sunlight.fog.density = 0.0;
     (renderer as any).sunlight.fog.heightFalloff = 0.0;
@@ -614,43 +687,28 @@ async function buildRendererForRegion(regionName: string) {
 
   tick();
 
-  // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
 }
 
-async function calculateAndSendStatistics(): Promise<void> {
+function calculateAndSendStatistics(): void {
   if (!currentStructure) return;
 
   try {
     const rawStructure = currentStructure as any;
-    const blocks = rawStructure.blocks || [];
+    const flatStates = rawStructure._flatStates;
+    const flatCount = rawStructure._flatCount || 0;
     const palette = rawStructure.palette || [];
 
     const blockStats: { [key: string]: number } = {};
     let totalBlocks = 0;
-    const totalCount = blocks.length;
-    let index = 0;
 
-    let lastYield = performance.now();
-
-    while (index < totalCount) {
-      const end = Math.min(index + 50000, totalCount);
-      for (; index < end; index++) {
-        const block = blocks[index];
-        if (block) {
-          const stateIdx = block.state;
-          const state = palette[stateIdx];
-          if (state) {
-            const blockName = state.getName().toString();
-            blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-            totalBlocks++;
-          }
-        }
-      }
-
-      if (index < totalCount && performance.now() - lastYield >= 12) {
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        lastYield = performance.now();
+    for (let i = 0; i < flatCount; i++) {
+      const stateIdx = flatStates[i];
+      const state = palette[stateIdx];
+      if (state) {
+        const blockName = state.getName().toString();
+        blockStats[blockName] = (blockStats[blockName] || 0) + 1;
+        totalBlocks++;
       }
     }
 
@@ -729,10 +787,6 @@ window.switchRegion = async function (regionName: string) {
 
   activeRegionName = regionName;
   await buildRendererForRegion(regionName);
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('SUCCESS');
-  }
 };
 
 init();
