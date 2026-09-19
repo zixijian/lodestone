@@ -583,13 +583,13 @@ window.toggleCameraView = function () {
 window.resetCamera = function () {
   if (!currentStructure || !controls) return;
 
-  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
-  controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
-  activeCamera.position.set(
-    tightCenter[0] + fitDistance,
-    tightCenter[1] + fitDistance * 0.8,
-    tightCenter[2] + fitDistance
-  );
+  const currentTarget = controls.target.clone();
+  const currentPos = activeCamera.position.clone();
+  const offset = new THREE.Vector3().subVectors(currentPos, currentTarget);
+
+  const newTarget = new THREE.Vector3(tightCenter[0], tightCenter[1], tightCenter[2]);
+  controls.target.copy(newTarget);
+  activeCamera.position.copy(newTarget).add(offset);
   controls.update();
 };
 
