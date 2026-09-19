@@ -40,7 +40,7 @@
    npm install
    npm run build
    ```
-   编译产生的文件会自动生成到 Android 工程下的 `assets/web/` 目录中。
+   编译产生的文件会自动生成到 Android 工程下的 `app/src/main/assets/web/` 目录中。
 
 2. **Android 编译**：
    建议在执行 Gradle 任务前清理缓存以排除中间编译产物干扰：

@@ -583,13 +583,9 @@ window.toggleCameraView = function () {
 window.resetCamera = function () {
   if (!currentStructure || !controls) return;
 
-  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
+  const offset = new THREE.Vector3().subVectors(activeCamera.position, controls.target);
   controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
-  activeCamera.position.set(
-    tightCenter[0] + fitDistance,
-    tightCenter[1] + fitDistance * 0.8,
-    tightCenter[2] + fitDistance
-  );
+  activeCamera.position.addVectors(controls.target, offset);
   controls.update();
 };
 
