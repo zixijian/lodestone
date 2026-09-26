@@ -44,16 +44,47 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
 
-// High-performance block caching patch
+// High-performance, low-memory block caching patch using Map
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksCache.length === this.blocks.length) return;
-  this.placedBlocksCache = this.blocks.map((block: any) => this.toPlacedBlock(block));
-  this.placedBlocksMapCache = [];
-  for (let i = 0; i < this.placedBlocksCache.length; i++) {
-    const placed = this.placedBlocksCache[i];
-    this.placedBlocksMapCache[this.getIndex(placed.pos)] = placed;
+  if (this.placedBlocksCache && this.placedBlocksMapCache) return;
+  this.placedBlocksCache = [];
+  this.placedBlocksMapCache = new Map();
+  for (let i = 0; i < this.blocks.length; i++) {
+    const block = this.blocks[i];
+    const placed = this.toPlacedBlock(block);
+    this.placedBlocksCache.push(placed);
+    this.placedBlocksMapCache.set(this.getIndex(block.pos), placed);
   }
 };
+
+(Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
+  if (!this.isInside(pos)) return null;
+  this.ensurePlacedCaches();
+  if (this.placedBlocksMapCache instanceof Map) {
+    return this.placedBlocksMapCache.get(this.getIndex(pos)) ?? null;
+  }
+  return this.placedBlocksMapCache?.[this.getIndex(pos)] ?? null;
+};
+
+// Suppress parent model warning for builtin/entity
+if ((Lodestone as any).BlockModel?.prototype?.flatten) {
+  const origFlatten = (Lodestone as any).BlockModel.prototype.flatten;
+  (Lodestone as any).BlockModel.prototype.flatten = function (accessor: any) {
+    if (this.parent) {
+      const parentStr = this.parent.toString();
+      if (
+        parentStr === 'builtin/entity' ||
+        parentStr === 'minecraft:builtin/entity' ||
+        parentStr === 'builtin/generated' ||
+        parentStr === 'minecraft:builtin/generated'
+      ) {
+        this.parent = undefined;
+        return;
+      }
+    }
+    return origFlatten.call(this, accessor);
+  };
+}
 
 // Infinite View: override applyDrawDistance so chunks are never culled when zooming out
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
@@ -63,6 +94,36 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
       mesh.visible = true;
       mesh.frustumCulled = false;
     }
+  }
+};
+
+// Eliminate per-frame Matrix4 allocations inside prepareCamera
+const tempMat1 = new THREE.Matrix4();
+const tempMat2 = new THREE.Matrix4();
+const tempCamPos: [number, number, number] = [0, 0, 0];
+
+ThreeStructureRenderer.prototype.prepareCamera = function (viewMatrixElements: any) {
+  tempMat1.fromArray(viewMatrixElements);
+  tempMat2.copy(tempMat1).invert();
+
+  this.camera.position.setFromMatrixPosition(tempMat2);
+  this.camera.quaternion.setFromRotationMatrix(tempMat2);
+  this.camera.updateMatrixWorld(true);
+
+  tempCamPos[0] = tempMat2.elements[12];
+  tempCamPos[1] = tempMat2.elements[13];
+  tempCamPos[2] = tempMat2.elements[14];
+
+  if ((this as any).drawDistance) {
+    this.applyDrawDistance(tempCamPos as any, (this as any).drawDistance);
+  } else if ((this as any).chunkMeshes) {
+    for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
+      (this as any).chunkMeshes[i].visible = true;
+    }
+  }
+
+  if (typeof (this as any).updateEmissiveLightsForCamera === 'function') {
+    (this as any).updateEmissiveLightsForCamera(tempCamPos);
   }
 };
 
@@ -131,6 +192,8 @@ async function init() {
   }
 }
 
+const cachedViewMatrix = mat4.create();
+
 // Render loop to keep view and OrbitControls synchronized
 function tick() {
   animFrameId = requestAnimationFrame(tick);
@@ -138,17 +201,9 @@ function tick() {
     controls.update();
   }
   if (renderer && activeCamera) {
-    if ((renderer as any).chunkMeshes) {
-      for (let i = 0; i < (renderer as any).chunkMeshes.length; i++) {
-        const mesh = (renderer as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
     activeCamera.updateMatrixWorld(true);
-    const viewMatrix = mat4.create();
-    mat4.copy(viewMatrix, activeCamera.matrixWorldInverse.elements as any);
-    renderer.drawStructure(viewMatrix);
+    mat4.copy(cachedViewMatrix, activeCamera.matrixWorldInverse.elements as any);
+    renderer.drawStructure(cachedViewMatrix);
   }
 }
 
@@ -226,6 +281,7 @@ async function loadRegionAsync(
       const propsTag = entry.get('Properties');
       if (propsTag && propsTag.isCompound()) {
         propsTag.forEach((key: string, value: any) => {
+          if (!key) return;
           if (value && value.value !== undefined) {
             if (typeof value.value === 'object' && Array.isArray(value.value)) {
               properties[key] = String(value.value[1] ?? value.value[0]);
@@ -386,6 +442,33 @@ window.loadLitematic = async function () {
 async function buildRendererForRegion(regionName: string) {
   if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) return;
 
+  window.stopRenderLoop();
+
+  if (controls) {
+    controls.dispose();
+  }
+
+  if (renderer) {
+    try {
+      if ((renderer as any).chunkMeshes) {
+        for (const mesh of (renderer as any).chunkMeshes) {
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach((m: any) => m.dispose?.());
+            } else {
+              mesh.material.dispose?.();
+            }
+          }
+        }
+        (renderer as any).chunkMeshes = [];
+      }
+      renderer.dispose();
+    } catch (e) {
+      console.error("Error disposing renderer: ", e);
+    }
+  }
+
   container.innerHTML = '';
 
   canvasElement = document.createElement('canvas');
@@ -419,6 +502,7 @@ async function buildRendererForRegion(regionName: string) {
   };
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
+  (renderer as any).drawDistance = 100000;
 
   // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
@@ -581,15 +665,11 @@ window.toggleCameraView = function () {
 };
 
 window.resetCamera = function () {
-  if (!currentStructure || !controls) return;
+  if (!currentStructure || !controls || !activeCamera) return;
 
-  const fitDistance = Math.max(tightRadius * 2.2, 10.0);
+  const offset = new THREE.Vector3().subVectors(activeCamera.position, controls.target);
   controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
-  activeCamera.position.set(
-    tightCenter[0] + fitDistance,
-    tightCenter[1] + fitDistance * 0.8,
-    tightCenter[2] + fitDistance
-  );
+  activeCamera.position.addVectors(controls.target, offset);
   controls.update();
 };
 
