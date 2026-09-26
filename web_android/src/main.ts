@@ -131,6 +131,8 @@ async function init() {
   }
 }
 
+const cachedViewMatrix = mat4.create();
+
 // Render loop to keep view and OrbitControls synchronized
 function tick() {
   animFrameId = requestAnimationFrame(tick);
@@ -138,17 +140,9 @@ function tick() {
     controls.update();
   }
   if (renderer && activeCamera) {
-    if ((renderer as any).chunkMeshes) {
-      for (let i = 0; i < (renderer as any).chunkMeshes.length; i++) {
-        const mesh = (renderer as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-      }
-    }
     activeCamera.updateMatrixWorld(true);
-    const viewMatrix = mat4.create();
-    mat4.copy(viewMatrix, activeCamera.matrixWorldInverse.elements as any);
-    renderer.drawStructure(viewMatrix);
+    mat4.copy(cachedViewMatrix, activeCamera.matrixWorldInverse.elements as any);
+    renderer.drawStructure(cachedViewMatrix);
   }
 }
 
@@ -226,6 +220,7 @@ async function loadRegionAsync(
       const propsTag = entry.get('Properties');
       if (propsTag && propsTag.isCompound()) {
         propsTag.forEach((key: string, value: any) => {
+          if (!key) return;
           if (value && value.value !== undefined) {
             if (typeof value.value === 'object' && Array.isArray(value.value)) {
               properties[key] = String(value.value[1] ?? value.value[0]);
@@ -419,6 +414,7 @@ async function buildRendererForRegion(regionName: string) {
   };
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
+  (renderer as any).drawDistance = 100000;
 
   // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
