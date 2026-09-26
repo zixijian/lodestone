@@ -44,16 +44,47 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
 
-// High-performance block caching patch
+// High-performance, low-memory block caching patch using Map
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksCache.length === this.blocks.length) return;
-  this.placedBlocksCache = this.blocks.map((block: any) => this.toPlacedBlock(block));
-  this.placedBlocksMapCache = [];
-  for (let i = 0; i < this.placedBlocksCache.length; i++) {
-    const placed = this.placedBlocksCache[i];
-    this.placedBlocksMapCache[this.getIndex(placed.pos)] = placed;
+  if (this.placedBlocksCache && this.placedBlocksMapCache) return;
+  this.placedBlocksCache = [];
+  this.placedBlocksMapCache = new Map();
+  for (let i = 0; i < this.blocks.length; i++) {
+    const block = this.blocks[i];
+    const placed = this.toPlacedBlock(block);
+    this.placedBlocksCache.push(placed);
+    this.placedBlocksMapCache.set(this.getIndex(block.pos), placed);
   }
 };
+
+(Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
+  if (!this.isInside(pos)) return null;
+  this.ensurePlacedCaches();
+  if (this.placedBlocksMapCache instanceof Map) {
+    return this.placedBlocksMapCache.get(this.getIndex(pos)) ?? null;
+  }
+  return this.placedBlocksMapCache?.[this.getIndex(pos)] ?? null;
+};
+
+// Suppress parent model warning for builtin/entity
+if ((Lodestone as any).BlockModel?.prototype?.flatten) {
+  const origFlatten = (Lodestone as any).BlockModel.prototype.flatten;
+  (Lodestone as any).BlockModel.prototype.flatten = function (accessor: any) {
+    if (this.parent) {
+      const parentStr = this.parent.toString();
+      if (
+        parentStr === 'builtin/entity' ||
+        parentStr === 'minecraft:builtin/entity' ||
+        parentStr === 'builtin/generated' ||
+        parentStr === 'minecraft:builtin/generated'
+      ) {
+        this.parent = undefined;
+        return;
+      }
+    }
+    return origFlatten.call(this, accessor);
+  };
+}
 
 // Infinite View: override applyDrawDistance so chunks are never culled when zooming out
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
