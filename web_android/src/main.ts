@@ -66,6 +66,36 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   }
 };
 
+// Eliminate per-frame Matrix4 allocations inside prepareCamera
+const tempMat1 = new THREE.Matrix4();
+const tempMat2 = new THREE.Matrix4();
+const tempCamPos: [number, number, number] = [0, 0, 0];
+
+ThreeStructureRenderer.prototype.prepareCamera = function (viewMatrixElements: any) {
+  tempMat1.fromArray(viewMatrixElements);
+  tempMat2.copy(tempMat1).invert();
+
+  this.camera.position.setFromMatrixPosition(tempMat2);
+  this.camera.quaternion.setFromRotationMatrix(tempMat2);
+  this.camera.updateMatrixWorld(true);
+
+  tempCamPos[0] = tempMat2.elements[12];
+  tempCamPos[1] = tempMat2.elements[13];
+  tempCamPos[2] = tempMat2.elements[14];
+
+  if ((this as any).drawDistance) {
+    this.applyDrawDistance(tempCamPos as any, (this as any).drawDistance);
+  } else if ((this as any).chunkMeshes) {
+    for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
+      (this as any).chunkMeshes[i].visible = true;
+    }
+  }
+
+  if (typeof (this as any).updateEmissiveLightsForCamera === 'function') {
+    (this as any).updateEmissiveLightsForCamera(tempCamPos);
+  }
+};
+
 // Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
 ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
@@ -380,6 +410,33 @@ window.loadLitematic = async function () {
 
 async function buildRendererForRegion(regionName: string) {
   if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) return;
+
+  window.stopRenderLoop();
+
+  if (controls) {
+    controls.dispose();
+  }
+
+  if (renderer) {
+    try {
+      if ((renderer as any).chunkMeshes) {
+        for (const mesh of (renderer as any).chunkMeshes) {
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach((m: any) => m.dispose?.());
+            } else {
+              mesh.material.dispose?.();
+            }
+          }
+        }
+        (renderer as any).chunkMeshes = [];
+      }
+      renderer.dispose();
+    } catch (e) {
+      console.error("Error disposing renderer: ", e);
+    }
+  }
 
   container.innerHTML = '';
 
