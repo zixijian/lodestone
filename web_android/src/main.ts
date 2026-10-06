@@ -99,19 +99,6 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
   };
 }
 
-// Infinite View & Static Chunks
-ThreeStructureRenderer.prototype.applyDrawDistance = function () {
-  if ((this as any).chunkMeshes) {
-    for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-      const mesh = (this as any).chunkMeshes[i];
-      mesh.visible = true;
-      mesh.frustumCulled = false;
-      mesh.matrixAutoUpdate = false;
-      mesh.updateMatrix();
-    }
-  }
-};
-
 // Eliminate per-frame Matrix4 allocations inside prepareCamera
 const tempMat1 = new THREE.Matrix4();
 const tempMat2 = new THREE.Matrix4();
@@ -129,70 +116,19 @@ ThreeStructureRenderer.prototype.prepareCamera = function (viewMatrixElements: a
   tempCamPos[1] = tempMat2.elements[13];
   tempCamPos[2] = tempMat2.elements[14];
 
-  if ((this as any).drawDistance) {
-    this.applyDrawDistance();
-  } else if ((this as any).chunkMeshes) {
+  if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-      (this as any).chunkMeshes[i].visible = true;
+      const mesh = (this as any).chunkMeshes[i];
+      mesh.visible = true;
+      mesh.frustumCulled = false;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
     }
   }
 
   if (typeof (this as any).updateEmissiveLightsForCamera === 'function') {
     (this as any).updateEmissiveLightsForCamera(tempCamPos);
   }
-};
-
-// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
-ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
-  const token = ++(this as any).buildToken;
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('RENDERING_0%');
-  }
-
-  await (this as any).chunkBuilder.updateStructureBuffersAsync({
-    chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
-    onProgress: (done: number, total: number) => {
-      if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 100);
-        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-      }
-    }
-  });
-
-  if (token !== (this as any).buildToken) return;
-
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = false;
-        mesh.matrixAutoUpdate = false;
-        mesh.updateMatrix();
-
-        // Enforce NearestFilter on materials for pixel clarity
-        if (mesh.material) {
-          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          mats.forEach((m: any) => {
-            if (m.map) {
-              m.map.magFilter = THREE.NearestFilter;
-              m.map.minFilter = THREE.NearestFilter;
-              m.map.needsUpdate = true;
-            }
-          });
-        }
-      }
-    }
-    if (window.AndroidHost && token === (this as any).buildToken) {
-      window.AndroidHost.onLoadingProgress('RENDERING_100%');
-    }
-  });
-
-  (this as any).buildPromise = buildPromise;
-  return buildPromise;
 };
 
 // Initialize Web application
@@ -545,16 +481,21 @@ async function buildRendererForRegion(regionName: string) {
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
 
+  // Disable postProcess pipeline completely to eliminate WebGL framebuffer black screen
+  if ((renderer as any).sunlight) {
+    if ((renderer as any).sunlight.postProcess) {
+      (renderer as any).sunlight.postProcess.enabled = false;
+    }
+    if ((renderer as any).sunlight.fog) {
+      (renderer as any).sunlight.fog.density = 0.0;
+      (renderer as any).sunlight.fog.heightFalloff = 0.0;
+    }
+  }
+
   // Set high-DPI resolution
   if (renderer.renderer) {
     renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.renderer.setClearColor(isNightMode ? 0x050a14 : 0x002b36, 1.0);
-  }
-
-  // Disable sunlight fog density so models stay clear without fading when camera zooms out
-  if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
-    (renderer as any).sunlight.fog.density = 0.0;
-    (renderer as any).sunlight.fog.heightFalloff = 0.0;
   }
 
   renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
@@ -611,9 +552,9 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
+  // Start continuous 60 FPS rendering immediately so chunks assemble progressively on canvas in real time
   tick();
 
-  // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
 }
 
