@@ -15,6 +15,38 @@ object ZipUtils {
         val errorMessage: String? = null
     )
 
+    fun validateSchematicFile(context: Context, uri: Uri): ValidationResult {
+        val contentResolver = context.contentResolver
+
+        // Check file header / magic bytes or extension
+        val inputStream = try {
+            contentResolver.openInputStream(uri) ?: return ValidationResult(false, "无法读取选中的投影文件。")
+        } catch (e: Exception) {
+            return ValidationResult(false, "读取选中的文件失败: ${e.localizedMessage}")
+        }
+
+        val header = ByteArray(2)
+        val readBytes = try {
+            inputStream.use { it.read(header, 0, 2) }
+        } catch (e: Exception) {
+            0
+        }
+
+        // GZIP magic header bytes: 0x1F, 0x8B
+        val isGzip = readBytes >= 2 && header[0] == 0x1F.toByte() && header[1] == 0x8B.toByte()
+        // Uncompressed NBT Compound start byte: 0x0A
+        val isUncompressedNbt = readBytes >= 1 && header[0] == 0x0A.toByte()
+
+        if (!isGzip && !isUncompressedNbt) {
+            return ValidationResult(
+                false,
+                "无效的投影文件！请选择扩展名为 .litematic 或 .schematic 的标准投影文件。"
+            )
+        }
+
+        return ValidationResult(true)
+    }
+
     fun validateAndExtractResourcePack(context: Context, uri: Uri): ValidationResult {
         val contentResolver = context.contentResolver
 

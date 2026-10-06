@@ -19,8 +19,17 @@ class MainActivity : AppCompatActivity() {
     private val openDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
-            openPreviewActivity(it)
+        uri?.let { schematicUri ->
+            val result = ZipUtils.validateSchematicFile(this, schematicUri)
+            if (result.isValid) {
+                openPreviewActivity(schematicUri)
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle("打开投影文件失败")
+                    .setMessage(result.errorMessage ?: "无效的投影文件。")
+                    .setPositiveButton(R.string.dialog_ok) { dialog, _ -> dialog.dismiss() }
+                    .show()
+            }
         }
     }
 
