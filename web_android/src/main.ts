@@ -8,7 +8,7 @@ const {
   ThreeStructureRenderer,
   loadDefaultPackResources,
   BlockState,
-  NbtFile
+  Direction
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -22,9 +22,12 @@ declare global {
     loadLitematic(): void;
     toggleCameraView(): void;
     resetCamera(): void;
+    toggleDayNight(): void;
+    setDayNight(isNight: boolean): void;
     switchRegion(regionName: string): void;
     stopRenderLoop(): void;
     destroyRenderer(): void;
+    loadCustomResourcePack(packBaseUrl: string): void;
   }
 }
 
@@ -43,27 +46,34 @@ let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
+let isNightMode = false;
 
-// High-performance, low-memory block caching patch using Map
+// High-performance flat array grid structure patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksMapCache) return;
-  this.placedBlocksCache = [];
-  this.placedBlocksMapCache = new Map();
-  for (let i = 0; i < this.blocks.length; i++) {
-    const block = this.blocks[i];
-    const placed = this.toPlacedBlock(block);
-    this.placedBlocksCache.push(placed);
-    this.placedBlocksMapCache.set(this.getIndex(block.pos), placed);
+  if (this.flatGrid) return;
+  const [w, h, d] = this.getSize();
+  const vol = w * h * d;
+  const grid = new Uint16Array(vol);
+  grid.fill(0xffff); // 0xffff indicates empty/air
+
+  const blocks = this.blocks || [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const pos = b.pos;
+    const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
+    grid[idx] = i;
   }
+  this.flatGrid = grid;
 };
 
 (Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
   if (!this.isInside(pos)) return null;
   this.ensurePlacedCaches();
-  if (this.placedBlocksMapCache instanceof Map) {
-    return this.placedBlocksMapCache.get(this.getIndex(pos)) ?? null;
-  }
-  return this.placedBlocksMapCache?.[this.getIndex(pos)] ?? null;
+  const [w, h, d] = this.getSize();
+  const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
+  const bIdx = this.flatGrid[idx];
+  if (bIdx === 0xffff) return null;
+  return this.toPlacedBlock(this.blocks[bIdx]);
 };
 
 // Suppress parent model warning for builtin/entity
@@ -86,13 +96,15 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
   };
 }
 
-// Infinite View: override applyDrawDistance so chunks are never culled when zooming out
+// Infinite View & Static Chunks
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
       const mesh = (this as any).chunkMeshes[i];
       mesh.visible = true;
       mesh.frustumCulled = false;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
     }
   }
 };
@@ -115,7 +127,7 @@ ThreeStructureRenderer.prototype.prepareCamera = function (viewMatrixElements: a
   tempCamPos[2] = tempMat2.elements[14];
 
   if ((this as any).drawDistance) {
-    this.applyDrawDistance(tempCamPos as any, (this as any).drawDistance);
+    this.applyDrawDistance();
   } else if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
       (this as any).chunkMeshes[i].visible = true;
@@ -140,7 +152,7 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
     onProgress: (done: number, total: number) => {
       if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 50);
+        const pct = Math.floor((done / Math.max(1, total)) * 100);
         window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
       }
     }
@@ -155,6 +167,20 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
         const mesh = (this as any).chunkMeshes[i];
         mesh.visible = true;
         mesh.frustumCulled = false;
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+
+        // Enforce NearestFilter on materials for pixel clarity
+        if (mesh.material) {
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          mats.forEach((m: any) => {
+            if (m.map) {
+              m.map.magFilter = THREE.NearestFilter;
+              m.map.minFilter = THREE.NearestFilter;
+              m.map.needsUpdate = true;
+            }
+          });
+        }
       }
     }
     if (window.AndroidHost && token === (this as any).buildToken) {
@@ -254,7 +280,7 @@ window.destroyRenderer = function () {
   }
 };
 
-// Streaming Time-Sliced NBT Decoder
+// Streaming Zero-GC Time-Sliced NBT Decoder
 async function loadRegionAsync(
   regionCompound: any,
   onProgress?: (pct: number) => void
@@ -296,6 +322,18 @@ async function loadRegionAsync(
         });
       }
     }
+
+    // Default facing for chests & item frames if omitted
+    if (name.includes('chest') && !properties['facing']) {
+      properties['facing'] = 'north';
+    }
+    if (name.includes('chest') && !properties['type']) {
+      properties['type'] = 'single';
+    }
+    if (name.includes('item_frame') && !properties['facing']) {
+      properties['facing'] = 'north';
+    }
+
     palette.push(new BlockState(name, properties));
   });
 
@@ -487,7 +525,7 @@ async function buildRendererForRegion(regionName: string) {
   });
 
   // Synchronously compute and send block statistics to Android UI before mesh rendering begins
-  await calculateAndSendStatistics();
+  calculateAndSendStatistics();
 
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
@@ -497,12 +535,18 @@ async function buildRendererForRegion(regionName: string) {
 
   const rendererOptions: any = {
     asyncBuild: true,
-    asyncChunkBuildTimeMs: 12,
+    asyncChunkBuildTimeMs: 14,
     chunkSize: [chunkSize, chunkSize, chunkSize]
   };
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
+
+  // Set high-DPI resolution
+  if (renderer.renderer) {
+    renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.renderer.setClearColor(isNightMode ? 0x050a14 : 0x002b36, 1.0);
+  }
 
   // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
@@ -515,9 +559,6 @@ async function buildRendererForRegion(regionName: string) {
 
   if ((renderer as any).skyScene) {
     ((renderer as any).skyScene as THREE.Scene).clear();
-  }
-  if (renderer.renderer) {
-    renderer.renderer.setClearColor(0x002b36, 1.0);
   }
 
   const aspect = window.innerWidth / window.innerHeight;
@@ -673,6 +714,26 @@ window.resetCamera = function () {
   controls.update();
 };
 
+window.toggleDayNight = function () {
+  window.setDayNight(!isNightMode);
+};
+
+window.setDayNight = function (isNight: boolean) {
+  isNightMode = isNight;
+  if (renderer && renderer.renderer) {
+    renderer.renderer.setClearColor(isNightMode ? 0x050a14 : 0x002b36, 1.0);
+  }
+  if (renderer && (renderer as any).sunlight) {
+    const sunlight = (renderer as any).sunlight;
+    if (sunlight.directionalLight) {
+      sunlight.directionalLight.intensity = isNightMode ? 0.2 : 1.2;
+    }
+    if (sunlight.ambientLight) {
+      sunlight.ambientLight.intensity = isNightMode ? 0.3 : 0.8;
+    }
+  }
+};
+
 window.switchRegion = async function (regionName: string) {
   if (regionName === activeRegionName) return;
 
@@ -685,6 +746,18 @@ window.switchRegion = async function (regionName: string) {
 
   if (window.AndroidHost) {
     window.AndroidHost.onLoadingProgress('SUCCESS');
+  }
+};
+
+window.loadCustomResourcePack = async function (packBaseUrl: string) {
+  try {
+    const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
+    currentResources = loaded.resources;
+    if (activeRegionName) {
+      await buildRendererForRegion(activeRegionName);
+    }
+  } catch (err: any) {
+    console.error("Failed to load custom resource pack: ", err);
   }
 };
 
