@@ -79,6 +79,88 @@ let isNightMode = false;
   return this.placedBlocksCache[bIdx] ?? null;
 };
 
+// Helper to generate double chest half models (left / right) with accurate geometry & UV mappings
+function createChestHalfModel(textureKey: string, isLeft: boolean) {
+  const baseFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
+  const baseTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
+  const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
+  const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
+  const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
+  const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
+
+  return new (Lodestone as any).BlockModel(undefined, { 0: textureKey }, [
+    {
+      from: baseFrom,
+      to: baseTo,
+      faces: {
+        north: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
+        east: { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
+        south: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
+        west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+        up: { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' },
+        down: { uv: [7.25, 4.75, 11, 8.25], texture: '#0' },
+      }
+    },
+    {
+      from: lidFrom,
+      to: lidTo,
+      faces: {
+        north: { uv: [3.5, 3.5, 7.25, 4.5], rotation: 180, texture: '#0' },
+        east: { uv: [7.25, 3.5, 10.75, 4.5], rotation: 180, texture: '#0' },
+        south: { uv: [10.75, 3.5, 14.5, 4.5], rotation: 180, texture: '#0' },
+        west: { uv: [0, 3.5, 3.5, 4.5], rotation: 180, texture: '#0' },
+        up: { uv: [3.5, 0, 7.25, 3.5], texture: '#0' },
+        down: { uv: [7.25, 0, 11, 3.5], texture: '#0' },
+      }
+    },
+    {
+      from: latchFrom,
+      to: latchTo,
+      faces: {
+        north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
+        east: { uv: [0.5, 0.25, 1.0, 1.25], rotation: 180, texture: '#0' },
+        south: { uv: [1.0, 0.25, 1.25, 1.25], rotation: 180, texture: '#0' },
+        west: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+        up: { uv: [0.25, 0, 0.5, 0.25], rotation: 180, texture: '#0' },
+        down: { uv: [0.5, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+      }
+    }
+  ]);
+}
+
+// Override Lodestone SpecialRenderers.getBlockMesh to handle double chest state (type=left / type=right)
+if ((Lodestone as any).SpecialRenderers && typeof (Lodestone as any).SpecialRenderers.getBlockMesh === 'function') {
+  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
+  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+    const blockName = block.getName ? block.getName().toString() : String(block);
+    if (blockName.includes('chest') && !blockName.includes('boat')) {
+      const props = block.getProperties ? block.getProperties() : {};
+      const type = props.type || 'single';
+      if (type === 'left' || type === 'right') {
+        let texPrefix = 'normal';
+        if (blockName.includes('trapped')) texPrefix = 'trapped';
+        else if (blockName.includes('ender')) texPrefix = 'ender';
+        const texKey = 'entity/chest/' + texPrefix + '_' + type;
+        const model = createChestHalfModel(texKey, type === 'left');
+        const mesh = model.getMesh(atlas, cull);
+
+        const facing = props.facing || 'north';
+        const t = mat4.create();
+        mat4.translate(t, t, [8, 8, 8]);
+        mat4.rotateY(
+          t,
+          t,
+          facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0
+        );
+        mat4.translate(t, t, [-8, -8, -8]);
+        mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+        return mesh.transform(t);
+      }
+    }
+    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+  };
+}
+
 // Suppress parent model warning for builtin/entity
 if ((Lodestone as any).BlockModel?.prototype?.flatten) {
   const origFlatten = (Lodestone as any).BlockModel.prototype.flatten;
@@ -271,6 +353,9 @@ async function loadRegionAsync(
     }
     if (name.includes('item_frame') && !properties['facing']) {
       properties['facing'] = 'north';
+    }
+    if (name.includes('item_frame') && !properties['map']) {
+      properties['map'] = 'false';
     }
 
     palette.push(new BlockState(name, properties));
@@ -475,7 +560,30 @@ async function buildRendererForRegion(regionName: string) {
   const rendererOptions: any = {
     asyncBuild: true,
     asyncChunkBuildTimeMs: 14,
-    chunkSize: [chunkSize, chunkSize, chunkSize]
+    chunkSize: [chunkSize, chunkSize, chunkSize],
+    sunlight: {
+      direction: [-0.4, 0.8, -0.4],
+      color: [1.0, 1.0, 0.95],
+      ambientColor: [0.65, 0.7, 0.8],
+      fillColor: [0.5, 0.5, 0.55],
+      rimColor: [0.8, 0.85, 0.9],
+      intensity: 1.1,
+      ambientIntensity: 0.8,
+      fillIntensity: 0.4,
+      rimIntensity: 0.2,
+      exposure: 1.0,
+      sky: {
+        zenithColor: [0.35, 0.55, 0.85],
+        horizonColor: [0.75, 0.85, 0.95],
+        groundColor: [0.3, 0.35, 0.4]
+      },
+      postProcess: {
+        enabled: false
+      },
+      shadows: {
+        enabled: false
+      }
+    }
   };
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
