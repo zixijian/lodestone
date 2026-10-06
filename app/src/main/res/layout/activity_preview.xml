@@ -60,6 +60,18 @@
         android:layout_marginEnd="16dp"
         android:orientation="horizontal">
 
+        <!-- Day / Night Toggle Switch -->
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fab_day_night"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:contentDescription="Day/Night"
+            app:backgroundTint="@color/solarized_base02"
+            app:fabSize="mini"
+            app:srcCompat="@android:drawable/ic_menu_compass"
+            app:tint="@color/solarized_orange" />
+
         <!-- Camera Switch (透视 / 正交) -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_camera_mode"

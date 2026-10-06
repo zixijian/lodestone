@@ -66,6 +66,10 @@ class PreviewActivity : AppCompatActivity() {
         setupWebView()
 
         // Float Buttons Listeners
+        binding.fabDayNight.setOnClickListener {
+            binding.webviewRenderer.evaluateJavascript("toggleDayNight();", null)
+        }
+
         binding.fabCameraMode.setOnClickListener {
             binding.webviewRenderer.evaluateJavascript("toggleCameraView();", null)
         }
@@ -100,6 +104,26 @@ class PreviewActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
+
+                // Intercept web/assets/*.js to directly open web/assets/index.js if hashed
+                val relativePath = url.path?.removePrefix("/") ?: ""
+                if (relativePath.startsWith("web/assets/") && relativePath.endsWith(".js") && !relativePath.contains("index.js")) {
+                    try {
+                        val indexStream = assets.open("web/assets/index.js")
+                        val responseHeaders = mutableMapOf<String, String>()
+                        responseHeaders["Access-Control-Allow-Origin"] = "*"
+                        return WebResourceResponse(
+                            "application/javascript",
+                            "UTF-8",
+                            200,
+                            "OK",
+                            responseHeaders,
+                            indexStream
+                        )
+                    } catch (e: Exception) {
+                        Log.e("Lodestone", "Failed to intercept JS request", e)
+                    }
+                }
 
                 // Read local schematic file stream for offline 3D rendering
                 if (url.path?.endsWith("/model.litematic") == true) {
