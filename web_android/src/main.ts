@@ -7,8 +7,7 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  BlockState,
-  Direction
+  BlockState
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -50,20 +49,24 @@ let isNightMode = false;
 
 // High-performance flat array grid structure patch
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.flatGrid) return;
+  if (this.placedBlocksCache && this.flatGrid) return;
   const [w, h, d] = this.getSize();
   const vol = w * h * d;
   const grid = new Uint16Array(vol);
   grid.fill(0xffff); // 0xffff indicates empty/air
 
   const blocks = this.blocks || [];
+  const placedCache: any[] = [];
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
+    const placed = this.toPlacedBlock(b);
+    placedCache.push(placed);
     const pos = b.pos;
     const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
     grid[idx] = i;
   }
   this.flatGrid = grid;
+  this.placedBlocksCache = placedCache;
 };
 
 (Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
@@ -73,7 +76,7 @@ let isNightMode = false;
   const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
   const bIdx = this.flatGrid[idx];
   if (bIdx === 0xffff) return null;
-  return this.toPlacedBlock(this.blocks[bIdx]);
+  return this.placedBlocksCache[bIdx] ?? null;
 };
 
 // Suppress parent model warning for builtin/entity
