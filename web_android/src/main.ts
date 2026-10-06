@@ -81,12 +81,14 @@ let isNightMode = false;
 
 // Helper to generate double chest half models (left / right) with accurate geometry & UV mappings
 function createChestHalfModel(textureKey: string, isLeft: boolean) {
-  const baseFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
-  const baseTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
-  const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
-  const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
-  const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
-  const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
+  // type=left: body [0, 0, 1] to [15, 10, 15], latch [0, 7, 0] to [1, 11, 2] (meets right half at x=0)
+  // type=right: body [1, 0, 1] to [16, 10, 15], latch [15, 7, 0] to [16, 11, 2] (meets left half at x=16)
+  const baseFrom: [number, number, number] = isLeft ? [0, 0, 1] : [1, 0, 1];
+  const baseTo: [number, number, number] = isLeft ? [15, 10, 15] : [16, 10, 15];
+  const lidFrom: [number, number, number] = isLeft ? [0, 10, 1] : [1, 10, 1];
+  const lidTo: [number, number, number] = isLeft ? [15, 14, 15] : [16, 14, 15];
+  const latchFrom: [number, number, number] = isLeft ? [0, 7, 0] : [15, 7, 0];
+  const latchTo: [number, number, number] = isLeft ? [1, 11, 2] : [16, 11, 2];
 
   return new (Lodestone as any).BlockModel(undefined, { 0: textureKey }, [
     {
@@ -128,21 +130,41 @@ function createChestHalfModel(textureKey: string, isLeft: boolean) {
   ]);
 }
 
-// Override Lodestone SpecialRenderers.getBlockMesh to handle double chest state (type=left / type=right)
-if ((Lodestone as any).SpecialRenderers && typeof (Lodestone as any).SpecialRenderers.getBlockMesh === 'function') {
-  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
-  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
-    const blockName = block.getName ? block.getName().toString() : String(block);
+// Override ChunkBuilder.prototype.processBlock to directly handle double chests, hanging signs, and item frames
+if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
+  const origProcessBlock = (Lodestone as any).ChunkBuilder.prototype.processBlock;
+  (Lodestone as any).ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
+    const blockName = block.state.getName ? block.state.getName().toString() : String(block.state);
+
+    // Handle double chests directly
     if (blockName.includes('chest') && !blockName.includes('boat')) {
-      const props = block.getProperties ? block.getProperties() : {};
+      const props = this.getBlockProps(block.state);
       const type = props.type || 'single';
       if (type === 'left' || type === 'right') {
+        if (this.isFullyOccluded(block)) return;
+        const chunkPos = [
+          Math.floor(block.pos[0] / this.chunkSize[0]),
+          Math.floor(block.pos[1] / this.chunkSize[1]),
+          Math.floor(block.pos[2] / this.chunkSize[2]),
+        ];
+        const chunkKey = this.chunkKey(chunkPos);
+        if (chunkFilter && !chunkFilter.has(chunkKey)) return;
+        const chunk = this.getChunk(chunkPos);
+
         let texPrefix = 'normal';
         if (blockName.includes('trapped')) texPrefix = 'trapped';
         else if (blockName.includes('ender')) texPrefix = 'ender';
         const texKey = 'entity/chest/' + texPrefix + '_' + type;
         const model = createChestHalfModel(texKey, type === 'left');
-        const mesh = model.getMesh(atlas, cull);
+        const cull = {
+          up: this.needsCull(block, (Lodestone as any).Direction.UP),
+          down: this.needsCull(block, (Lodestone as any).Direction.DOWN),
+          west: this.needsCull(block, (Lodestone as any).Direction.WEST),
+          east: this.needsCull(block, (Lodestone as any).Direction.EAST),
+          north: this.needsCull(block, (Lodestone as any).Direction.NORTH),
+          south: this.needsCull(block, (Lodestone as any).Direction.SOUTH),
+        };
+        const mesh = model.getMesh(this.resources, cull);
 
         const facing = props.facing || 'north';
         const t = mat4.create();
@@ -154,10 +176,17 @@ if ((Lodestone as any).SpecialRenderers && typeof (Lodestone as any).SpecialRend
         );
         mat4.translate(t, t, [-8, -8, -8]);
         mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
-        return mesh.transform(t);
+        mesh.transform(t);
+
+        if (!mesh.isEmpty()) {
+          this.finishChunkMesh(mesh, block.pos, blockName, props, chunkKey);
+          chunk.mesh.merge(mesh);
+        }
+        return;
       }
     }
-    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+
+    return origProcessBlock.call(this, block, chunkFilter);
   };
 }
 
