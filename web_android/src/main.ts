@@ -47,13 +47,13 @@ let tightRadius: number = 10;
 let animFrameId: number | null = null;
 let isNightMode = false;
 
-// High-performance flat array grid structure patch
+// High-performance flat array grid structure patch (Uint32Array to support multi-million block schematics)
 (Structure.prototype as any).ensurePlacedCaches = function () {
   if (this.placedBlocksCache && this.flatGrid) return;
   const [w, h, d] = this.getSize();
   const vol = w * h * d;
-  const grid = new Uint16Array(vol);
-  grid.fill(0xffff); // 0xffff indicates empty/air
+  const grid = new Uint32Array(vol);
+  grid.fill(0xffffffff); // 0xffffffff indicates empty/air
 
   const blocks = this.blocks || [];
   const placedCache: any[] = [];
@@ -75,7 +75,7 @@ let isNightMode = false;
   const [w, h, d] = this.getSize();
   const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
   const bIdx = this.flatGrid[idx];
-  if (bIdx === 0xffff) return null;
+  if (bIdx === 0xffffffff) return null;
   return this.placedBlocksCache[bIdx] ?? null;
 };
 

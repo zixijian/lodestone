@@ -27,8 +27,17 @@ class MainActivity : AppCompatActivity() {
     private val openResourcePackLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
-            Toast.makeText(this, R.string.toast_pack_imported, Toast.LENGTH_SHORT).show()
+        uri?.let { packUri ->
+            val result = ZipUtils.validateAndExtractResourcePack(this, packUri)
+            if (result.isValid) {
+                Toast.makeText(this, R.string.toast_pack_imported, Toast.LENGTH_SHORT).show()
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle("材质包导入失败")
+                    .setMessage(result.errorMessage ?: "无效的材质包。")
+                    .setPositiveButton(R.string.dialog_ok) { dialog, _ -> dialog.dismiss() }
+                    .show()
+            }
         }
     }
 
