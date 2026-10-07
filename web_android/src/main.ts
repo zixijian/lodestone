@@ -81,14 +81,14 @@ let isNightMode = false;
 
 // Helper to generate double chest half models (left / right) with accurate geometry & UV mappings
 function createChestHalfModel(textureKey: string, isLeft: boolean) {
-  // type=left: body [0, 0, 1] to [15, 10, 15], latch [0, 7, 0] to [1, 11, 2] (meets right half at x=0)
-  // type=right: body [1, 0, 1] to [16, 10, 15], latch [15, 7, 0] to [16, 11, 2] (meets left half at x=16)
-  const baseFrom: [number, number, number] = isLeft ? [0, 0, 1] : [1, 0, 1];
-  const baseTo: [number, number, number] = isLeft ? [15, 10, 15] : [16, 10, 15];
-  const lidFrom: [number, number, number] = isLeft ? [0, 10, 1] : [1, 10, 1];
-  const lidTo: [number, number, number] = isLeft ? [15, 14, 15] : [16, 14, 15];
-  const latchFrom: [number, number, number] = isLeft ? [0, 7, 0] : [15, 7, 0];
-  const latchTo: [number, number, number] = isLeft ? [1, 11, 2] : [16, 11, 2];
+  // type=left: body [1, 0, 1] to [16, 10, 15], latch [15, 7, 0] to [16, 11, 2] (meets right half at x=16)
+  // type=right: body [0, 0, 1] to [15, 10, 15], latch [0, 7, 0] to [1, 11, 2] (meets left half at x=0)
+  const baseFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
+  const baseTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
+  const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
+  const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
+  const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
+  const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
 
   return new (Lodestone as any).BlockModel(undefined, { 0: textureKey }, [
     {
@@ -175,7 +175,10 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
           facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0
         );
         mat4.translate(t, t, [-8, -8, -8]);
-        mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+
+        const s = mat4.create();
+        mat4.scale(s, s, [0.0625, 0.0625, 0.0625]);
+        mat4.multiply(t, s, t);
         mesh.transform(t);
 
         if (!mesh.isEmpty()) {
@@ -805,12 +808,20 @@ window.setDayNight = function (isNight: boolean) {
     renderer.renderer.setClearColor(isNightMode ? 0x050a14 : 0x002b36, 1.0);
   }
   if (renderer && (renderer as any).sunlight) {
-    const sunlight = (renderer as any).sunlight;
-    if (sunlight.directionalLight) {
-      sunlight.directionalLight.intensity = isNightMode ? 0.2 : 1.2;
+    const s = (renderer as any).sunlight;
+    if (isNightMode) {
+      s.intensity = 0.2;
+      s.ambientIntensity = 0.3;
+      s.exposure = 0.8;
+      if (s.direction) s.direction = [-0.2, -0.8, -0.2];
+    } else {
+      s.intensity = 1.0;
+      s.ambientIntensity = 0.6;
+      s.exposure = 1.0;
+      if (s.direction) s.direction = [-0.4, 0.8, -0.4];
     }
-    if (sunlight.ambientLight) {
-      sunlight.ambientLight.intensity = isNightMode ? 0.3 : 0.8;
+    if (typeof (renderer as any).updateLightUniforms === 'function') {
+      (renderer as any).updateLightUniforms();
     }
   }
 };

@@ -39,6 +39,12 @@ class MainActivity : AppCompatActivity() {
         uri?.let { packUri ->
             val result = ZipUtils.validateAndExtractResourcePack(this, packUri)
             if (result.isValid) {
+                val packName = getFileName(packUri) ?: "Custom Pack"
+                getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("custom_pack_name", packName)
+                    .apply()
+                updatePackInfoUI()
                 Toast.makeText(this, R.string.toast_pack_imported, Toast.LENGTH_SHORT).show()
             } else {
                 AlertDialog.Builder(this)
@@ -55,6 +61,8 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        updatePackInfoUI()
+
         // Setup Shulkr-style card click listeners
         binding.cardOpenSchematic.setOnClickListener {
             openDocumentLauncher.launch(arrayOf("*/*"))
@@ -67,6 +75,27 @@ class MainActivity : AppCompatActivity() {
         binding.btnMenu.setOnClickListener { view ->
             showPopupMenu(view)
         }
+    }
+
+    private fun updatePackInfoUI() {
+        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        val packName = prefs.getString("custom_pack_name", null)
+        if (packName != null) {
+            binding.tvPackDesc.text = packName
+        } else {
+            binding.tvPackDesc.setText(R.string.pack_info_desc)
+        }
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        var name: String? = null
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (nameIndex != -1 && cursor.moveToFirst()) {
+                name = cursor.getString(nameIndex)
+            }
+        }
+        return name
     }
 
     private fun showPopupMenu(anchorView: View) {
