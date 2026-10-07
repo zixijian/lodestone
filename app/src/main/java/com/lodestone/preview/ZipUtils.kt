@@ -151,7 +151,27 @@ object ZipUtils {
     private fun generateCustomAtlas(context: Context, customPackDir: File) {
         val assetsManager = context.assets
 
-        // 1. Load default atlas image from assets
+        // 1. Build a recursive, case-insensitive map of extracted PNG textures relative to assets/minecraft/textures/
+        val textureMap = HashMap<String, File>()
+        fun scanDir(dir: File) {
+            val files = dir.listFiles() ?: return
+            for (file in files) {
+                if (file.isDirectory) {
+                    scanDir(file)
+                } else if (file.isFile && file.extension.lowercase() == "png") {
+                    val normalizedPath = file.absolutePath.replace("\\", "/").lowercase()
+                    val idx = normalizedPath.indexOf("assets/minecraft/textures/")
+                    if (idx != -1) {
+                        val relativeKey = normalizedPath.substring(idx + "assets/minecraft/textures/".length)
+                            .removeSuffix(".png")
+                        textureMap[relativeKey] = file
+                    }
+                }
+            }
+        }
+        scanDir(customPackDir)
+
+        // 2. Load default atlas image from assets
         val defaultAtlasStream = assetsManager.open("web/default-pack/atlas.png")
         val defaultAtlasBitmap = BitmapFactory.decodeStream(defaultAtlasStream)
             ?: return
@@ -160,7 +180,7 @@ object ZipUtils {
         val mutableAtlas = defaultAtlasBitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(mutableAtlas)
 
-        // 2. Load default assets.json metadata
+        // 3. Load default assets.json metadata
         val jsonStream = assetsManager.open("web/default-pack/assets.json")
         val jsonString = jsonStream.bufferedReader().use { it.readText() }
         jsonStream.close()
@@ -177,7 +197,9 @@ object ZipUtils {
         val keys = texturesObj.keys()
         while (keys.hasNext()) {
             val key = keys.next()
-            val texFile = File(customPackDir, "assets/minecraft/textures/$key.png")
+            val lowerKey = key.lowercase()
+            val texFile = textureMap[lowerKey] ?: File(customPackDir, "assets/minecraft/textures/$key.png")
+
             if (texFile.exists() && texFile.isFile) {
                 try {
                     val customBm = BitmapFactory.decodeFile(texFile.absolutePath)

@@ -213,15 +213,17 @@ function createChestModel(textureKey: string, type: 'single' | 'left' | 'right')
   let latchTo: [number, number, number];
 
   if (type === 'left') {
+    // left half in block space [1, 0, 1] to [16, 10, 15]
     baseFrom = [1, 0, 1]; baseTo = [16, 10, 15];
     lidFrom = [1, 10, 1]; lidTo = [16, 14, 15];
     latchFrom = [15, 7, 0]; latchTo = [16, 11, 2];
   } else if (type === 'right') {
+    // right half in block space [0, 0, 1] to [15, 10, 15]
     baseFrom = [0, 0, 1]; baseTo = [15, 10, 15];
     lidFrom = [0, 10, 1]; lidTo = [15, 14, 15];
     latchFrom = [0, 7, 0]; latchTo = [1, 11, 2];
   } else {
-    // single
+    // single chest in block space [1, 0, 1] to [15, 10, 15]
     baseFrom = [1, 0, 1]; baseTo = [15, 10, 15];
     lidFrom = [1, 10, 1]; lidTo = [15, 14, 15];
     latchFrom = [7, 7, 0]; latchTo = [9, 11, 2];
@@ -310,12 +312,13 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
       const facing = props.facing || 'north';
       const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
 
+      // Lodestone standard [8, 8, 8] pixel rotation pivot and single 0.0625 matrix scale
       const t = mat4.create();
-      mat4.translate(t, t, [0.5, 0.5, 0.5]);
+      mat4.translate(t, t, [8, 8, 8]);
       if (angle !== 0) {
         mat4.rotateY(t, t, angle);
       }
-      mat4.translate(t, t, [-0.5, -0.5, -0.5]);
+      mat4.translate(t, t, [-8, -8, -8]);
       mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
 
       mesh.transform(t);
@@ -347,7 +350,7 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
       const mesh = model.getMesh(this.resources, cull);
 
       const t = mat4.create();
-      mat4.translate(t, t, [0.5, 0.5, 0.5]);
+      mat4.translate(t, t, [8, 8, 8]);
       if (props.facing) {
         const facing = props.facing;
         const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
@@ -357,7 +360,7 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
         const angle = (rot / 16) * Math.PI * 2;
         if (angle !== 0) mat4.rotateY(t, t, angle);
       }
-      mat4.translate(t, t, [-0.5, -0.5, -0.5]);
+      mat4.translate(t, t, [-8, -8, -8]);
       mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
 
       mesh.transform(t);
@@ -391,7 +394,7 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
 
       const facing = props.facing || 'north';
       const t = mat4.create();
-      mat4.translate(t, t, [0.5, 0.5, 0.5]);
+      mat4.translate(t, t, [8, 8, 8]);
       if (facing === 'up') {
         mat4.rotateX(t, t, -Math.PI / 2);
       } else if (facing === 'down') {
@@ -400,7 +403,7 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
         const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
         if (angle !== 0) mat4.rotateY(t, t, angle);
       }
-      mat4.translate(t, t, [-0.5, -0.5, -0.5]);
+      mat4.translate(t, t, [-8, -8, -8]);
       mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
 
       mesh.transform(t);
@@ -480,7 +483,8 @@ async function init() {
   activeCamera.position.set(10, 15, 20);
 
   try {
-    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/';
+    const cb = Date.now();
+    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/?cb=' + cb;
     const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
     currentResources = loaded.resources;
 
@@ -1030,22 +1034,20 @@ window.setDayNight = function (isNight: boolean) {
   if (renderer && renderer.renderer) {
     renderer.renderer.setClearColor(isNightMode ? 0x050a14 : 0x002b36, 1.0);
   }
-  if (renderer && (renderer as any).sunlight) {
-    const s = (renderer as any).sunlight;
-    if (isNightMode) {
-      s.intensity = 0.25;
-      s.ambientIntensity = 0.35;
-      s.exposure = 0.85;
-      if (s.direction) s.direction = [-0.2, -0.8, -0.2];
-    } else {
-      s.intensity = 0.9;
-      s.ambientIntensity = 0.5;
-      s.exposure = 0.95;
-      if (s.direction) s.direction = [-0.4, 0.8, -0.4];
-    }
-    if (typeof (renderer as any).applySunlightUniforms === 'function') {
-      if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
-      if ((renderer as any).transparentMaterial) (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
+  if (renderer) {
+    const options = isNightMode ? {
+      intensity: 0.25,
+      ambientIntensity: 0.35,
+      exposure: 0.85,
+      direction: [-0.2, -0.8, -0.2]
+    } : {
+      intensity: 0.9,
+      ambientIntensity: 0.5,
+      exposure: 0.95,
+      direction: [-0.4, 0.8, -0.4]
+    };
+    if (typeof (renderer as any).setSunlight === 'function') {
+      (renderer as any).setSunlight(options);
     }
   }
 };
@@ -1067,7 +1069,9 @@ window.switchRegion = async function (regionName: string) {
 
 window.loadCustomResourcePack = async function (packBaseUrl: string) {
   try {
-    const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
+    const cb = Date.now();
+    const urlWithCb = packBaseUrl.includes('?') ? packBaseUrl + '&cb=' + cb : packBaseUrl + '?cb=' + cb;
+    const loaded = await loadDefaultPackResources({ baseUrl: urlWithCb });
     currentResources = loaded.resources;
     if (activeRegionName) {
       await buildRendererForRegion(activeRegionName);
