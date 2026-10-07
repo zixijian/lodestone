@@ -29,8 +29,45 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
-            openPreviewActivity(it, null)
+            validateAndOpenSchematic(it)
         }
+    }
+
+    private fun validateAndOpenSchematic(uri: Uri) {
+        val fileName = getFileNameFromUri(uri)?.lowercase() ?: ""
+
+        if (!fileName.endsWith(".litematic") && !fileName.endsWith(".schematic") && !fileName.endsWith(".nbt")) {
+            showValidationError("无效的文件扩展名，仅支持选择 .litematic 投影文件")
+            return
+        }
+
+        var isValidGzip = false
+        try {
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val header = ByteArray(2)
+                val readBytes = inputStream.read(header, 0, 2)
+                if (readBytes == 2 && header[0] == 0x1F.toByte() && header[1] == 0x8B.toByte()) {
+                    isValidGzip = true
+                }
+            }
+        } catch (e: Exception) {
+            isValidGzip = false
+        }
+
+        if (!isValidGzip) {
+            showValidationError("无效的投影文件内容 (未通过 GZIP 压缩格式校验)")
+            return
+        }
+
+        openPreviewActivity(uri, null)
+    }
+
+    private fun showValidationError(message: String) {
+        AlertDialog.Builder(this)
+            .setTitle("文件校验失败")
+            .setMessage(message)
+            .setPositiveButton(R.string.dialog_ok, null)
+            .show()
     }
 
     private val openPackLauncher = registerForActivityResult(
@@ -41,6 +78,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun processResourcePackImport(uri: Uri) {
         try {
+            val fileName = getFileNameFromUri(uri) ?: "custom_pack.zip"
             contentResolver.openInputStream(uri)?.use { inputStream ->
                 val tempDir = File(cacheDir, "temp_pack")
                 if (tempDir.exists()) tempDir.deleteRecursively()
@@ -79,6 +117,8 @@ class MainActivity : AppCompatActivity() {
                 if (targetDir.exists()) targetDir.deleteRecursively()
                 tempDir.renameTo(targetDir)
 
+                getSharedPreferences("app_prefs", MODE_PRIVATE).edit().putString("custom_pack_name", fileName).apply()
+
                 Toast.makeText(this, "材质包导入成功！", Toast.LENGTH_SHORT).show()
                 updateResourcePackStatus()
             }
@@ -87,10 +127,34 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun getFileNameFromUri(uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) {
+                        result = cursor.getString(index)
+                    }
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/') ?: -1
+            if (cut != -1) {
+                result = result?.substring(cut + 1)
+            }
+        }
+        return result
+    }
+
     private fun updateResourcePackStatus() {
         val packDir = File(filesDir, "custom_resource_pack")
+        val savedName = getSharedPreferences("app_prefs", MODE_PRIVATE).getString("custom_pack_name", null)
         if (packDir.exists() && packDir.list()?.isNotEmpty() == true) {
-            binding.tvPackSubtitle.text = "自定义材质包已加载"
+            val displayName = savedName ?: "自定义材质包"
+            binding.tvPackSubtitle.text = "已导入: $displayName"
             binding.tvPackSubtitle.setTextColor(ContextCompat.getColor(this, R.color.solarized_green))
         } else {
             binding.tvPackSubtitle.text = "默认材质包 (Minecraft 1.21.x)"
@@ -103,6 +167,7 @@ class MainActivity : AppCompatActivity() {
         if (packDir.exists()) {
             packDir.deleteRecursively()
         }
+        getSharedPreferences("app_prefs", MODE_PRIVATE).edit().remove("custom_pack_name").apply()
         updateResourcePackStatus()
         Toast.makeText(this, R.string.toast_pack_reset, Toast.LENGTH_SHORT).show()
     }

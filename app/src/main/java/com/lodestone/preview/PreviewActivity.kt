@@ -108,7 +108,8 @@ class PreviewActivity : AppCompatActivity() {
 
                 // Intercept default resource pack requests to serve custom uploaded resource pack files if available
                 if (path.contains("/default-pack/")) {
-                    val subPath = path.substringAfter("/default-pack/")
+                    val rawSub = path.substringAfter("/default-pack/").substringBefore("?")
+                    val subPath = rawSub
                     val customPackFile = File(filesDir, "custom_resource_pack/$subPath")
                     if (customPackFile.exists() && customPackFile.isFile) {
                         try {

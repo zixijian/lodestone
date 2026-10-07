@@ -213,16 +213,49 @@ async function init() {
   activeCamera.position.set(10, 15, 20);
 
   try {
-    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/';
-    const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
+    const cb = Date.now();
+    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + `default-pack/`;
+
+    const parseBlockList = (text: string) => {
+      const set = new Set<string>();
+      if (!text) return set;
+      text.split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          set.add(trimmed.startsWith('minecraft:') ? trimmed : 'minecraft:' + trimmed);
+        }
+      });
+      return set;
+    };
+
+    const [loaded, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
+      loadDefaultPackResources({ baseUrl: packBaseUrl + `?cb=${cb}` }),
+      fetch(packBaseUrl + `block_flags/opaque.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block_flags/transparent.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block_flags/non_self_culling.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block_flags/emissive.json?cb=${cb}`).catch(() => null)
+    ]);
+
+    const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
+    const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
+    const nonSelfCullingText = nonSelfCullingRes && nonSelfCullingRes.ok ? await nonSelfCullingRes.text() : '';
+    const emissiveJson = emissiveRes && emissiveRes.ok ? await emissiveRes.json() : {};
+
+    const flags = {
+      opaque: parseBlockList(opaqueText),
+      transparent: parseBlockList(transparentText),
+      nonSelfCulling: parseBlockList(nonSelfCullingText),
+      emissive: emissiveJson
+    };
+
     const assets = loaded.assets;
 
     // Item Frame block models
-    assets.models['minecraft:block/item_frame'] = {
+    assets.models['block/item_frame'] = {
       parent: 'block/block',
       textures: {
-        particle: 'minecraft:block/birch_planks',
-        wood: 'minecraft:block/birch_planks',
+        particle: 'minecraft:block/oak_planks',
+        wood: 'minecraft:block/oak_planks',
         map: 'minecraft:item/item_frame'
       },
       elements: [
@@ -239,7 +272,18 @@ async function init() {
         }
       ]
     };
-    assets.models['block/item_frame'] = assets.models['minecraft:block/item_frame'];
+    assets.models['block/glow_item_frame'] = assets.models['block/item_frame'];
+
+    const itemFrameVariants = {
+      'facing=north': { model: 'block/item_frame' },
+      'facing=south': { model: 'block/item_frame', y: 180 },
+      'facing=west': { model: 'block/item_frame', y: 270 },
+      'facing=east': { model: 'block/item_frame', y: 90 },
+      'facing=up': { model: 'block/item_frame', x: 270 },
+      'facing=down': { model: 'block/item_frame', x: 90 }
+    };
+    assets.blockstates['item_frame'] = { variants: itemFrameVariants };
+    assets.blockstates['glow_item_frame'] = { variants: itemFrameVariants };
 
     // Double Chest Models (Left & Right halves)
     const registerChestModel = (name: string, tex: string, isLeft: boolean) => {
@@ -275,13 +319,11 @@ async function init() {
       };
     };
 
-    registerChestModel('minecraft:block/chest_left', 'minecraft:entity/chest/normal_left', true);
-    registerChestModel('minecraft:block/chest_right', 'minecraft:entity/chest/normal_right', false);
     registerChestModel('block/chest_left', 'minecraft:entity/chest/normal_left', true);
     registerChestModel('block/chest_right', 'minecraft:entity/chest/normal_right', false);
 
-    // Map minecraft:chest blockstate variants
-    const chestState = assets.blockstates['minecraft:chest'] || assets.blockstates['chest'];
+    // Map chest blockstate variants
+    const chestState = assets.blockstates['chest'] || assets.blockstates['minecraft:chest'];
     if (chestState) {
       const chestVariants = chestState.variants || {};
       for (const [key, val] of Object.entries(chestVariants)) {
@@ -301,9 +343,60 @@ async function init() {
       }
     }
 
+    // Hanging Signs
+    const woodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'bamboo', 'crimson', 'warped'];
+    woodTypes.forEach(wood => {
+      const plankTex = `minecraft:block/${wood}_planks`;
+      const signModelKey = `block/${wood}_hanging_sign`;
+      assets.models[signModelKey] = {
+        parent: 'block/block',
+        textures: { particle: plankTex, board: plankTex },
+        elements: [
+          {
+            from: [1, 0, 7], to: [15, 10, 9],
+            faces: {
+              north: { texture: '#board', uv: [1, 6, 15, 16] },
+              south: { texture: '#board', uv: [1, 6, 15, 16] },
+              east: { texture: '#board', uv: [7, 6, 9, 16] },
+              west: { texture: '#board', uv: [7, 6, 9, 16] },
+              up: { texture: '#board', uv: [1, 7, 15, 9] },
+              down: { texture: '#board', uv: [1, 7, 15, 9] }
+            }
+          }
+        ]
+      };
+
+      const signVariants = {
+        'rotation=0': { model: signModelKey },
+        'rotation=1': { model: signModelKey, y: 22.5 },
+        'rotation=2': { model: signModelKey, y: 45 },
+        'rotation=3': { model: signModelKey, y: 67.5 },
+        'rotation=4': { model: signModelKey, y: 90 },
+        'rotation=5': { model: signModelKey, y: 112.5 },
+        'rotation=6': { model: signModelKey, y: 135 },
+        'rotation=7': { model: signModelKey, y: 157.5 },
+        'rotation=8': { model: signModelKey, y: 180 },
+        'rotation=9': { model: signModelKey, y: 202.5 },
+        'rotation=10': { model: signModelKey, y: 225 },
+        'rotation=11': { model: signModelKey, y: 247.5 },
+        'rotation=12': { model: signModelKey, y: 270 },
+        'rotation=13': { model: signModelKey, y: 292.5 },
+        'rotation=14': { model: signModelKey, y: 315 },
+        'rotation=15': { model: signModelKey, y: 337.5 },
+        'facing=north': { model: signModelKey },
+        'facing=south': { model: signModelKey, y: 180 },
+        'facing=west': { model: signModelKey, y: 270 },
+        'facing=east': { model: signModelKey, y: 90 }
+      };
+
+      assets.blockstates[`${wood}_hanging_sign`] = { variants: signVariants };
+      assets.blockstates[`${wood}_wall_hanging_sign`] = { variants: signVariants };
+    });
+
     currentResources = createResourcesFromPack({
       assets: loaded.assets,
-      atlas: loaded.atlas
+      atlas: loaded.atlas,
+      flags
     });
 
     if (window.AndroidHost) {
@@ -644,14 +737,14 @@ async function buildRendererForRegion(regionName: string) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
     renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.renderer.toneMappingExposure = 1.0;
+    renderer.renderer.toneMappingExposure = 0.85;
   }
 
-  // Calibrate sunlight and ambient lighting to eliminate overexposure
+  // Calibrate sunlight and ambient lighting to eliminate overexposure (~90% of original brightness)
   if ((renderer as any).sunlight) {
     const sun = (renderer as any).sunlight;
-    if (sun.light) sun.light.intensity = 0.7;
-    if (sun.ambient) sun.ambient.intensity = 0.5;
+    if (sun.light) sun.light.intensity = 0.58;
+    if (sun.ambient) sun.ambient.intensity = 0.38;
   }
 
   const aspect = window.innerWidth / window.innerHeight;
@@ -803,18 +896,18 @@ window.toggleDayNight = function () {
   isNightMode = !isNightMode;
   if (renderer && renderer.renderer) {
     if (isNightMode) {
-      renderer.renderer.setClearColor(0x070b12, 1.0);
+      renderer.renderer.setClearColor(0x040810, 1.0);
       if ((renderer as any).sunlight) {
         const sun = (renderer as any).sunlight;
-        if (sun.light) sun.light.intensity = 0.2;
-        if (sun.ambient) sun.ambient.intensity = 0.25;
+        if (sun.light) sun.light.intensity = 0.08;
+        if (sun.ambient) sun.ambient.intensity = 0.15;
       }
     } else {
       renderer.renderer.setClearColor(0x002b36, 1.0);
       if ((renderer as any).sunlight) {
         const sun = (renderer as any).sunlight;
-        if (sun.light) sun.light.intensity = 0.7;
-        if (sun.ambient) sun.ambient.intensity = 0.5;
+        if (sun.light) sun.light.intensity = 0.58;
+        if (sun.ambient) sun.ambient.intensity = 0.38;
       }
     }
   }
