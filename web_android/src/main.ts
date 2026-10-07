@@ -79,6 +79,129 @@ let isNightMode = false;
   return this.placedBlocksCache[bIdx] ?? null;
 };
 
+// Helper to extract wood type from block name
+function getWoodType(blockName: string): string {
+  const woods = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+  for (const w of woods) {
+    if (blockName.includes(w)) return w;
+  }
+  return 'oak';
+}
+
+// Helper to generate hanging sign models for all wood types
+function createHangingSignModel(blockName: string, props: Record<string, string>) {
+  const wood = getWoodType(blockName);
+  const plankTex = 'block/' + wood + '_planks';
+  const chainTex = 'block/chain';
+
+  const isWall = blockName.includes('wall');
+  const attached = props.attached === 'true';
+
+  const elements: any[] = [
+    // Main sign board
+    {
+      from: [1, 2, 7],
+      to: [15, 10, 9],
+      faces: {
+        north: { uv: [1, 6, 15, 14], texture: '#plank' },
+        south: { uv: [1, 6, 15, 14], texture: '#plank' },
+        east: { uv: [7, 6, 9, 14], texture: '#plank' },
+        west: { uv: [7, 6, 9, 14], texture: '#plank' },
+        up: { uv: [1, 7, 15, 9], texture: '#plank' },
+        down: { uv: [1, 7, 15, 9], texture: '#plank' },
+      }
+    }
+  ];
+
+  if (isWall) {
+    // Wall bracket
+    elements.push({
+      from: [0, 14, 7],
+      to: [16, 16, 9],
+      faces: {
+        north: { uv: [0, 0, 16, 2], texture: '#plank' },
+        south: { uv: [0, 0, 16, 2], texture: '#plank' },
+        east: { uv: [7, 0, 9, 2], texture: '#plank' },
+        west: { uv: [7, 0, 9, 2], texture: '#plank' },
+        up: { uv: [0, 7, 16, 9], texture: '#plank' },
+        down: { uv: [0, 7, 16, 9], texture: '#plank' },
+      }
+    });
+    // Chains from bracket to board
+    elements.push(
+      {
+        from: [3, 10, 7.5],
+        to: [5, 14, 8.5],
+        faces: {
+          north: { uv: [0, 0, 2, 4], texture: '#chain' },
+          south: { uv: [0, 0, 2, 4], texture: '#chain' },
+          east: { uv: [0, 0, 1, 4], texture: '#chain' },
+          west: { uv: [0, 0, 1, 4], texture: '#chain' },
+        }
+      },
+      {
+        from: [11, 10, 7.5],
+        to: [13, 14, 8.5],
+        faces: {
+          north: { uv: [0, 0, 2, 4], texture: '#chain' },
+          south: { uv: [0, 0, 2, 4], texture: '#chain' },
+          east: { uv: [0, 0, 1, 4], texture: '#chain' },
+          west: { uv: [0, 0, 1, 4], texture: '#chain' },
+        }
+      }
+    );
+  } else {
+    // Ceiling hanging chains
+    const chainTop = attached ? 14 : 16;
+    elements.push(
+      {
+        from: [3, 10, 7.5],
+        to: [5, chainTop, 8.5],
+        faces: {
+          north: { uv: [0, 0, 2, chainTop - 10], texture: '#chain' },
+          south: { uv: [0, 0, 2, chainTop - 10], texture: '#chain' },
+          east: { uv: [0, 0, 1, chainTop - 10], texture: '#chain' },
+          west: { uv: [0, 0, 1, chainTop - 10], texture: '#chain' },
+        }
+      },
+      {
+        from: [11, 10, 7.5],
+        to: [13, chainTop, 8.5],
+        faces: {
+          north: { uv: [0, 0, 2, chainTop - 10], texture: '#chain' },
+          south: { uv: [0, 0, 2, chainTop - 10], texture: '#chain' },
+          east: { uv: [0, 0, 1, chainTop - 10], texture: '#chain' },
+          west: { uv: [0, 0, 1, chainTop - 10], texture: '#chain' },
+        }
+      }
+    );
+  }
+
+  return new (Lodestone as any).BlockModel(undefined, { plank: plankTex, chain: chainTex }, elements);
+}
+
+// Helper to generate item frame models (regular & glow)
+function createItemFrameModel(isGlow: boolean) {
+  const frameTex = 'block/birch_planks';
+  const backTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
+
+  return new (Lodestone as any).BlockModel(undefined, { frame: frameTex, back: backTex }, [
+    // Outer wooden border
+    {
+      from: [2, 2, 0],
+      to: [14, 14, 1],
+      faces: {
+        north: { uv: [2, 2, 14, 14], texture: '#back' },
+        south: { uv: [2, 2, 14, 14], texture: '#frame' },
+        east: { uv: [0, 2, 1, 14], texture: '#frame' },
+        west: { uv: [0, 2, 1, 14], texture: '#frame' },
+        up: { uv: [2, 0, 14, 1], texture: '#frame' },
+        down: { uv: [2, 0, 14, 1], texture: '#frame' },
+      }
+    }
+  ]);
+}
+
 // Helper to generate double chest half models (left / right) with accurate geometry & UV mappings
 function createChestHalfModel(textureKey: string, isLeft: boolean) {
   // type=left: body [1, 0, 1] to [16, 10, 15], latch [15, 7, 0] to [16, 11, 2] (meets right half at x=16)
@@ -187,6 +310,98 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
         }
         return;
       }
+    }
+
+    // Handle hanging signs directly
+    if (blockName.includes('hanging_sign')) {
+      if (this.isFullyOccluded(block)) return;
+      const chunkPos = [
+        Math.floor(block.pos[0] / this.chunkSize[0]),
+        Math.floor(block.pos[1] / this.chunkSize[1]),
+        Math.floor(block.pos[2] / this.chunkSize[2]),
+      ];
+      const chunkKey = this.chunkKey(chunkPos);
+      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
+      const chunk = this.getChunk(chunkPos);
+
+      const props = this.getBlockProps(block.state);
+      const model = createHangingSignModel(blockName, props);
+      const cull = {
+        up: false, down: false, west: false, east: false, north: false, south: false
+      };
+      const mesh = model.getMesh(this.resources, cull);
+
+      const t = mat4.create();
+      mat4.translate(t, t, [8, 8, 8]);
+      if (props.facing) {
+        const facing = props.facing;
+        mat4.rotateY(
+          t, t,
+          facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0
+        );
+      } else if (props.rotation !== undefined) {
+        const rot = parseFloat(props.rotation) || 0;
+        mat4.rotateY(t, t, (rot / 16) * Math.PI * 2);
+      }
+      mat4.translate(t, t, [-8, -8, -8]);
+
+      const s = mat4.create();
+      mat4.scale(s, s, [0.0625, 0.0625, 0.0625]);
+      mat4.multiply(t, s, t);
+      mesh.transform(t);
+
+      if (!mesh.isEmpty()) {
+        this.finishChunkMesh(mesh, block.pos, blockName, props, chunkKey);
+        chunk.mesh.merge(mesh);
+      }
+      return;
+    }
+
+    // Handle item frames directly
+    if (blockName.includes('item_frame')) {
+      if (this.isFullyOccluded(block)) return;
+      const chunkPos = [
+        Math.floor(block.pos[0] / this.chunkSize[0]),
+        Math.floor(block.pos[1] / this.chunkSize[1]),
+        Math.floor(block.pos[2] / this.chunkSize[2]),
+      ];
+      const chunkKey = this.chunkKey(chunkPos);
+      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
+      const chunk = this.getChunk(chunkPos);
+
+      const props = this.getBlockProps(block.state);
+      const isGlow = blockName.includes('glow');
+      const model = createItemFrameModel(isGlow);
+      const cull = {
+        up: false, down: false, west: false, east: false, north: false, south: false
+      };
+      const mesh = model.getMesh(this.resources, cull);
+
+      const facing = props.facing || 'north';
+      const t = mat4.create();
+      mat4.translate(t, t, [8, 8, 8]);
+      if (facing === 'up') {
+        mat4.rotateX(t, t, -Math.PI / 2);
+      } else if (facing === 'down') {
+        mat4.rotateX(t, t, Math.PI / 2);
+      } else {
+        mat4.rotateY(
+          t, t,
+          facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0
+        );
+      }
+      mat4.translate(t, t, [-8, -8, -8]);
+
+      const s = mat4.create();
+      mat4.scale(s, s, [0.0625, 0.0625, 0.0625]);
+      mat4.multiply(t, s, t);
+      mesh.transform(t);
+
+      if (!mesh.isEmpty()) {
+        this.finishChunkMesh(mesh, block.pos, blockName, props, chunkKey);
+        chunk.mesh.merge(mesh);
+      }
+      return;
     }
 
     return origProcessBlock.call(this, block, chunkFilter);
@@ -810,18 +1025,19 @@ window.setDayNight = function (isNight: boolean) {
   if (renderer && (renderer as any).sunlight) {
     const s = (renderer as any).sunlight;
     if (isNightMode) {
-      s.intensity = 0.2;
-      s.ambientIntensity = 0.3;
-      s.exposure = 0.8;
+      s.intensity = 0.25;
+      s.ambientIntensity = 0.35;
+      s.exposure = 0.85;
       if (s.direction) s.direction = [-0.2, -0.8, -0.2];
     } else {
-      s.intensity = 1.0;
-      s.ambientIntensity = 0.6;
-      s.exposure = 1.0;
+      s.intensity = 0.9;
+      s.ambientIntensity = 0.5;
+      s.exposure = 0.95;
       if (s.direction) s.direction = [-0.4, 0.8, -0.4];
     }
-    if (typeof (renderer as any).updateLightUniforms === 'function') {
-      (renderer as any).updateLightUniforms();
+    if (typeof (renderer as any).applySunlightUniforms === 'function') {
+      if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
+      if ((renderer as any).transparentMaterial) (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
     }
   }
 };
