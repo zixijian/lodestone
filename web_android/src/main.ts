@@ -168,37 +168,32 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
-  const self = this as any;
-  const origRebuildChunkObjectsAsync = self.rebuildChunkObjectsAsync;
-
-  // Progressive chunk streaming with progress callbacks and single final mesh commit
-  const buildPromise = (async () => {
-    await self.chunkBuilder.updateStructureBuffersAsync({
-      chunkPositions,
-      timeSliceMs: self.asyncChunkBuildTimeMs || 12,
-      onProgress: (done: number, total: number) => {
-        if (token !== self.buildToken) return;
-        if (window.AndroidHost) {
-          const pct = Math.floor((done / Math.max(1, total)) * 100);
-          window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-        }
+  await (this as any).chunkBuilder.updateStructureBuffersAsync({
+    chunkPositions,
+    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
+    onProgress: (done: number, total: number) => {
+      if (window.AndroidHost) {
+        const pct = Math.floor((done / Math.max(1, total)) * 50);
+        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
       }
-    });
+    }
+  });
 
-    if (token !== self.buildToken) return;
+  if (token !== (this as any).buildToken) return;
 
-    await origRebuildChunkObjectsAsync.call(self, token);
-    if (self.chunkMeshes) {
-      for (let i = 0; i < self.chunkMeshes.length; i++) {
-        const mesh = self.chunkMeshes[i];
+  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
+  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
+    if ((this as any).chunkMeshes) {
+      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
+        const mesh = (this as any).chunkMeshes[i];
         mesh.visible = true;
         mesh.frustumCulled = false;
       }
     }
-    if (window.AndroidHost && token === self.buildToken) {
+    if (window.AndroidHost && token === (this as any).buildToken) {
       window.AndroidHost.onLoadingProgress('RENDERING_100%');
     }
-  })();
+  });
 
   (this as any).buildPromise = buildPromise;
   return buildPromise;
@@ -219,119 +214,6 @@ async function init() {
     const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/';
     const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
     currentResources = loaded.resources;
-
-    // Custom model overrides for Item Frames, Chests, and Signs
-    const assets = currentResources.assets;
-
-    // Item Frame block models using minecraft:item/item_frame texture
-    assets.models['minecraft:block/item_frame'] = {
-      parent: 'block/block',
-      textures: {
-        particle: 'minecraft:block/birch_planks',
-        wood: 'minecraft:block/birch_planks',
-        map: 'minecraft:item/item_frame'
-      },
-      elements: [
-        {
-          from: [3, 3, 15], to: [13, 13, 16],
-          faces: {
-            north: { texture: '#map', uv: [0, 0, 16, 16] },
-            south: { texture: '#wood', uv: [3, 3, 13, 13] },
-            east: { texture: '#wood', uv: [15, 3, 16, 13] },
-            west: { texture: '#wood', uv: [0, 3, 1, 13] },
-            up: { texture: '#wood', uv: [3, 15, 13, 16] },
-            down: { texture: '#wood', uv: [3, 0, 13, 1] }
-          }
-        }
-      ]
-    };
-    assets.models['block/item_frame'] = assets.models['minecraft:block/item_frame'];
-
-    // Double Chest Models (Left & Right halves)
-    const registerChestModel = (name: string, tex: string, isLeft: boolean) => {
-      const fromX = isLeft ? 0 : 1;
-      const toX = isLeft ? 15 : 16;
-      assets.models[name] = {
-        parent: 'block/block',
-        textures: { particle: tex, chest: tex },
-        elements: [
-          {
-            from: [fromX, 0, 1], to: [toX, 10, 15],
-            faces: {
-              north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 8.25, isLeft ? 14.25 : 10.5, 12] },
-              south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 8.25, isLeft ? 7 : 3.5, 12] },
-              west: { texture: '#chest', uv: [0, 8.25, 3.5, 12] },
-              east: { texture: '#chest', uv: [3.5, 8.25, 7, 12] },
-              up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 7] },
-              down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 3.5, isLeft ? 10.5 : 7, 7] }
-            }
-          },
-          {
-            from: [fromX, 9, 0], to: [toX, 14, 15],
-            faces: {
-              north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 3.5, isLeft ? 14.25 : 10.5, 4.75] },
-              south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 4.75] },
-              west: { texture: '#chest', uv: [0, 3.5, 3.5, 4.75] },
-              east: { texture: '#chest', uv: [3.5, 3.5, 7, 4.75] },
-              up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 0, isLeft ? 7 : 3.5, 3.5] },
-              down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 0, isLeft ? 10.5 : 7, 3.5] }
-            }
-          }
-        ]
-      };
-    };
-
-    registerChestModel('minecraft:block/chest_left', 'minecraft:entity/chest/normal_left', true);
-    registerChestModel('minecraft:block/chest_right', 'minecraft:entity/chest/normal_right', false);
-    registerChestModel('block/chest_left', 'minecraft:entity/chest/normal_left', true);
-    registerChestModel('block/chest_right', 'minecraft:entity/chest/normal_right', false);
-
-    // Map minecraft:chest blockstate variants for type=left and type=right to chest_left and chest_right models
-    if (assets.blockstates['minecraft:chest']) {
-      const chestVariants = assets.blockstates['minecraft:chest'].variants || {};
-      for (const [key, val] of Object.entries(chestVariants)) {
-        if (key.includes('type=left')) {
-          if (Array.isArray(val)) {
-            val.forEach((v: any) => { if (v) v.model = 'block/chest_left'; });
-          } else if (val && typeof val === 'object') {
-            (val as any).model = 'block/chest_left';
-          }
-        } else if (key.includes('type=right')) {
-          if (Array.isArray(val)) {
-            val.forEach((v: any) => { if (v) v.model = 'block/chest_right'; });
-          } else if (val && typeof val === 'object') {
-            (val as any).model = 'block/chest_right';
-          }
-        }
-      }
-    }
-
-    // Override ChunkBuilder processBlock to handle double chests without falling back to hardcoded single chest renderer
-    if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
-      const origProcessBlock = (Lodestone as any).ChunkBuilder.prototype.processBlock;
-      (Lodestone as any).ChunkBuilder.prototype.processBlock = function (
-        pos: [number, number, number],
-        blockState: any,
-        accessor: any
-      ) {
-        if (blockState && blockState.is('minecraft:chest')) {
-          const type = blockState.getProperty('type');
-          if (type === 'left' || type === 'right') {
-            const modelName = type === 'left' ? 'minecraft:block/chest_left' : 'minecraft:block/chest_right';
-            const model = (this as any).resources.getBlockModel(modelName);
-            if (model) {
-              const facing = blockState.getProperty('facing') || 'north';
-              let rotY = 0;
-              if (facing === 'south') rotY = 180;
-              else if (facing === 'west') rotY = 270;
-              else if (facing === 'east') rotY = 90;
-              return this.addModelMesh(pos, model, accessor, { rotY });
-            }
-          }
-        }
-        return origProcessBlock.call(this, pos, blockState, accessor);
-      };
-    }
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
@@ -669,16 +551,6 @@ async function buildRendererForRegion(regionName: string) {
   }
   if (renderer.renderer) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
-    renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.renderer.toneMappingExposure = 1.0;
-  }
-
-  // Calibrate lights
-  if ((renderer as any).sunlight) {
-    const sun = (renderer as any).sunlight;
-    if (sun.light) sun.light.intensity = 0.7;
-    if (sun.ambient) sun.ambient.intensity = 0.5;
   }
 
   const aspect = window.innerWidth / window.innerHeight;

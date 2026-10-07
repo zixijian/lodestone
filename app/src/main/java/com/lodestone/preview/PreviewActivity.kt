@@ -113,9 +113,10 @@ class PreviewActivity : AppCompatActivity() {
                                 subPath.endsWith(".json", ignoreCase = true) -> "application/json"
                                 else -> "application/octet-stream"
                             }
+                            val encoding = if (mimeType.startsWith("image/") || mimeType == "application/octet-stream") null else "UTF-8"
                             return WebResourceResponse(
                                 mimeType,
-                                null,
+                                encoding,
                                 200,
                                 "OK",
                                 mapOf("Access-Control-Allow-Origin" to "*"),

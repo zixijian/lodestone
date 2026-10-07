@@ -67,17 +67,20 @@ class MainActivity : AppCompatActivity() {
     private fun processResourcePackImport(uri: Uri) {
         try {
             contentResolver.openInputStream(uri)?.use { inputStream ->
-                val targetDir = File(filesDir, "custom_resource_pack")
-                if (targetDir.exists()) {
-                    targetDir.deleteRecursively()
-                }
-                targetDir.mkdirs()
+                val tempDir = File(cacheDir, "temp_pack")
+                if (tempDir.exists()) tempDir.deleteRecursively()
+                tempDir.mkdirs()
 
+                var hasValidStructure = false
                 java.util.zip.ZipInputStream(inputStream).use { zipIn ->
                     var entry = zipIn.nextEntry
                     while (entry != null) {
-                        val outFile = File(targetDir, entry.name)
-                        if (!outFile.canonicalPath.startsWith(targetDir.canonicalPath)) {
+                        val entryName = entry.name
+                        if (entryName.startsWith("assets/") || entryName == "pack.mcmeta" || entryName.endsWith("assets.json")) {
+                            hasValidStructure = true
+                        }
+                        val outFile = File(tempDir, entryName)
+                        if (!outFile.canonicalPath.startsWith(tempDir.canonicalPath)) {
                             throw SecurityException("Zip Slip vulnerability detected in resource pack")
                         }
                         if (entry.isDirectory) {
@@ -90,6 +93,17 @@ class MainActivity : AppCompatActivity() {
                         entry = zipIn.nextEntry
                     }
                 }
+
+                if (!hasValidStructure) {
+                    tempDir.deleteRecursively()
+                    Toast.makeText(this, "无效的材质包格式 (未找到 assets 文件夹或 pack.mcmeta)", Toast.LENGTH_LONG).show()
+                    return
+                }
+
+                val targetDir = File(filesDir, "custom_resource_pack")
+                if (targetDir.exists()) targetDir.deleteRecursively()
+                tempDir.renameTo(targetDir)
+
                 Toast.makeText(this, "材质包导入成功！", Toast.LENGTH_SHORT).show()
                 updateResourcePackStatus()
             }
@@ -107,6 +121,15 @@ class MainActivity : AppCompatActivity() {
             binding.tvPackSubtitle.text = "默认材质包 (Minecraft 1.21.x)"
             binding.tvPackSubtitle.setTextColor(ContextCompat.getColor(this, R.color.solarized_base0))
         }
+    }
+
+    private fun resetDefaultResourcePack() {
+        val packDir = File(filesDir, "custom_resource_pack")
+        if (packDir.exists()) {
+            packDir.deleteRecursively()
+        }
+        updateResourcePackStatus()
+        Toast.makeText(this, R.string.toast_pack_reset, Toast.LENGTH_SHORT).show()
     }
 
     // Intercept back gesture/press to go up in directory hierarchy until root, then exit activity safely
@@ -130,29 +153,6 @@ class MainActivity : AppCompatActivity() {
         // Register custom back press handler
         onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
 
-        // Setup File RecyclerView
-        fileAdapter = FileAdapter(emptyList()) { selectedFile ->
-            if (DirectoryHelper.isItemDirectory(selectedFile)) {
-                navigateToDirectory(selectedFile)
-            } else {
-                if (selectedFile.name.endsWith(".litematic", ignoreCase = true)) {
-                    openPreviewActivity(null, selectedFile.absolutePath)
-                }
-            }
-        }
-        binding.rvFiles.layoutManager = LinearLayoutManager(this)
-        binding.rvFiles.adapter = fileAdapter
-
-        // Retrieve last visited directory if exists
-        val sharedPreferences = getSharedPreferences("lodestone_pref", Context.MODE_PRIVATE)
-        val lastPath = sharedPreferences.getString("last_visited_dir", null)
-        if (lastPath != null) {
-            val lastDir = File(lastPath)
-            if (lastDir.exists() && lastDir.isDirectory && isSubDirectoryOfRoot(lastDir)) {
-                currentDirectory = lastDir
-            }
-        }
-
         // Setup Buttons and Actions
         binding.btnSaf.setOnClickListener {
             openDocumentLauncher.launch(arrayOf("*/*"))
@@ -170,20 +170,15 @@ class MainActivity : AppCompatActivity() {
             resetDefaultResourcePack()
         }
 
-        updateResourcePackStatus()
-
         binding.btnMenu.setOnClickListener { view ->
             showPopupMenu(view)
-        }
-
-        binding.btnBack.setOnClickListener {
-            navigateUp()
         }
 
         binding.btnGrantPermission.setOnClickListener {
             requestStoragePermission()
         }
 
+        updateResourcePackStatus()
         checkPermissions()
     }
 
@@ -277,34 +272,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadFilesOfCurrentDirectory() {
-        binding.tvCurrentPath.text = getRelativePathString(currentDirectory)
-
-        // Attempt to read files
-        var filesList = currentDirectory.listFiles()
-
-        // If filesList is null or empty (which happens when permissions are not granted yet),
-        // we populate the list with standard system folder names to showcase the directory structure.
-        if (filesList == null || filesList.isEmpty()) {
-            val mockList = DirectoryHelper.getMockSubFiles(currentDirectory, rootDirectory)
-            if (mockList.isNotEmpty()) {
-                filesList = mockList.toTypedArray()
-            }
-        }
-
-        if (filesList != null && filesList.isNotEmpty()) {
-            val filteredList = filesList.filter {
-                DirectoryHelper.isItemDirectory(it) || it.name.endsWith(".litematic", ignoreCase = true)
-            }
-            fileAdapter.updateData(filteredList)
-            if (filteredList.isEmpty()) {
-                binding.tvEmpty.visibility = View.VISIBLE
-            } else {
-                binding.tvEmpty.visibility = View.GONE
-            }
-        } else {
-            fileAdapter.updateData(emptyList())
-            binding.tvEmpty.visibility = View.VISIBLE
-        }
+        // Unused directory loader removed as file list browser was removed from main screen
     }
 
     private fun getRelativePathString(directory: File): String {
@@ -321,31 +289,20 @@ class MainActivity : AppCompatActivity() {
     private fun showPopupMenu(anchorView: View) {
         val popupMenu = PopupMenu(this, anchorView)
         popupMenu.menu.add(0, 1, 0, R.string.menu_usage)
-        popupMenu.menu.add(0, 2, 1, R.string.menu_reset_pack)
-        popupMenu.menu.add(0, 3, 2, R.string.menu_about)
-        popupMenu.menu.add(0, 4, 3, R.string.menu_oss)
-        popupMenu.menu.add(0, 5, 4, R.string.menu_exit)
+        popupMenu.menu.add(0, 2, 1, R.string.menu_about)
+        popupMenu.menu.add(0, 3, 2, R.string.menu_oss)
+        popupMenu.menu.add(0, 4, 3, R.string.menu_exit)
 
         popupMenu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showTextDialog(getString(R.string.usage_title), getString(R.string.usage_content))
-                2 -> resetDefaultResourcePack()
-                3 -> showTextDialog(getString(R.string.about_title), getString(R.string.about_content))
-                4 -> showTextDialog(getString(R.string.oss_title), getString(R.string.oss_content))
-                5 -> finishAffinity()
+                2 -> showTextDialog(getString(R.string.about_title), getString(R.string.about_content))
+                3 -> showTextDialog(getString(R.string.oss_title), getString(R.string.oss_content))
+                4 -> finishAffinity()
             }
             true
         }
         popupMenu.show()
-    }
-
-    private fun resetDefaultResourcePack() {
-        val packDir = File(filesDir, "custom_resource_pack")
-        if (packDir.exists()) {
-            packDir.deleteRecursively()
-        }
-        updateResourcePackStatus()
-        Toast.makeText(this, R.string.toast_pack_reset, Toast.LENGTH_SHORT).show()
     }
 
     private fun showTextDialog(title: String, content: String) {
@@ -360,11 +317,11 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, PreviewActivity::class.java).apply {
             if (fileUri != null) {
                 data = fileUri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             if (filePath != null) {
                 putExtra("file_path", filePath)
             }
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(intent)
     }
