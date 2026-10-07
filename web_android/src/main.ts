@@ -7,7 +7,8 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
-  BlockState
+  BlockState,
+  NbtFile
 } = Lodestone;
 
 // Declare types for android host interface exposure
@@ -21,12 +22,9 @@ declare global {
     loadLitematic(): void;
     toggleCameraView(): void;
     resetCamera(): void;
-    toggleDayNight(): void;
-    setDayNight(isNight: boolean): void;
     switchRegion(regionName: string): void;
     stopRenderLoop(): void;
     destroyRenderer(): void;
-    loadCustomResourcePack(packBaseUrl: string): void;
   }
 }
 
@@ -45,393 +43,28 @@ let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
-let isNightMode = false;
 
-// High-performance flat array grid structure patch (Uint32Array to support multi-million block schematics)
+// High-performance, low-memory block caching patch using Map
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.flatGrid) return;
-  const [w, h, d] = this.getSize();
-  const vol = w * h * d;
-  const grid = new Uint32Array(vol);
-  grid.fill(0xffffffff); // 0xffffffff indicates empty/air
-
-  const blocks = this.blocks || [];
-  const placedCache: any[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    const placed = this.toPlacedBlock(b);
-    placedCache.push(placed);
-    const pos = b.pos;
-    const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
-    grid[idx] = i;
+  if (this.placedBlocksCache && this.placedBlocksMapCache) return;
+  this.placedBlocksCache = [];
+  this.placedBlocksMapCache = new Map();
+  for (let i = 0; i < this.blocks.length; i++) {
+    const block = this.blocks[i];
+    const placed = this.toPlacedBlock(block);
+    this.placedBlocksCache.push(placed);
+    this.placedBlocksMapCache.set(this.getIndex(block.pos), placed);
   }
-  this.flatGrid = grid;
-  this.placedBlocksCache = placedCache;
 };
 
 (Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
   if (!this.isInside(pos)) return null;
   this.ensurePlacedCaches();
-  const [w, h, d] = this.getSize();
-  const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
-  const bIdx = this.flatGrid[idx];
-  if (bIdx === 0xffffffff) return null;
-  return this.placedBlocksCache[bIdx] ?? null;
+  if (this.placedBlocksMapCache instanceof Map) {
+    return this.placedBlocksMapCache.get(this.getIndex(pos)) ?? null;
+  }
+  return this.placedBlocksMapCache?.[this.getIndex(pos)] ?? null;
 };
-
-// Helper to extract wood type from block name
-function getWoodType(blockName: string): string {
-  const woods = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
-  for (const w of woods) {
-    if (blockName.includes(w)) return w;
-  }
-  return 'oak';
-}
-
-// Helper to generate hanging sign models for all wood types
-function createHangingSignModel(blockName: string, props: Record<string, string>) {
-  const wood = getWoodType(blockName);
-  const plankTex = 'block/' + wood + '_planks';
-  const signEntityTex = 'entity/signs/hanging/' + wood;
-  const chainTex = 'block/chain';
-
-  const isWall = blockName.includes('wall');
-  const attached = props.attached === 'true';
-
-  const elements: any[] = [
-    // Main sign board
-    {
-      from: [1, 2, 7],
-      to: [15, 10, 9],
-      faces: {
-        north: { uv: [1, 6, 15, 14], texture: '#sign' },
-        south: { uv: [1, 6, 15, 14], texture: '#sign' },
-        east: { uv: [7, 6, 9, 14], texture: '#plank' },
-        west: { uv: [7, 6, 9, 14], texture: '#plank' },
-        up: { uv: [1, 7, 15, 9], texture: '#plank' },
-        down: { uv: [1, 7, 15, 9], texture: '#plank' },
-      }
-    }
-  ];
-
-  if (isWall) {
-    // Wall bracket
-    elements.push({
-      from: [0, 14, 7],
-      to: [16, 16, 9],
-      faces: {
-        north: { uv: [0, 0, 16, 2], texture: '#plank' },
-        south: { uv: [0, 0, 16, 2], texture: '#plank' },
-        east: { uv: [7, 0, 9, 2], texture: '#plank' },
-        west: { uv: [7, 0, 9, 2], texture: '#plank' },
-        up: { uv: [0, 7, 16, 9], texture: '#plank' },
-        down: { uv: [0, 7, 16, 9], texture: '#plank' },
-      }
-    });
-    // Chains from bracket to board
-    elements.push(
-      {
-        from: [3, 10, 7.5],
-        to: [5, 14, 8.5],
-        faces: {
-          north: { uv: [0, 0, 2, 4], texture: '#chain' },
-          south: { uv: [0, 0, 2, 4], texture: '#chain' },
-          east: { uv: [0, 0, 1, 4], texture: '#chain' },
-          west: { uv: [0, 0, 1, 4], texture: '#chain' },
-        }
-      },
-      {
-        from: [11, 10, 7.5],
-        to: [13, 14, 8.5],
-        faces: {
-          north: { uv: [0, 0, 2, 4], texture: '#chain' },
-          south: { uv: [0, 0, 2, 4], texture: '#chain' },
-          east: { uv: [0, 0, 1, 4], texture: '#chain' },
-          west: { uv: [0, 0, 1, 4], texture: '#chain' },
-        }
-      }
-    );
-  } else {
-    // Ceiling hanging chains
-    const chainTop = attached ? 14 : 16;
-    elements.push(
-      {
-        from: [3, 10, 7.5],
-        to: [5, chainTop, 8.5],
-        faces: {
-          north: { uv: [0, 0, 2, chainTop - 10], texture: '#chain' },
-          south: { uv: [0, 0, 2, chainTop - 10], texture: '#chain' },
-          east: { uv: [0, 0, 1, chainTop - 10], texture: '#chain' },
-          west: { uv: [0, 0, 1, chainTop - 10], texture: '#chain' },
-        }
-      },
-      {
-        from: [11, 10, 7.5],
-        to: [13, chainTop, 8.5],
-        faces: {
-          north: { uv: [0, 0, 2, chainTop - 10], texture: '#chain' },
-          south: { uv: [0, 0, 2, chainTop - 10], texture: '#chain' },
-          east: { uv: [0, 0, 1, chainTop - 10], texture: '#chain' },
-          west: { uv: [0, 0, 1, chainTop - 10], texture: '#chain' },
-        }
-      }
-    );
-  }
-
-  return new (Lodestone as any).BlockModel(undefined, { sign: signEntityTex, plank: plankTex, chain: chainTex }, elements);
-}
-
-// Helper to generate item frame models (regular & glow)
-function createItemFrameModel(isGlow: boolean) {
-  const frameTex = 'block/birch_planks';
-  const backTex = isGlow ? 'item/glow_item_frame' : 'item/item_frame';
-
-  return new (Lodestone as any).BlockModel(undefined, { frame: frameTex, back: backTex }, [
-    // Outer wooden border & back plate
-    {
-      from: [2, 2, 0],
-      to: [14, 14, 1],
-      faces: {
-        south: { uv: [2, 2, 14, 14], texture: '#back' },
-        north: { uv: [2, 2, 14, 14], texture: '#frame' },
-        east: { uv: [0, 2, 1, 14], texture: '#frame' },
-        west: { uv: [0, 2, 1, 14], texture: '#frame' },
-        up: { uv: [2, 0, 14, 1], texture: '#frame' },
-        down: { uv: [2, 0, 14, 1], texture: '#frame' },
-      }
-    }
-  ]);
-}
-
-// Helper to generate chest models (single, left, right) with accurate geometry & UV mappings
-function createChestModel(textureKey: string, type: 'single' | 'left' | 'right') {
-  let baseFrom: [number, number, number];
-  let baseTo: [number, number, number];
-  let lidFrom: [number, number, number];
-  let lidTo: [number, number, number];
-  let latchFrom: [number, number, number];
-  let latchTo: [number, number, number];
-
-  if (type === 'right') {
-    // right half in Minecraft block space [1, 0, 1] to [16, 10, 15] (connecting at x=16)
-    baseFrom = [1, 0, 1]; baseTo = [16, 10, 15];
-    lidFrom = [1, 10, 1]; lidTo = [16, 14, 15];
-    latchFrom = [15, 7, 0]; latchTo = [16, 11, 2];
-  } else if (type === 'left') {
-    // left half in Minecraft block space [0, 0, 1] to [15, 10, 15] (connecting at x=0)
-    baseFrom = [0, 0, 1]; baseTo = [15, 10, 15];
-    lidFrom = [0, 10, 1]; lidTo = [15, 14, 15];
-    latchFrom = [0, 7, 0]; latchTo = [1, 11, 2];
-  } else {
-    // single chest in block space [1, 0, 1] to [15, 10, 15]
-    baseFrom = [1, 0, 1]; baseTo = [15, 10, 15];
-    lidFrom = [1, 10, 1]; lidTo = [15, 14, 15];
-    latchFrom = [7, 7, 0]; latchTo = [9, 11, 2];
-  }
-
-  return new (Lodestone as any).BlockModel(undefined, { 0: textureKey }, [
-    {
-      from: baseFrom,
-      to: baseTo,
-      faces: {
-        north: { uv: [3.5, 8.25, 7.25, 10.75], texture: '#0' },
-        east: { uv: [7.25, 8.25, 10.75, 10.75], texture: '#0' },
-        south: { uv: [10.75, 8.25, 14.5, 10.75], texture: '#0' },
-        west: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' },
-        up: { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' },
-        down: { uv: [7.25, 4.75, 11, 8.25], texture: '#0' },
-      }
-    },
-    {
-      from: lidFrom,
-      to: lidTo,
-      faces: {
-        north: { uv: [3.5, 3.5, 7.25, 4.5], texture: '#0' },
-        east: { uv: [7.25, 3.5, 10.75, 4.5], texture: '#0' },
-        south: { uv: [10.75, 3.5, 14.5, 4.5], texture: '#0' },
-        west: { uv: [0, 3.5, 3.5, 4.5], texture: '#0' },
-        up: { uv: [3.5, 0, 7.25, 3.5], texture: '#0' },
-        down: { uv: [7.25, 0, 11, 3.5], texture: '#0' },
-      }
-    },
-    {
-      from: latchFrom,
-      to: latchTo,
-      faces: {
-        north: { uv: [0.25, 0.25, 0.5, 1.25], texture: '#0' },
-        east: { uv: [0.5, 0.25, 1.0, 1.25], texture: '#0' },
-        south: { uv: [1.0, 0.25, 1.25, 1.25], texture: '#0' },
-        west: { uv: [0, 0.25, 0.25, 1.25], texture: '#0' },
-        up: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
-        down: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' },
-      }
-    }
-  ]);
-}
-
-// Override ChunkBuilder.prototype.processBlock to directly handle double chests, hanging signs, and item frames
-if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
-  const origProcessBlock = (Lodestone as any).ChunkBuilder.prototype.processBlock;
-  (Lodestone as any).ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
-    const blockName = block.state.getName ? block.state.getName().toString() : String(block.state);
-
-    // Handle chests directly (single and double)
-    if (blockName.includes('chest') && !blockName.includes('boat')) {
-      if (this.isFullyOccluded(block)) return;
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2]),
-      ];
-      const chunkKey = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      const props = this.getBlockProps(block.state);
-      const type = (props.type as 'single' | 'left' | 'right') || 'single';
-
-      let texPrefix = 'normal';
-      if (blockName.includes('trapped')) texPrefix = 'trapped';
-      else if (blockName.includes('ender')) texPrefix = 'ender';
-
-      const texKey = type === 'single'
-        ? 'entity/chest/' + texPrefix
-        : 'entity/chest/' + texPrefix + '_' + type;
-
-      const model = createChestModel(texKey, type);
-      const cull = {
-        up: this.needsCull(block, (Lodestone as any).Direction.UP),
-        down: this.needsCull(block, (Lodestone as any).Direction.DOWN),
-        west: this.needsCull(block, (Lodestone as any).Direction.WEST),
-        east: this.needsCull(block, (Lodestone as any).Direction.EAST),
-        north: this.needsCull(block, (Lodestone as any).Direction.NORTH),
-        south: this.needsCull(block, (Lodestone as any).Direction.SOUTH),
-      };
-      const mesh = model.getMesh(this.resources, cull);
-
-      const facing = props.facing || 'north';
-      const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
-
-      const rot = mat4.create();
-      mat4.translate(rot, rot, [8, 8, 8]);
-      if (angle !== 0) {
-        mat4.rotateY(rot, rot, angle);
-      }
-      mat4.translate(rot, rot, [-8, -8, -8]);
-
-      const scale = mat4.create();
-      mat4.scale(scale, scale, [0.0625, 0.0625, 0.0625]);
-
-      const t = mat4.create();
-      mat4.multiply(t, scale, rot); // t = Scale * Rot Matrix (scales pixel coordinates down to [0, 1])
-
-      mesh.transform(t);
-
-      if (!mesh.isEmpty()) {
-        this.finishChunkMesh(mesh, block.pos, blockName, props, chunkKey);
-        chunk.mesh.merge(mesh);
-      }
-      return;
-    }
-
-    // Handle hanging signs directly
-    if (blockName.includes('hanging_sign')) {
-      if (this.isFullyOccluded(block)) return;
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2]),
-      ];
-      const chunkKey = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      const props = this.getBlockProps(block.state);
-      const model = createHangingSignModel(blockName, props);
-      const cull = {
-        up: false, down: false, west: false, east: false, north: false, south: false
-      };
-      const mesh = model.getMesh(this.resources, cull);
-
-      const rot = mat4.create();
-      mat4.translate(rot, rot, [8, 8, 8]);
-      if (props.facing) {
-        const facing = props.facing;
-        const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
-        if (angle !== 0) mat4.rotateY(rot, rot, angle);
-      } else if (props.rotation !== undefined) {
-        const rot = parseFloat(props.rotation) || 0;
-        const angle = (rot / 16) * Math.PI * 2;
-        if (angle !== 0) mat4.rotateY(rot, rot, angle);
-      }
-      mat4.translate(rot, rot, [-8, -8, -8]);
-
-      const scale = mat4.create();
-      mat4.scale(scale, scale, [0.0625, 0.0625, 0.0625]);
-
-      const t = mat4.create();
-      mat4.multiply(t, scale, rot);
-
-      mesh.transform(t);
-
-      if (!mesh.isEmpty()) {
-        this.finishChunkMesh(mesh, block.pos, blockName, props, chunkKey);
-        chunk.mesh.merge(mesh);
-      }
-      return;
-    }
-
-    // Handle item frames directly
-    if (blockName.includes('item_frame')) {
-      if (this.isFullyOccluded(block)) return;
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2]),
-      ];
-      const chunkKey = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      const props = this.getBlockProps(block.state);
-      const isGlow = blockName.includes('glow');
-      const model = createItemFrameModel(isGlow);
-      const cull = {
-        up: false, down: false, west: false, east: false, north: false, south: false
-      };
-      const mesh = model.getMesh(this.resources, cull);
-
-      const facing = props.facing || 'north';
-      const rot = mat4.create();
-      mat4.translate(rot, rot, [8, 8, 8]);
-      if (facing === 'up') {
-        mat4.rotateX(rot, rot, -Math.PI / 2);
-      } else if (facing === 'down') {
-        mat4.rotateX(rot, rot, Math.PI / 2);
-      } else {
-        const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
-        if (angle !== 0) mat4.rotateY(rot, rot, angle);
-      }
-      mat4.translate(rot, rot, [-8, -8, -8]);
-
-      const scale = mat4.create();
-      mat4.scale(scale, scale, [0.0625, 0.0625, 0.0625]);
-
-      const t = mat4.create();
-      mat4.multiply(t, scale, rot);
-
-      mesh.transform(t);
-
-      if (!mesh.isEmpty()) {
-        this.finishChunkMesh(mesh, block.pos, blockName, props, chunkKey);
-        chunk.mesh.merge(mesh);
-      }
-      return;
-    }
-
-    return origProcessBlock.call(this, block, chunkFilter);
-  };
-}
 
 // Suppress parent model warning for builtin/entity
 if ((Lodestone as any).BlockModel?.prototype?.flatten) {
@@ -453,6 +86,311 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
   };
 }
 
+// Override SpecialRenderers.getBlockMesh for Chests, Hanging Signs, and Item Frames
+if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
+  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
+  const { BlockModel, Cull, Mesh } = Lodestone;
+
+  function createChestModel(chestType: string, chestKind: string, atlas: any) {
+    const texName = `entity/chest/${chestKind}${chestType === 'left' ? '_left' : chestType === 'right' ? '_right' : ''}`;
+    if (chestType === 'single') {
+      return new BlockModel(undefined, { 0: texName }, [
+        {
+          from: [1, 0, 1],
+          to: [15, 10, 15],
+          faces: {
+            north: { uv: [10.5, 8.25, 14, 10.75], rotation: 180, texture: '#0' },
+            east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
+            south: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
+            west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+            up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
+            down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
+          }
+        },
+        {
+          from: [1, 10, 1],
+          to: [15, 14, 15],
+          faces: {
+            north: { uv: [10.5, 3.75, 14, 4.75], rotation: 180, texture: '#0' },
+            east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
+            south: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
+            west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+            up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
+            down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
+          }
+        },
+        {
+          from: [7, 7, 0],
+          to: [9, 11, 2],
+          faces: {
+            north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+            east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+            south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+            west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+            up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+            down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
+          }
+        }
+      ]).getMesh(atlas, Cull.none());
+    }
+
+    const isLeft = chestType === 'left';
+    const fromX = isLeft ? 0 : 1;
+    const toX = isLeft ? 15 : 16;
+    const latchFromX = isLeft ? 14 : 0;
+    const latchToX = isLeft ? 16 : 2;
+
+    // UV mapping for Left vs Right double chest halves according to Minecraft Vanilla texture maps
+    const bodyNorthUv = isLeft ? [10.5, 8.25, 14.25, 10.75] : [7, 8.25, 10.75, 10.75];
+    const bodySouthUv = isLeft ? [3.5, 8.25, 7.25, 10.75] : [0, 8.25, 3.75, 10.75];
+    const bodyUpUv = isLeft ? [7, 4.75, 10.75, 8.25] : [3.5, 4.75, 7.25, 8.25];
+    const bodyDownUv = isLeft ? [3.5, 4.75, 7.25, 8.25] : [0, 4.75, 3.75, 8.25];
+
+    const lidNorthUv = isLeft ? [10.5, 3.75, 14.25, 4.75] : [7, 3.75, 10.75, 4.75];
+    const lidSouthUv = isLeft ? [3.5, 3.75, 7.25, 4.75] : [0, 3.75, 3.75, 4.75];
+    const lidUpUv = isLeft ? [7, 0, 10.75, 3.5] : [3.5, 0, 7.25, 3.5];
+    const lidDownUv = isLeft ? [3.5, 0, 7.25, 3.5] : [0, 0, 3.75, 3.5];
+
+    return new BlockModel(undefined, { 0: texName }, [
+      {
+        from: [fromX, 0, 1],
+        to: [toX, 10, 15],
+        faces: {
+          north: { uv: bodyNorthUv, rotation: 180, texture: '#0' },
+          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
+          south: { uv: bodySouthUv, rotation: 180, texture: '#0' },
+          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+          up: { uv: bodyUpUv, texture: '#0' },
+          down: { uv: bodyDownUv, texture: '#0' }
+        }
+      },
+      {
+        from: [fromX, 10, 1],
+        to: [toX, 14, 15],
+        faces: {
+          north: { uv: lidNorthUv, rotation: 180, texture: '#0' },
+          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
+          south: { uv: lidSouthUv, rotation: 180, texture: '#0' },
+          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+          up: { uv: lidUpUv, texture: '#0' },
+          down: { uv: lidDownUv, texture: '#0' }
+        }
+      },
+      {
+        from: [latchFromX, 7, 0],
+        to: [latchToX, 11, 2],
+        faces: {
+          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+          west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
+        }
+      }
+    ]).getMesh(atlas, Cull.none());
+  }
+
+  function createHangingSignModel(woodType: string, attached: boolean, isWall: boolean, atlas: any) {
+    const texName = `block/${woodType}_planks`;
+    const chainTex = 'block/chain';
+
+    if (isWall) {
+      return new BlockModel(undefined, { 0: texName, 1: chainTex }, [
+        {
+          from: [1, 0, 7],
+          to: [15, 10, 9],
+          faces: {
+            north: { uv: [1, 6, 15, 16], texture: '#0' },
+            east: { uv: [7, 6, 9, 16], texture: '#0' },
+            south: { uv: [1, 6, 15, 16], texture: '#0' },
+            west: { uv: [7, 6, 9, 16], texture: '#0' },
+            up: { uv: [1, 7, 15, 9], texture: '#0' },
+            down: { uv: [1, 7, 15, 9], texture: '#0' }
+          }
+        },
+        {
+          from: [0, 14, 6],
+          to: [16, 16, 10],
+          faces: {
+            north: { uv: [0, 0, 16, 2], texture: '#0' },
+            east: { uv: [6, 0, 10, 2], texture: '#0' },
+            south: { uv: [0, 0, 16, 2], texture: '#0' },
+            west: { uv: [6, 0, 10, 2], texture: '#0' },
+            up: { uv: [0, 6, 16, 10], texture: '#0' },
+            down: { uv: [0, 6, 16, 10], texture: '#0' }
+          }
+        },
+        {
+          from: [2, 10, 7.5],
+          to: [4, 14, 8.5],
+          faces: {
+            north: { uv: [0, 0, 2, 4], texture: '#1' },
+            east: { uv: [0, 0, 1, 4], texture: '#1' },
+            south: { uv: [0, 0, 2, 4], texture: '#1' },
+            west: { uv: [0, 0, 1, 4], texture: '#1' }
+          }
+        },
+        {
+          from: [12, 10, 7.5],
+          to: [14, 14, 8.5],
+          faces: {
+            north: { uv: [0, 0, 2, 4], texture: '#1' },
+            east: { uv: [0, 0, 1, 4], texture: '#1' },
+            south: { uv: [0, 0, 2, 4], texture: '#1' },
+            west: { uv: [0, 0, 1, 4], texture: '#1' }
+          }
+        }
+      ]).getMesh(atlas, Cull.none());
+    }
+
+    return new BlockModel(undefined, { 0: texName, 1: chainTex }, [
+      {
+        from: [1, 0, 7],
+        to: [15, 10, 9],
+        faces: {
+          north: { uv: [1, 6, 15, 16], texture: '#0' },
+          east: { uv: [7, 6, 9, 16], texture: '#0' },
+          south: { uv: [1, 6, 15, 16], texture: '#0' },
+          west: { uv: [7, 6, 9, 16], texture: '#0' },
+          up: { uv: [1, 7, 15, 9], texture: '#0' },
+          down: { uv: [1, 7, 15, 9], texture: '#0' }
+        }
+      },
+      {
+        from: [2, 10, 7.5],
+        to: [4, 16, 8.5],
+        faces: {
+          north: { uv: [0, 0, 2, 6], texture: '#1' },
+          east: { uv: [0, 0, 1, 6], texture: '#1' },
+          south: { uv: [0, 0, 2, 6], texture: '#1' },
+          west: { uv: [0, 0, 1, 6], texture: '#1' }
+        }
+      },
+      {
+        from: [12, 10, 7.5],
+        to: [14, 16, 8.5],
+        faces: {
+          north: { uv: [0, 0, 2, 6], texture: '#1' },
+          east: { uv: [0, 0, 1, 6], texture: '#1' },
+          south: { uv: [0, 0, 2, 6], texture: '#1' },
+          west: { uv: [0, 0, 1, 6], texture: '#1' }
+        }
+      }
+    ]).getMesh(atlas, Cull.none());
+  }
+
+  function createItemFrameModel(isGlow: boolean, facing: string, atlas: any) {
+    const frameTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
+    const woodTex = 'block/oak_planks';
+
+    const rawMesh = new BlockModel(undefined, { 0: frameTex, 1: woodTex }, [
+      {
+        from: [2, 2, 0.05],
+        to: [14, 14, 0.8],
+        faces: {
+          south: { uv: [2, 2, 14, 14], texture: '#0' },
+          north: { uv: [2, 2, 14, 14], texture: '#1' },
+          east: { uv: [0, 2, 1, 14], texture: '#1' },
+          west: { uv: [0, 2, 1, 14], texture: '#1' },
+          up: { uv: [2, 0, 14, 1], texture: '#1' },
+          down: { uv: [2, 0, 14, 1], texture: '#1' }
+        }
+      }
+    ]).getMesh(atlas, Cull.none());
+
+    const t = mat4.create();
+    mat4.translate(t, t, [8, 8, 8]);
+    if (facing === 'down') {
+      mat4.rotateX(t, t, Math.PI / 2);
+    } else if (facing === 'up') {
+      mat4.rotateX(t, t, -Math.PI / 2);
+    } else if (facing === 'north') {
+      mat4.rotateY(t, t, Math.PI);
+    } else if (facing === 'west') {
+      mat4.rotateY(t, t, Math.PI / 2);
+    } else if (facing === 'east') {
+      mat4.rotateY(t, t, -Math.PI / 2);
+    }
+    mat4.translate(t, t, [-8, -8, -8]);
+    return rawMesh.transform(t);
+  }
+
+  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+    const blockName = block.getName().toString();
+
+    // Custom Chest & Double Chest
+    if (blockName === 'minecraft:chest' || blockName === 'minecraft:trapped_chest' || blockName === 'minecraft:ender_chest') {
+      const chestKind = blockName === 'minecraft:ender_chest' ? 'ender' : blockName === 'minecraft:trapped_chest' ? 'trapped' : 'normal';
+      const facing = block.getProperty('facing') ?? 'south';
+      const chestType = block.getProperty('type') ?? 'single';
+
+      const mesh = createChestModel(chestType, chestKind, atlas);
+
+      const t = mat4.create();
+      mat4.translate(t, t, [8, 8, 8]);
+      mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
+      mat4.translate(t, t, [-8, -8, -8]);
+      mesh.transform(t);
+
+      const rootMat = mat4.create();
+      mat4.scale(rootMat, rootMat, [0.0625, 0.0625, 0.0625]);
+      return mesh.transform(rootMat);
+    }
+
+    // Custom Hanging Sign
+    if (blockName.endsWith('_hanging_sign')) {
+      const isWall = blockName.includes('_wall_hanging_sign');
+      const woodType = blockName.replace('minecraft:', '').replace('_wall_hanging_sign', '').replace('_hanging_sign', '');
+      const attached = (block.getProperty('attached') ?? 'false') === 'true';
+
+      const mesh = createHangingSignModel(woodType, attached, isWall, atlas);
+
+      const t = mat4.create();
+      mat4.translate(t, t, [8, 8, 8]);
+      if (isWall) {
+        const facing = block.getProperty('facing') ?? 'south';
+        mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
+      } else {
+        const rotation = (parseInt(block.getProperty('rotation') ?? '0') / 16) * Math.PI * 2;
+        mat4.rotateY(t, t, rotation);
+        mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
+      }
+      mat4.translate(t, t, [-8, -8, -8]);
+      mesh.transform(t);
+
+      const rootMat = mat4.create();
+      mat4.scale(rootMat, rootMat, [0.0625, 0.0625, 0.0625]);
+      return mesh.transform(rootMat);
+    }
+
+    // Custom Item Frame & Glow Item Frame
+    if (blockName === 'minecraft:item_frame' || blockName === 'minecraft:glow_item_frame') {
+      const facing = block.getProperty('facing') ?? 'south';
+      const isGlow = blockName === 'minecraft:glow_item_frame';
+
+      const mesh = createItemFrameModel(isGlow, facing, atlas);
+
+      const rootMat = mat4.create();
+      mat4.scale(rootMat, rootMat, [0.0625, 0.0625, 0.0625]);
+      return mesh.transform(rootMat);
+    }
+
+    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+  };
+}
+
+// Infinite View: override applyDrawDistance so chunks are never culled when zooming out
+ThreeStructureRenderer.prototype.applyDrawDistance = function () {
+  if ((this as any).chunkMeshes) {
+    for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
+      const mesh = (this as any).chunkMeshes[i];
+      mesh.visible = true;
+      mesh.frustumCulled = false;
+    }
+  }
+};
+
 // Eliminate per-frame Matrix4 allocations inside prepareCamera
 const tempMat1 = new THREE.Matrix4();
 const tempMat2 = new THREE.Matrix4();
@@ -470,19 +408,56 @@ ThreeStructureRenderer.prototype.prepareCamera = function (viewMatrixElements: a
   tempCamPos[1] = tempMat2.elements[13];
   tempCamPos[2] = tempMat2.elements[14];
 
-  if ((this as any).chunkMeshes) {
+  if ((this as any).drawDistance) {
+    this.applyDrawDistance(tempCamPos as any, (this as any).drawDistance);
+  } else if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-      const mesh = (this as any).chunkMeshes[i];
-      mesh.visible = true;
-      mesh.frustumCulled = false;
-      mesh.matrixAutoUpdate = false;
-      mesh.updateMatrix();
+      (this as any).chunkMeshes[i].visible = true;
     }
   }
 
   if (typeof (this as any).updateEmissiveLightsForCamera === 'function') {
     (this as any).updateEmissiveLightsForCamera(tempCamPos);
   }
+};
+
+// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
+ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
+  const token = ++(this as any).buildToken;
+
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('RENDERING_0%');
+  }
+
+  await (this as any).chunkBuilder.updateStructureBuffersAsync({
+    chunkPositions,
+    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
+    onProgress: (done: number, total: number) => {
+      if (window.AndroidHost) {
+        const pct = Math.floor((done / Math.max(1, total)) * 50);
+        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+      }
+    }
+  });
+
+  if (token !== (this as any).buildToken) return;
+
+  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
+  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
+    if ((this as any).chunkMeshes) {
+      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
+        const mesh = (this as any).chunkMeshes[i];
+        mesh.visible = true;
+        mesh.frustumCulled = false;
+      }
+    }
+    if (window.AndroidHost && token === (this as any).buildToken) {
+      window.AndroidHost.onLoadingProgress('RENDERING_100%');
+    }
+  });
+
+  (this as any).buildPromise = buildPromise;
+  return buildPromise;
 };
 
 // Initialize Web application
@@ -497,8 +472,7 @@ async function init() {
   activeCamera.position.set(10, 15, 20);
 
   try {
-    const cb = Date.now();
-    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/?cb=' + cb;
+    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/';
     const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
     currentResources = loaded.resources;
 
@@ -574,7 +548,7 @@ window.destroyRenderer = function () {
   }
 };
 
-// Streaming Zero-GC Time-Sliced NBT Decoder
+// Streaming Time-Sliced NBT Decoder
 async function loadRegionAsync(
   regionCompound: any,
   onProgress?: (pct: number) => void
@@ -616,21 +590,6 @@ async function loadRegionAsync(
         });
       }
     }
-
-    // Default facing for chests & item frames if omitted
-    if (name.includes('chest') && !properties['facing']) {
-      properties['facing'] = 'north';
-    }
-    if (name.includes('chest') && !properties['type']) {
-      properties['type'] = 'single';
-    }
-    if (name.includes('item_frame') && !properties['facing']) {
-      properties['facing'] = 'north';
-    }
-    if (name.includes('item_frame') && !properties['map']) {
-      properties['map'] = 'false';
-    }
-
     palette.push(new BlockState(name, properties));
   });
 
@@ -822,7 +781,7 @@ async function buildRendererForRegion(regionName: string) {
   });
 
   // Synchronously compute and send block statistics to Android UI before mesh rendering begins
-  calculateAndSendStatistics();
+  await calculateAndSendStatistics();
 
   const size = currentStructure.getSize();
   const volume = size[0] * size[1] * size[2];
@@ -832,51 +791,42 @@ async function buildRendererForRegion(regionName: string) {
 
   const rendererOptions: any = {
     asyncBuild: true,
-    asyncChunkBuildTimeMs: 14,
+    asyncChunkBuildTimeMs: 12,
     chunkSize: [chunkSize, chunkSize, chunkSize],
     sunlight: {
-      direction: [-0.4, 0.8, -0.4],
-      color: [1.0, 1.0, 0.95],
-      ambientColor: [0.6, 0.65, 0.75],
-      fillColor: [0.4, 0.4, 0.45],
-      rimColor: [0.6, 0.65, 0.7],
-      intensity: 0.80,
-      ambientIntensity: 0.40,
-      fillIntensity: 0.20,
-      rimIntensity: 0.1,
-      exposure: 0.95,
-      sky: {
-        zenithColor: [0.35, 0.55, 0.85],
-        horizonColor: [0.75, 0.85, 0.95],
-        groundColor: [0.3, 0.35, 0.4]
-      },
-      postProcess: {
-        enabled: false
-      },
-      shadows: {
-        enabled: false
-      }
+      intensity: 0.7,
+      ambientIntensity: 0.5,
+      fillIntensity: 0.25,
+      exposure: 0.9,
+      color: [1.0, 0.95, 0.9],
+      ambientColor: [0.5, 0.55, 0.6]
     }
   };
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
 
-  // Disable postProcess pipeline completely to eliminate WebGL framebuffer black screen
-  if ((renderer as any).sunlight) {
-    if ((renderer as any).sunlight.postProcess) {
-      (renderer as any).sunlight.postProcess.enabled = false;
-    }
-    if ((renderer as any).sunlight.fog) {
-      (renderer as any).sunlight.fog.density = 0.0;
-      (renderer as any).sunlight.fog.heightFalloff = 0.0;
+  if (renderer.renderer) {
+    renderer.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.renderer.toneMappingExposure = 0.9;
+    renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const maxAnisotropy = renderer.renderer.capabilities.getMaxAnisotropy();
+    if ((renderer as any).atlasTexture) {
+      const atlasTex = (renderer as any).atlasTexture as THREE.Texture;
+      atlasTex.generateMipmaps = true;
+      atlasTex.minFilter = THREE.NearestMipmapLinearFilter;
+      atlasTex.magFilter = THREE.NearestFilter;
+      atlasTex.anisotropy = Math.min(maxAnisotropy, 8);
+      atlasTex.needsUpdate = true;
     }
   }
 
-  // Set high-DPI resolution
-  if (renderer.renderer) {
-    renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.renderer.setClearColor(isNightMode ? 0x050a14 : 0x002b36, 1.0);
+  // Disable sunlight fog density so models stay clear without fading when camera zooms out
+  if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
+    (renderer as any).sunlight.fog.density = 0.0;
+    (renderer as any).sunlight.fog.heightFalloff = 0.0;
   }
 
   renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
@@ -884,6 +834,9 @@ async function buildRendererForRegion(regionName: string) {
 
   if ((renderer as any).skyScene) {
     ((renderer as any).skyScene as THREE.Scene).clear();
+  }
+  if (renderer.renderer) {
+    renderer.renderer.setClearColor(0x002b36, 1.0);
   }
 
   const aspect = window.innerWidth / window.innerHeight;
@@ -933,9 +886,9 @@ async function buildRendererForRegion(regionName: string) {
     }
   });
 
-  // Start continuous 60 FPS rendering immediately so chunks assemble progressively on canvas in real time
   tick();
 
+  // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
 }
 
@@ -1039,33 +992,6 @@ window.resetCamera = function () {
   controls.update();
 };
 
-window.toggleDayNight = function () {
-  window.setDayNight(!isNightMode);
-};
-
-window.setDayNight = function (isNight: boolean) {
-  isNightMode = isNight;
-  if (renderer && renderer.renderer) {
-    renderer.renderer.setClearColor(isNightMode ? 0x050a14 : 0x002b36, 1.0);
-  }
-  if (renderer) {
-    const options = isNightMode ? {
-      intensity: 0.2,
-      ambientIntensity: 0.25,
-      exposure: 0.75,
-      direction: [-0.2, -0.8, -0.2]
-    } : {
-      intensity: 0.80,
-      ambientIntensity: 0.40,
-      exposure: 0.95,
-      direction: [-0.4, 0.8, -0.4]
-    };
-    if (typeof (renderer as any).setSunlight === 'function') {
-      (renderer as any).setSunlight(options);
-    }
-  }
-};
-
 window.switchRegion = async function (regionName: string) {
   if (regionName === activeRegionName) return;
 
@@ -1078,20 +1004,6 @@ window.switchRegion = async function (regionName: string) {
 
   if (window.AndroidHost) {
     window.AndroidHost.onLoadingProgress('SUCCESS');
-  }
-};
-
-window.loadCustomResourcePack = async function (packBaseUrl: string) {
-  try {
-    const cb = Date.now();
-    const urlWithCb = packBaseUrl.includes('?') ? packBaseUrl + '&cb=' + cb : packBaseUrl + '?cb=' + cb;
-    const loaded = await loadDefaultPackResources({ baseUrl: urlWithCb });
-    currentResources = loaded.resources;
-    if (activeRegionName) {
-      await buildRendererForRegion(activeRegionName);
-    }
-  } catch (err: any) {
-    console.error("Failed to load custom resource pack: ", err);
   }
 };
 

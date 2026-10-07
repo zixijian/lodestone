@@ -66,10 +66,6 @@ class PreviewActivity : AppCompatActivity() {
         setupWebView()
 
         // Float Buttons Listeners
-        binding.fabDayNight.setOnClickListener {
-            binding.webviewRenderer.evaluateJavascript("toggleDayNight();", null)
-        }
-
         binding.fabCameraMode.setOnClickListener {
             binding.webviewRenderer.evaluateJavascript("toggleCameraView();", null)
         }
@@ -104,56 +100,6 @@ class PreviewActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
-
-                val relativePath = url.path?.removePrefix("/") ?: ""
-
-                // Intercept /default-pack/* requests to serve from custom_pack if imported
-                if (relativePath.contains("default-pack/")) {
-                    val packSubPath = relativePath.substringAfter("default-pack/")
-                    val customPackFile = File(File(filesDir, "custom_pack"), packSubPath)
-                    if (customPackFile.exists() && customPackFile.isFile) {
-                        try {
-                            val stream = FileInputStream(customPackFile)
-                            val mimeType = when {
-                                packSubPath.endsWith(".png") -> "image/png"
-                                packSubPath.endsWith(".json") -> "application/json"
-                                packSubPath.endsWith(".txt") -> "text/plain"
-                                else -> "application/octet-stream"
-                            }
-                            val responseHeaders = mutableMapOf<String, String>()
-                            responseHeaders["Access-Control-Allow-Origin"] = "*"
-                            return WebResourceResponse(
-                                mimeType,
-                                null,
-                                200,
-                                "OK",
-                                responseHeaders,
-                                stream
-                            )
-                        } catch (e: Exception) {
-                            Log.e("Lodestone", "Failed to serve custom pack file: $packSubPath", e)
-                        }
-                    }
-                }
-
-                // Intercept web/assets/*.js to directly open web/assets/index.js if hashed
-                if (relativePath.startsWith("web/assets/") && relativePath.endsWith(".js") && !relativePath.contains("index.js")) {
-                    try {
-                        val indexStream = assets.open("web/assets/index.js")
-                        val responseHeaders = mutableMapOf<String, String>()
-                        responseHeaders["Access-Control-Allow-Origin"] = "*"
-                        return WebResourceResponse(
-                            "application/javascript",
-                            "UTF-8",
-                            200,
-                            "OK",
-                            responseHeaders,
-                            indexStream
-                        )
-                    } catch (e: Exception) {
-                        Log.e("Lodestone", "Failed to intercept JS request", e)
-                    }
-                }
 
                 // Read local schematic file stream for offline 3D rendering
                 if (url.path?.endsWith("/model.litematic") == true) {
