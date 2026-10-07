@@ -74,6 +74,10 @@ class PreviewActivity : AppCompatActivity() {
             binding.webviewRenderer.evaluateJavascript("resetCamera();", null)
         }
 
+        binding.fabDayNight.setOnClickListener {
+            binding.webviewRenderer.evaluateJavascript("toggleDayNight();", null)
+        }
+
         binding.fabRegionSwitch.setOnClickListener {
             showRegionSelector()
         }

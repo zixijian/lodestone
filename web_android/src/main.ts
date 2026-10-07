@@ -7,6 +7,7 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
+  createResourcesFromPack,
   BlockState,
   NbtFile
 } = Lodestone;
@@ -23,6 +24,7 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    toggleDayNight(): boolean;
     stopRenderLoop(): void;
     destroyRenderer(): void;
   }
@@ -213,10 +215,7 @@ async function init() {
   try {
     const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/';
     const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
-    currentResources = loaded.resources;
-
-    // Register custom model overrides for Item Frames, Chests, and Hanging Signs
-    const assets = currentResources.assets;
+    const assets = loaded.assets;
 
     // Item Frame block models
     assets.models['minecraft:block/item_frame'] = {
@@ -282,8 +281,9 @@ async function init() {
     registerChestModel('block/chest_right', 'minecraft:entity/chest/normal_right', false);
 
     // Map minecraft:chest blockstate variants
-    if (assets.blockstates['minecraft:chest']) {
-      const chestVariants = assets.blockstates['minecraft:chest'].variants || {};
+    const chestState = assets.blockstates['minecraft:chest'] || assets.blockstates['chest'];
+    if (chestState) {
+      const chestVariants = chestState.variants || {};
       for (const [key, val] of Object.entries(chestVariants)) {
         if (key.includes('type=left')) {
           if (Array.isArray(val)) {
@@ -301,6 +301,10 @@ async function init() {
       }
     }
 
+    currentResources = createResourcesFromPack({
+      assets: loaded.assets,
+      atlas: loaded.atlas
+    });
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
@@ -792,6 +796,29 @@ window.toggleCameraView = function () {
   controls.dampingFactor = 0.05;
   controls.target.copy(currentTarget);
   controls.update();
+};
+
+let isNightMode = false;
+window.toggleDayNight = function () {
+  isNightMode = !isNightMode;
+  if (renderer && renderer.renderer) {
+    if (isNightMode) {
+      renderer.renderer.setClearColor(0x070b12, 1.0);
+      if ((renderer as any).sunlight) {
+        const sun = (renderer as any).sunlight;
+        if (sun.light) sun.light.intensity = 0.2;
+        if (sun.ambient) sun.ambient.intensity = 0.25;
+      }
+    } else {
+      renderer.renderer.setClearColor(0x002b36, 1.0);
+      if ((renderer as any).sunlight) {
+        const sun = (renderer as any).sunlight;
+        if (sun.light) sun.light.intensity = 0.7;
+        if (sun.ambient) sun.ambient.intensity = 0.5;
+      }
+    }
+  }
+  return isNightMode;
 };
 
 window.resetCamera = function () {
