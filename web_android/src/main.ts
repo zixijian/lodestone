@@ -215,6 +215,93 @@ async function init() {
     const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
     currentResources = loaded.resources;
 
+    // Register custom model overrides for Item Frames, Chests, and Hanging Signs
+    const assets = currentResources.assets;
+
+    // Item Frame block models
+    assets.models['minecraft:block/item_frame'] = {
+      parent: 'block/block',
+      textures: {
+        particle: 'minecraft:block/birch_planks',
+        wood: 'minecraft:block/birch_planks',
+        map: 'minecraft:item/item_frame'
+      },
+      elements: [
+        {
+          from: [3, 3, 15], to: [13, 13, 16],
+          faces: {
+            north: { texture: '#map', uv: [0, 0, 16, 16] },
+            south: { texture: '#wood', uv: [3, 3, 13, 13] },
+            east: { texture: '#wood', uv: [15, 3, 16, 13] },
+            west: { texture: '#wood', uv: [0, 3, 1, 13] },
+            up: { texture: '#wood', uv: [3, 15, 13, 16] },
+            down: { texture: '#wood', uv: [3, 0, 13, 1] }
+          }
+        }
+      ]
+    };
+    assets.models['block/item_frame'] = assets.models['minecraft:block/item_frame'];
+
+    // Double Chest Models (Left & Right halves)
+    const registerChestModel = (name: string, tex: string, isLeft: boolean) => {
+      const fromX = isLeft ? 0 : 1;
+      const toX = isLeft ? 15 : 16;
+      assets.models[name] = {
+        parent: 'block/block',
+        textures: { particle: tex, chest: tex },
+        elements: [
+          {
+            from: [fromX, 0, 1], to: [toX, 10, 15],
+            faces: {
+              north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 8.25, isLeft ? 14.25 : 10.5, 12] },
+              south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 8.25, isLeft ? 7 : 3.5, 12] },
+              west: { texture: '#chest', uv: [0, 8.25, 3.5, 12] },
+              east: { texture: '#chest', uv: [3.5, 8.25, 7, 12] },
+              up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 7] },
+              down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 3.5, isLeft ? 10.5 : 7, 7] }
+            }
+          },
+          {
+            from: [fromX, 9, 0], to: [toX, 14, 15],
+            faces: {
+              north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 3.5, isLeft ? 14.25 : 10.5, 4.75] },
+              south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 4.75] },
+              west: { texture: '#chest', uv: [0, 3.5, 3.5, 4.75] },
+              east: { texture: '#chest', uv: [3.5, 3.5, 7, 4.75] },
+              up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 0, isLeft ? 7 : 3.5, 3.5] },
+              down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 0, isLeft ? 10.5 : 7, 3.5] }
+            }
+          }
+        ]
+      };
+    };
+
+    registerChestModel('minecraft:block/chest_left', 'minecraft:entity/chest/normal_left', true);
+    registerChestModel('minecraft:block/chest_right', 'minecraft:entity/chest/normal_right', false);
+    registerChestModel('block/chest_left', 'minecraft:entity/chest/normal_left', true);
+    registerChestModel('block/chest_right', 'minecraft:entity/chest/normal_right', false);
+
+    // Map minecraft:chest blockstate variants
+    if (assets.blockstates['minecraft:chest']) {
+      const chestVariants = assets.blockstates['minecraft:chest'].variants || {};
+      for (const [key, val] of Object.entries(chestVariants)) {
+        if (key.includes('type=left')) {
+          if (Array.isArray(val)) {
+            val.forEach((v: any) => { if (v) v.model = 'block/chest_left'; });
+          } else if (val && typeof val === 'object') {
+            (val as any).model = 'block/chest_left';
+          }
+        } else if (key.includes('type=right')) {
+          if (Array.isArray(val)) {
+            val.forEach((v: any) => { if (v) v.model = 'block/chest_right'; });
+          } else if (val && typeof val === 'object') {
+            (val as any).model = 'block/chest_right';
+          }
+        }
+      }
+    }
+
+
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
     }
@@ -551,6 +638,16 @@ async function buildRendererForRegion(regionName: string) {
   }
   if (renderer.renderer) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
+    renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.renderer.toneMappingExposure = 1.0;
+  }
+
+  // Calibrate sunlight and ambient lighting to eliminate overexposure
+  if ((renderer as any).sunlight) {
+    const sun = (renderer as any).sunlight;
+    if (sun.light) sun.light.intensity = 0.7;
+    if (sun.ambient) sun.ambient.intensity = 0.5;
   }
 
   const aspect = window.innerWidth / window.innerHeight;

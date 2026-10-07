@@ -24,31 +24,6 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var fileAdapter: FileAdapter
-    private var currentDirectory: File = Environment.getExternalStorageDirectory()
-    private val rootDirectory: File = Environment.getExternalStorageDirectory()
-
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            onPermissionGranted()
-        } else {
-            Toast.makeText(this, R.string.toast_permission_needed, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private val requestAllFilesPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (Environment.isExternalStorageManager()) {
-                onPermissionGranted()
-            } else {
-                Toast.makeText(this, R.string.toast_permission_needed, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
     private val openDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -132,26 +107,10 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.toast_pack_reset, Toast.LENGTH_SHORT).show()
     }
 
-    // Intercept back gesture/press to go up in directory hierarchy until root, then exit activity safely
-    private val onBackPressedCallback = object : OnBackPressedCallback(true) {
-        override fun handleOnBackPressed() {
-            val currentNorm = currentDirectory.canonicalPath.removeSuffix("/")
-            val rootNorm = rootDirectory.canonicalPath.removeSuffix("/")
-            if (currentNorm != rootNorm) {
-                navigateUp()
-            } else {
-                finish()
-            }
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        // Register custom back press handler
-        onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
 
         // Setup Buttons and Actions
         binding.btnSaf.setOnClickListener {
@@ -174,116 +133,12 @@ class MainActivity : AppCompatActivity() {
             showPopupMenu(view)
         }
 
-        binding.btnGrantPermission.setOnClickListener {
-            requestStoragePermission()
-        }
-
         updateResourcePackStatus()
-        checkPermissions()
     }
 
     override fun onResume() {
         super.onResume()
-        // Always display directories under internal storage, whether permission is granted or not
-        if (hasStoragePermission()) {
-            binding.permissionBanner.visibility = View.GONE
-        } else {
-            binding.permissionBanner.visibility = View.VISIBLE
-        }
-        loadFilesOfCurrentDirectory()
-    }
-
-    private fun isSubDirectoryOfRoot(child: File): Boolean {
-        val rootNorm = rootDirectory.canonicalPath.removeSuffix("/")
-        var parent: File? = child
-        while (parent != null) {
-            if (parent.canonicalPath.removeSuffix("/") == rootNorm) {
-                return true
-            }
-            parent = parent.parentFile
-        }
-        return false
-    }
-
-    private fun checkPermissions() {
-        if (hasStoragePermission()) {
-            binding.permissionBanner.visibility = View.GONE
-        } else {
-            binding.permissionBanner.visibility = View.VISIBLE
-        }
-        loadFilesOfCurrentDirectory()
-    }
-
-    private fun hasStoragePermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-    private fun requestStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                requestAllFilesPermissionLauncher.launch(intent)
-            } catch (e: Exception) {
-                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                requestAllFilesPermissionLauncher.launch(intent)
-            }
-        } else {
-            requestPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
-    }
-
-    private fun onPermissionGranted() {
-        Toast.makeText(this, R.string.toast_permission_success, Toast.LENGTH_SHORT).show()
-        binding.permissionBanner.visibility = View.GONE
-        loadFilesOfCurrentDirectory()
-    }
-
-    private fun navigateToDirectory(directory: File) {
-        if (isSubDirectoryOfRoot(directory)) {
-            currentDirectory = directory
-            // Save last visited
-            getSharedPreferences("lodestone_pref", Context.MODE_PRIVATE)
-                .edit()
-                .putString("last_visited_dir", currentDirectory.absolutePath)
-                .apply()
-            loadFilesOfCurrentDirectory()
-        }
-    }
-
-    private fun navigateUp() {
-        val currentNorm = currentDirectory.canonicalPath.removeSuffix("/")
-        val rootNorm = rootDirectory.canonicalPath.removeSuffix("/")
-        if (currentNorm == rootNorm) {
-            Toast.makeText(this, R.string.already_highest, Toast.LENGTH_SHORT).show()
-        } else {
-            currentDirectory.parentFile?.let {
-                navigateToDirectory(it)
-            }
-        }
-    }
-
-    private fun loadFilesOfCurrentDirectory() {
-        // Unused directory loader removed as file list browser was removed from main screen
-    }
-
-    private fun getRelativePathString(directory: File): String {
-        val rootPath = rootDirectory.canonicalPath.removeSuffix("/")
-        val currentPath = directory.canonicalPath.removeSuffix("/")
-        return if (currentPath.startsWith(rootPath)) {
-            val rel = currentPath.substring(rootPath.length)
-            if (rel.isEmpty()) "/" else rel
-        } else {
-            "/"
-        }
+        updateResourcePackStatus()
     }
 
     private fun showPopupMenu(anchorView: View) {
