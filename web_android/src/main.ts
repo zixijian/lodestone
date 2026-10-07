@@ -89,10 +89,10 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
 // Override SpecialRenderers.getBlockMesh for Chests, Hanging Signs, and Item Frames
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
-  const { BlockModel, Cull, Mesh } = Lodestone;
+  const { BlockModel, Cull } = Lodestone;
 
   function createChestModel(chestType: string, chestKind: string, atlas: any) {
-    const texName = `entity/chest/${chestKind}${chestType === 'left' ? '_left' : chestType === 'right' ? '_right' : ''}`;
+    const texName = `minecraft:entity/chest/${chestKind}${chestType === 'left' ? '_left' : chestType === 'right' ? '_right' : ''}`;
     if (chestType === 'single') {
       return new BlockModel(undefined, { 0: texName }, [
         {
@@ -134,13 +134,13 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
       ]).getMesh(atlas, Cull.none());
     }
 
+    // Left half spans x=0..15 (seam at x=15/16), Right half spans x=1..16 (seam at x=0/1)
     const isLeft = chestType === 'left';
     const fromX = isLeft ? 0 : 1;
     const toX = isLeft ? 15 : 16;
     const latchFromX = isLeft ? 14 : 0;
     const latchToX = isLeft ? 16 : 2;
 
-    // UV mapping for Left vs Right double chest halves according to Minecraft Vanilla texture maps
     const bodyNorthUv = isLeft ? [10.5, 8.25, 14.25, 10.75] : [7, 8.25, 10.75, 10.75];
     const bodySouthUv = isLeft ? [3.5, 8.25, 7.25, 10.75] : [0, 8.25, 3.75, 10.75];
     const bodyUpUv = isLeft ? [7, 4.75, 10.75, 8.25] : [3.5, 4.75, 7.25, 8.25];
@@ -192,11 +192,11 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   }
 
   function createHangingSignModel(woodType: string, attached: boolean, isWall: boolean, atlas: any) {
-    const texName = `block/${woodType}_planks`;
-    const chainTex = 'block/chain';
+    const signTex = `minecraft:entity/signs/${woodType}`;
+    const chainTex = 'minecraft:block/chain';
 
     if (isWall) {
-      return new BlockModel(undefined, { 0: texName, 1: chainTex }, [
+      return new BlockModel(undefined, { 0: signTex, 1: chainTex }, [
         {
           from: [1, 0, 7],
           to: [15, 10, 9],
@@ -244,7 +244,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
       ]).getMesh(atlas, Cull.none());
     }
 
-    return new BlockModel(undefined, { 0: texName, 1: chainTex }, [
+    return new BlockModel(undefined, { 0: signTex, 1: chainTex }, [
       {
         from: [1, 0, 7],
         to: [15, 10, 9],
@@ -281,8 +281,8 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   }
 
   function createItemFrameModel(isGlow: boolean, facing: string, atlas: any) {
-    const frameTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
-    const woodTex = 'block/oak_planks';
+    const frameTex = isGlow ? 'minecraft:block/glow_item_frame' : 'minecraft:block/item_frame';
+    const woodTex = 'minecraft:block/birch_planks';
 
     const rawMesh = new BlockModel(undefined, { 0: frameTex, 1: woodTex }, [
       {
