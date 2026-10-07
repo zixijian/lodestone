@@ -100,9 +100,35 @@ class PreviewActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
+                val path = url.path ?: ""
+
+                // Intercept default resource pack requests to serve custom uploaded resource pack files if available
+                if (path.contains("/default-pack/")) {
+                    val subPath = path.substringAfter("/default-pack/")
+                    val customPackFile = File(filesDir, "custom_resource_pack/$subPath")
+                    if (customPackFile.exists() && customPackFile.isFile) {
+                        try {
+                            val mimeType = when {
+                                subPath.endsWith(".png", ignoreCase = true) -> "image/png"
+                                subPath.endsWith(".json", ignoreCase = true) -> "application/json"
+                                else -> "application/octet-stream"
+                            }
+                            return WebResourceResponse(
+                                mimeType,
+                                null,
+                                200,
+                                "OK",
+                                mapOf("Access-Control-Allow-Origin" to "*"),
+                                FileInputStream(customPackFile)
+                            )
+                        } catch (e: Exception) {
+                            Log.e("Lodestone", "Failed to serve custom resource pack file", e)
+                        }
+                    }
+                }
 
                 // Read local schematic file stream for offline 3D rendering
-                if (url.path?.endsWith("/model.litematic") == true) {
+                if (path.endsWith("/model.litematic")) {
                     try {
                         val filePath = intent.getStringExtra("file_path")
                         val file = if (filePath != null) File(filePath) else null

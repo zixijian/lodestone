@@ -44,24 +44,20 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
 
-// High-performance, zero-GC Uint16Array flat block grid storage
+// High-performance, zero-GC Uint16Array flat block grid storage with on-demand lazy block object creation
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksGrid && this.placedBlocksCache) return;
+  if (this.placedBlocksGrid) return;
   const w = this.size[0], h = this.size[1], d = this.size[2];
   const volume = w * h * d;
   const grid = new Uint16Array(volume);
   grid.fill(0xffff);
   const hd = h * d;
   this.placedBlockObjectMap = new Map();
-  this.placedBlocksCache = [];
 
   for (let i = 0; i < this.blocks.length; i++) {
     const b = this.blocks[i];
     const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
     grid[idx] = b.state;
-    const placed = this.toPlacedBlock(b);
-    this.placedBlocksCache.push(placed);
-    this.placedBlockObjectMap.set(idx, placed);
   }
   this.placedBlocksGrid = grid;
 };
@@ -84,7 +80,23 @@ let animFrameId: number | null = null;
 
 (Structure.prototype as any).getBlocks = function () {
   this.ensurePlacedCaches();
-  return this.placedBlocksCache ?? [];
+  if (this.placedBlocksCache && this.placedBlocksCache.length > 0) {
+    return this.placedBlocksCache;
+  }
+  this.placedBlocksCache = [];
+  const w = this.size[0], h = this.size[1], d = this.size[2];
+  const hd = h * d;
+  for (let i = 0; i < this.blocks.length; i++) {
+    const b = this.blocks[i];
+    const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
+    let placed = this.placedBlockObjectMap.get(idx);
+    if (!placed) {
+      placed = { pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state] };
+      this.placedBlockObjectMap.set(idx, placed);
+    }
+    this.placedBlocksCache.push(placed);
+  }
+  return this.placedBlocksCache;
 };
 
 // Suppress parent model warning for builtin/entity
@@ -292,6 +304,33 @@ async function init() {
           }
         }
       }
+    }
+
+    // Override ChunkBuilder processBlock to handle double chests without falling back to hardcoded single chest renderer
+    if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
+      const origProcessBlock = (Lodestone as any).ChunkBuilder.prototype.processBlock;
+      (Lodestone as any).ChunkBuilder.prototype.processBlock = function (
+        pos: [number, number, number],
+        blockState: any,
+        accessor: any
+      ) {
+        if (blockState && blockState.is('minecraft:chest')) {
+          const type = blockState.getProperty('type');
+          if (type === 'left' || type === 'right') {
+            const modelName = type === 'left' ? 'minecraft:block/chest_left' : 'minecraft:block/chest_right';
+            const model = (this as any).resources.getBlockModel(modelName);
+            if (model) {
+              const facing = blockState.getProperty('facing') || 'north';
+              let rotY = 0;
+              if (facing === 'south') rotY = 180;
+              else if (facing === 'west') rotY = 270;
+              else if (facing === 'east') rotY = 90;
+              return this.addModelMesh(pos, model, accessor, { rotY });
+            }
+          }
+        }
+        return origProcessBlock.call(this, pos, blockState, accessor);
+      };
     }
 
     if (window.AndroidHost) {

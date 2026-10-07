@@ -58,6 +58,57 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val openPackLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { processResourcePackImport(it) }
+    }
+
+    private fun processResourcePackImport(uri: Uri) {
+        try {
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val targetDir = File(filesDir, "custom_resource_pack")
+                if (targetDir.exists()) {
+                    targetDir.deleteRecursively()
+                }
+                targetDir.mkdirs()
+
+                java.util.zip.ZipInputStream(inputStream).use { zipIn ->
+                    var entry = zipIn.nextEntry
+                    while (entry != null) {
+                        val outFile = File(targetDir, entry.name)
+                        if (!outFile.canonicalPath.startsWith(targetDir.canonicalPath)) {
+                            throw SecurityException("Zip Slip vulnerability detected in resource pack")
+                        }
+                        if (entry.isDirectory) {
+                            outFile.mkdirs()
+                        } else {
+                            outFile.parentFile?.mkdirs()
+                            outFile.outputStream().use { zipIn.copyTo(it) }
+                        }
+                        zipIn.closeEntry()
+                        entry = zipIn.nextEntry
+                    }
+                }
+                Toast.makeText(this, "材质包导入成功！", Toast.LENGTH_SHORT).show()
+                updateResourcePackStatus()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "材质包导入失败: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun updateResourcePackStatus() {
+        val packDir = File(filesDir, "custom_resource_pack")
+        if (packDir.exists() && packDir.list()?.isNotEmpty() == true) {
+            binding.tvPackSubtitle.text = "自定义材质包已加载"
+            binding.tvPackSubtitle.setTextColor(ContextCompat.getColor(this, R.color.solarized_green))
+        } else {
+            binding.tvPackSubtitle.text = "默认材质包 (Minecraft 1.21.x)"
+            binding.tvPackSubtitle.setTextColor(ContextCompat.getColor(this, R.color.solarized_base0))
+        }
+    }
+
     // Intercept back gesture/press to go up in directory hierarchy until root, then exit activity safely
     private val onBackPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -104,9 +155,22 @@ class MainActivity : AppCompatActivity() {
 
         // Setup Buttons and Actions
         binding.btnSaf.setOnClickListener {
-            // Open document via SAF
             openDocumentLauncher.launch(arrayOf("*/*"))
         }
+
+        binding.cardOpenFile.setOnClickListener {
+            openDocumentLauncher.launch(arrayOf("*/*"))
+        }
+
+        binding.btnImportPack.setOnClickListener {
+            openPackLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
+        }
+
+        binding.btnResetPack.setOnClickListener {
+            resetDefaultResourcePack()
+        }
+
+        updateResourcePackStatus()
 
         binding.btnMenu.setOnClickListener { view ->
             showPopupMenu(view)
@@ -280,6 +344,7 @@ class MainActivity : AppCompatActivity() {
         if (packDir.exists()) {
             packDir.deleteRecursively()
         }
+        updateResourcePackStatus()
         Toast.makeText(this, R.string.toast_pack_reset, Toast.LENGTH_SHORT).show()
     }
 
