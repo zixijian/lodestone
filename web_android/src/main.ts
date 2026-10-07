@@ -241,9 +241,41 @@ async function init() {
     const nonSelfCullingText = nonSelfCullingRes && nonSelfCullingRes.ok ? await nonSelfCullingRes.text() : '';
     const emissiveJson = emissiveRes && emissiveRes.ok ? await emissiveRes.json() : {};
 
+    const parsedOpaque = parseBlockList(opaqueText);
+    const parsedTransparent = parseBlockList(transparentText);
+
+    // List of non-full / non-cube keywords that MUST NOT cull adjacent block faces
+    const nonFullKeywords = [
+      'chest', 'sign', 'frame', 'stair', 'slab', 'glass', 'door', 'trapdoor',
+      'fence', 'wall', 'gate', 'lantern', 'torch', 'chain', 'ladder', 'bars',
+      'pane', 'carpet', 'flower', 'tulip', 'rose', 'orchid', 'dandelion', 'poppy',
+      'bluet', 'lily', 'sunflower', 'lilac', 'peony', 'bush', 'sapling', 'mushroom',
+      'fungus', 'roots', 'sprout', 'vine', 'lichen', 'rail', 'lever', 'button',
+      'pressure_plate', 'tripwire', 'redstone', 'repeater', 'comparator', 'campfire',
+      'candle', 'amethyst', 'dripstone', 'coral', 'pickle', 'egg', 'bell', 'conduit',
+      'beacon', 'brewing', 'cauldron', 'hopper', 'composter', 'lectern', 'grindstone',
+      'stonecutter', 'anvil', 'enchanting', 'portal', 'dragon_egg', 'cake', 'bed',
+      'piston', 'head', 'skull', 'banner', 'bamboo', 'sugar_cane', 'cactus', 'kelp', 'seagrass'
+    ];
+
+    const isNonFullBlock = (name: string) => {
+      const lower = name.toLowerCase();
+      return nonFullKeywords.some(kw => lower.includes(kw));
+    };
+
+    // Filter opaque flags so ONLY true 1x1x1 solid cubes are opaque
+    const strictOpaque = new Set<string>();
+    parsedOpaque.forEach(id => {
+      if (!isNonFullBlock(id)) {
+        strictOpaque.add(id);
+      } else {
+        parsedTransparent.add(id);
+      }
+    });
+
     const flags = {
-      opaque: parseBlockList(opaqueText),
-      transparent: parseBlockList(transparentText),
+      opaque: strictOpaque,
+      transparent: parsedTransparent,
       nonSelfCulling: parseBlockList(nonSelfCullingText),
       emissive: emissiveJson
     };
@@ -322,26 +354,17 @@ async function init() {
     registerChestModel('block/chest_left', 'minecraft:entity/chest/normal_left', true);
     registerChestModel('block/chest_right', 'minecraft:entity/chest/normal_right', false);
 
-    // Map chest blockstate variants
-    const chestState = assets.blockstates['chest'] || assets.blockstates['minecraft:chest'];
-    if (chestState) {
-      const chestVariants = chestState.variants || {};
-      for (const [key, val] of Object.entries(chestVariants)) {
-        if (key.includes('type=left')) {
-          if (Array.isArray(val)) {
-            val.forEach((v: any) => { if (v) v.model = 'block/chest_left'; });
-          } else if (val && typeof val === 'object') {
-            (val as any).model = 'block/chest_left';
-          }
-        } else if (key.includes('type=right')) {
-          if (Array.isArray(val)) {
-            val.forEach((v: any) => { if (v) v.model = 'block/chest_right'; });
-          } else if (val && typeof val === 'object') {
-            (val as any).model = 'block/chest_right';
-          }
-        }
-      }
-    }
+    // Map explicit chest blockstate variants for single, left, and right halves
+    const chestVariants: Record<string, any> = {};
+    const directions = ['north', 'south', 'east', 'west'];
+    directions.forEach(dir => {
+      const yRot = dir === 'north' ? 0 : dir === 'south' ? 180 : dir === 'west' ? 270 : 90;
+      chestVariants[`facing=${dir},type=single`] = { model: 'block/chest', y: yRot };
+      chestVariants[`facing=${dir},type=left`] = { model: 'block/chest_left', y: yRot };
+      chestVariants[`facing=${dir},type=right`] = { model: 'block/chest_right', y: yRot };
+    });
+    assets.blockstates['chest'] = { variants: chestVariants };
+    assets.blockstates['trapped_chest'] = { variants: chestVariants };
 
     // Hanging Signs
     const woodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'bamboo', 'crimson', 'warped'];
@@ -737,14 +760,16 @@ async function buildRendererForRegion(regionName: string) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
     renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.renderer.toneMappingExposure = 0.85;
+    renderer.renderer.toneMappingExposure = 0.9;
   }
 
-  // Calibrate sunlight and ambient lighting to eliminate overexposure (~90% of original brightness)
+  // Calibrate sunlight and ambient lighting (~90% of original brightness)
   if ((renderer as any).sunlight) {
     const sun = (renderer as any).sunlight;
-    if (sun.light) sun.light.intensity = 0.58;
-    if (sun.ambient) sun.ambient.intensity = 0.38;
+    sun.intensity = 0.63;
+    sun.ambientIntensity = 0.45;
+    if (sun.light) sun.light.intensity = 0.63;
+    if (sun.ambient) sun.ambient.intensity = 0.45;
   }
 
   const aspect = window.innerWidth / window.innerHeight;
@@ -894,22 +919,28 @@ window.toggleCameraView = function () {
 let isNightMode = false;
 window.toggleDayNight = function () {
   isNightMode = !isNightMode;
-  if (renderer && renderer.renderer) {
-    if (isNightMode) {
-      renderer.renderer.setClearColor(0x040810, 1.0);
-      if ((renderer as any).sunlight) {
-        const sun = (renderer as any).sunlight;
+  if (renderer) {
+    if (renderer.renderer) {
+      renderer.renderer.setClearColor(isNightMode ? 0x040810 : 0x002b36, 1.0);
+    }
+    if ((renderer as any).sunlight) {
+      const sun = (renderer as any).sunlight;
+      if (isNightMode) {
+        sun.intensity = 0.08;
+        sun.ambientIntensity = 0.15;
+        sun.direction = [-0.2, -0.9, -0.3];
         if (sun.light) sun.light.intensity = 0.08;
         if (sun.ambient) sun.ambient.intensity = 0.15;
-      }
-    } else {
-      renderer.renderer.setClearColor(0x002b36, 1.0);
-      if ((renderer as any).sunlight) {
-        const sun = (renderer as any).sunlight;
-        if (sun.light) sun.light.intensity = 0.58;
-        if (sun.ambient) sun.ambient.intensity = 0.38;
+      } else {
+        sun.intensity = 0.63;
+        sun.ambientIntensity = 0.45;
+        sun.direction = [0.6, 1.0, 0.8];
+        if (sun.light) sun.light.intensity = 0.63;
+        if (sun.ambient) sun.ambient.intensity = 0.45;
       }
     }
+    if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
+    if ((renderer as any).transparentMaterial) (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
   }
   return isNightMode;
 };

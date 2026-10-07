@@ -37,7 +37,7 @@ class MainActivity : AppCompatActivity() {
         val fileName = getFileNameFromUri(uri)?.lowercase() ?: ""
 
         if (!fileName.endsWith(".litematic") && !fileName.endsWith(".schematic") && !fileName.endsWith(".nbt")) {
-            showValidationError("无效的文件扩展名，仅支持选择 .litematic 投影文件")
+            Toast.makeText(this, "无效的文件扩展名，仅支持选择 .litematic 投影文件", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -55,19 +55,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (!isValidGzip) {
-            showValidationError("无效的投影文件内容 (未通过 GZIP 压缩格式校验)")
+            Toast.makeText(this, "无效的投影文件内容 (未通过 GZIP 压缩格式校验)", Toast.LENGTH_SHORT).show()
             return
         }
 
         openPreviewActivity(uri, null)
-    }
-
-    private fun showValidationError(message: String) {
-        AlertDialog.Builder(this)
-            .setTitle("文件校验失败")
-            .setMessage(message)
-            .setPositiveButton(R.string.dialog_ok, null)
-            .show()
     }
 
     private val openPackLauncher = registerForActivityResult(
@@ -116,6 +108,8 @@ class MainActivity : AppCompatActivity() {
                 val targetDir = File(filesDir, "custom_resource_pack")
                 if (targetDir.exists()) targetDir.deleteRecursively()
                 tempDir.renameTo(targetDir)
+
+                ZipUtils.generateCustomAtlas(this, targetDir)
 
                 getSharedPreferences("app_prefs", MODE_PRIVATE).edit().putString("custom_pack_name", fileName).apply()
 
