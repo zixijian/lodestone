@@ -257,18 +257,18 @@ class MainActivity : AppCompatActivity() {
     private fun showPopupMenu(anchorView: View) {
         val popupMenu = PopupMenu(this, anchorView)
         popupMenu.menu.add(0, 1, 0, R.string.menu_usage)
-        popupMenu.menu.add(0, 5, 1, R.string.menu_reset_pack)
-        popupMenu.menu.add(0, 2, 2, R.string.menu_about)
-        popupMenu.menu.add(0, 3, 3, R.string.menu_oss)
-        popupMenu.menu.add(0, 4, 4, R.string.menu_exit)
+        popupMenu.menu.add(0, 2, 1, R.string.menu_reset_pack)
+        popupMenu.menu.add(0, 3, 2, R.string.menu_about)
+        popupMenu.menu.add(0, 4, 3, R.string.menu_oss)
+        popupMenu.menu.add(0, 5, 4, R.string.menu_exit)
 
         popupMenu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showTextDialog(getString(R.string.usage_title), getString(R.string.usage_content))
-                2 -> showTextDialog(getString(R.string.about_title), getString(R.string.about_content))
-                3 -> showTextDialog(getString(R.string.oss_title), getString(R.string.oss_content))
-                4 -> finishAffinity()
-                5 -> resetDefaultResourcePack()
+                2 -> resetDefaultResourcePack()
+                3 -> showTextDialog(getString(R.string.about_title), getString(R.string.about_content))
+                4 -> showTextDialog(getString(R.string.oss_title), getString(R.string.oss_content))
+                5 -> finishAffinity()
             }
             true
         }
@@ -276,15 +276,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resetDefaultResourcePack() {
-        val customPackFile = File(filesDir, "custom-resource-pack.zip")
-        if (customPackFile.exists()) {
-            customPackFile.delete()
+        val packDir = File(filesDir, "custom_resource_pack")
+        if (packDir.exists()) {
+            packDir.deleteRecursively()
         }
-        val customPackDir = File(filesDir, "custom-pack")
-        if (customPackDir.exists()) {
-            customPackDir.deleteRecursively()
-        }
-        Toast.makeText(this, R.string.toast_pack_reset_success, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, R.string.toast_pack_reset, Toast.LENGTH_SHORT).show()
     }
 
     private fun showTextDialog(title: String, content: String) {

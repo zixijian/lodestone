@@ -9,11 +9,11 @@
     <string name="oss_title">Open Source Licenses</string>
     <string name="oss_content">- Three.js (MIT License)\n- @mattzh72/lodestone (MIT License)\n- gl-matrix (MIT License)\n- Android Jetpack &amp; Material Components (Apache 2.0)\n- Kotlin (Apache 2.0)</string>
     <string name="menu_usage">Usage</string>
-    <string name="menu_reset_pack">Reset Default Resource Pack</string>
+    <string name="menu_reset_pack">Restore Default Resource Pack</string>
     <string name="menu_about">About</string>
     <string name="menu_oss">Open Source</string>
     <string name="menu_exit">Exit</string>
-    <string name="toast_pack_reset_success">Default resource pack restored successfully</string>
+    <string name="toast_pack_reset">Default resource pack restored successfully</string>
     <string name="dialog_ok">OK</string>
     <string name="folder_tag">Folder</string>
     <string name="file_size_bytes">%1$s Bytes</string>

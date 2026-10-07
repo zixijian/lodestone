@@ -44,26 +44,47 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
 
-// High-performance, low-memory block caching patch using Map
+// High-performance, zero-GC Uint16Array flat block grid storage
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksMapCache) return;
+  if (this.placedBlocksGrid && this.placedBlocksCache) return;
+  const w = this.size[0], h = this.size[1], d = this.size[2];
+  const volume = w * h * d;
+  const grid = new Uint16Array(volume);
+  grid.fill(0xffff);
+  const hd = h * d;
+  this.placedBlockObjectMap = new Map();
   this.placedBlocksCache = [];
-  this.placedBlocksMapCache = new Map();
+
   for (let i = 0; i < this.blocks.length; i++) {
-    const block = this.blocks[i];
-    const placed = this.toPlacedBlock(block);
+    const b = this.blocks[i];
+    const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
+    grid[idx] = b.state;
+    const placed = this.toPlacedBlock(b);
     this.placedBlocksCache.push(placed);
-    this.placedBlocksMapCache.set(this.getIndex(block.pos), placed);
+    this.placedBlockObjectMap.set(idx, placed);
   }
+  this.placedBlocksGrid = grid;
 };
 
 (Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
   if (!this.isInside(pos)) return null;
   this.ensurePlacedCaches();
-  if (this.placedBlocksMapCache instanceof Map) {
-    return this.placedBlocksMapCache.get(this.getIndex(pos)) ?? null;
+  const w = this.size[0], h = this.size[1], d = this.size[2];
+  const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
+  const stateIdx = this.placedBlocksGrid[idx];
+  if (stateIdx === 0xffff) return null;
+
+  let blockObj = this.placedBlockObjectMap.get(idx);
+  if (!blockObj) {
+    blockObj = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx] };
+    this.placedBlockObjectMap.set(idx, blockObj);
   }
-  return this.placedBlocksMapCache?.[this.getIndex(pos)] ?? null;
+  return blockObj;
+};
+
+(Structure.prototype as any).getBlocks = function () {
+  this.ensurePlacedCaches();
+  return this.placedBlocksCache ?? [];
 };
 
 // Suppress parent model warning for builtin/entity
@@ -83,300 +104,6 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
       }
     }
     return origFlatten.call(this, accessor);
-  };
-}
-
-// Override SpecialRenderers.getBlockMesh for Chests, Hanging Signs, and Item Frames
-if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
-  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
-  const { BlockModel, Cull } = Lodestone;
-
-  function createChestModel(chestType: string, chestKind: string, atlas: any) {
-    const texName = `minecraft:entity/chest/${chestKind}${chestType === 'left' ? '_left' : chestType === 'right' ? '_right' : ''}`;
-    if (chestType === 'single') {
-      return new BlockModel(undefined, { 0: texName }, [
-        {
-          from: [1, 0, 1],
-          to: [15, 10, 15],
-          faces: {
-            north: { uv: [10.5, 8.25, 14, 10.75], rotation: 180, texture: '#0' },
-            east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
-            south: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
-            west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-            up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
-            down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
-          }
-        },
-        {
-          from: [1, 10, 1],
-          to: [15, 14, 15],
-          faces: {
-            north: { uv: [10.5, 3.75, 14, 4.75], rotation: 180, texture: '#0' },
-            east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
-            south: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
-            west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-            up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
-            down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
-          }
-        },
-        {
-          from: [7, 7, 0],
-          to: [9, 11, 2],
-          faces: {
-            north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-            east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-            south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-            west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-            up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-            down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
-          }
-        }
-      ]).getMesh(atlas, Cull.none());
-    }
-
-    // Left half spans x=0..15 (seam at x=15/16), Right half spans x=1..16 (seam at x=0/1)
-    const isLeft = chestType === 'left';
-    const fromX = isLeft ? 0 : 1;
-    const toX = isLeft ? 15 : 16;
-    const latchFromX = isLeft ? 14 : 0;
-    const latchToX = isLeft ? 16 : 2;
-
-    const bodyNorthUv = isLeft ? [10.5, 8.25, 14.25, 10.75] : [7, 8.25, 10.75, 10.75];
-    const bodySouthUv = isLeft ? [3.5, 8.25, 7.25, 10.75] : [0, 8.25, 3.75, 10.75];
-    const bodyUpUv = isLeft ? [7, 4.75, 10.75, 8.25] : [3.5, 4.75, 7.25, 8.25];
-    const bodyDownUv = isLeft ? [3.5, 4.75, 7.25, 8.25] : [0, 4.75, 3.75, 8.25];
-
-    const lidNorthUv = isLeft ? [10.5, 3.75, 14.25, 4.75] : [7, 3.75, 10.75, 4.75];
-    const lidSouthUv = isLeft ? [3.5, 3.75, 7.25, 4.75] : [0, 3.75, 3.75, 4.75];
-    const lidUpUv = isLeft ? [7, 0, 10.75, 3.5] : [3.5, 0, 7.25, 3.5];
-    const lidDownUv = isLeft ? [3.5, 0, 7.25, 3.5] : [0, 0, 3.75, 3.5];
-
-    return new BlockModel(undefined, { 0: texName }, [
-      {
-        from: [fromX, 0, 1],
-        to: [toX, 10, 15],
-        faces: {
-          north: { uv: bodyNorthUv, rotation: 180, texture: '#0' },
-          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
-          south: { uv: bodySouthUv, rotation: 180, texture: '#0' },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-          up: { uv: bodyUpUv, texture: '#0' },
-          down: { uv: bodyDownUv, texture: '#0' }
-        }
-      },
-      {
-        from: [fromX, 10, 1],
-        to: [toX, 14, 15],
-        faces: {
-          north: { uv: lidNorthUv, rotation: 180, texture: '#0' },
-          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
-          south: { uv: lidSouthUv, rotation: 180, texture: '#0' },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-          up: { uv: lidUpUv, texture: '#0' },
-          down: { uv: lidDownUv, texture: '#0' }
-        }
-      },
-      {
-        from: [latchFromX, 7, 0],
-        to: [latchToX, 11, 2],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-          west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
-        }
-      }
-    ]).getMesh(atlas, Cull.none());
-  }
-
-  function createHangingSignModel(woodType: string, attached: boolean, isWall: boolean, atlas: any) {
-    const signTex = `minecraft:entity/signs/${woodType}`;
-    const chainTex = 'minecraft:block/chain';
-
-    if (isWall) {
-      return new BlockModel(undefined, { 0: signTex, 1: chainTex }, [
-        {
-          from: [1, 0, 7],
-          to: [15, 10, 9],
-          faces: {
-            north: { uv: [1, 6, 15, 16], texture: '#0' },
-            east: { uv: [7, 6, 9, 16], texture: '#0' },
-            south: { uv: [1, 6, 15, 16], texture: '#0' },
-            west: { uv: [7, 6, 9, 16], texture: '#0' },
-            up: { uv: [1, 7, 15, 9], texture: '#0' },
-            down: { uv: [1, 7, 15, 9], texture: '#0' }
-          }
-        },
-        {
-          from: [0, 14, 6],
-          to: [16, 16, 10],
-          faces: {
-            north: { uv: [0, 0, 16, 2], texture: '#0' },
-            east: { uv: [6, 0, 10, 2], texture: '#0' },
-            south: { uv: [0, 0, 16, 2], texture: '#0' },
-            west: { uv: [6, 0, 10, 2], texture: '#0' },
-            up: { uv: [0, 6, 16, 10], texture: '#0' },
-            down: { uv: [0, 6, 16, 10], texture: '#0' }
-          }
-        },
-        {
-          from: [2, 10, 7.5],
-          to: [4, 14, 8.5],
-          faces: {
-            north: { uv: [0, 0, 2, 4], texture: '#1' },
-            east: { uv: [0, 0, 1, 4], texture: '#1' },
-            south: { uv: [0, 0, 2, 4], texture: '#1' },
-            west: { uv: [0, 0, 1, 4], texture: '#1' }
-          }
-        },
-        {
-          from: [12, 10, 7.5],
-          to: [14, 14, 8.5],
-          faces: {
-            north: { uv: [0, 0, 2, 4], texture: '#1' },
-            east: { uv: [0, 0, 1, 4], texture: '#1' },
-            south: { uv: [0, 0, 2, 4], texture: '#1' },
-            west: { uv: [0, 0, 1, 4], texture: '#1' }
-          }
-        }
-      ]).getMesh(atlas, Cull.none());
-    }
-
-    return new BlockModel(undefined, { 0: signTex, 1: chainTex }, [
-      {
-        from: [1, 0, 7],
-        to: [15, 10, 9],
-        faces: {
-          north: { uv: [1, 6, 15, 16], texture: '#0' },
-          east: { uv: [7, 6, 9, 16], texture: '#0' },
-          south: { uv: [1, 6, 15, 16], texture: '#0' },
-          west: { uv: [7, 6, 9, 16], texture: '#0' },
-          up: { uv: [1, 7, 15, 9], texture: '#0' },
-          down: { uv: [1, 7, 15, 9], texture: '#0' }
-        }
-      },
-      {
-        from: [2, 10, 7.5],
-        to: [4, 16, 8.5],
-        faces: {
-          north: { uv: [0, 0, 2, 6], texture: '#1' },
-          east: { uv: [0, 0, 1, 6], texture: '#1' },
-          south: { uv: [0, 0, 2, 6], texture: '#1' },
-          west: { uv: [0, 0, 1, 6], texture: '#1' }
-        }
-      },
-      {
-        from: [12, 10, 7.5],
-        to: [14, 16, 8.5],
-        faces: {
-          north: { uv: [0, 0, 2, 6], texture: '#1' },
-          east: { uv: [0, 0, 1, 6], texture: '#1' },
-          south: { uv: [0, 0, 2, 6], texture: '#1' },
-          west: { uv: [0, 0, 1, 6], texture: '#1' }
-        }
-      }
-    ]).getMesh(atlas, Cull.none());
-  }
-
-  function createItemFrameModel(isGlow: boolean, facing: string, atlas: any) {
-    const frameTex = isGlow ? 'minecraft:block/glow_item_frame' : 'minecraft:block/item_frame';
-    const woodTex = 'minecraft:block/birch_planks';
-
-    const rawMesh = new BlockModel(undefined, { 0: frameTex, 1: woodTex }, [
-      {
-        from: [2, 2, 0.05],
-        to: [14, 14, 0.8],
-        faces: {
-          south: { uv: [2, 2, 14, 14], texture: '#0' },
-          north: { uv: [2, 2, 14, 14], texture: '#1' },
-          east: { uv: [0, 2, 1, 14], texture: '#1' },
-          west: { uv: [0, 2, 1, 14], texture: '#1' },
-          up: { uv: [2, 0, 14, 1], texture: '#1' },
-          down: { uv: [2, 0, 14, 1], texture: '#1' }
-        }
-      }
-    ]).getMesh(atlas, Cull.none());
-
-    const t = mat4.create();
-    mat4.translate(t, t, [8, 8, 8]);
-    if (facing === 'down') {
-      mat4.rotateX(t, t, Math.PI / 2);
-    } else if (facing === 'up') {
-      mat4.rotateX(t, t, -Math.PI / 2);
-    } else if (facing === 'north') {
-      mat4.rotateY(t, t, Math.PI);
-    } else if (facing === 'west') {
-      mat4.rotateY(t, t, Math.PI / 2);
-    } else if (facing === 'east') {
-      mat4.rotateY(t, t, -Math.PI / 2);
-    }
-    mat4.translate(t, t, [-8, -8, -8]);
-    return rawMesh.transform(t);
-  }
-
-  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
-    const blockName = block.getName().toString();
-
-    // Custom Chest & Double Chest
-    if (blockName === 'minecraft:chest' || blockName === 'minecraft:trapped_chest' || blockName === 'minecraft:ender_chest') {
-      const chestKind = blockName === 'minecraft:ender_chest' ? 'ender' : blockName === 'minecraft:trapped_chest' ? 'trapped' : 'normal';
-      const facing = block.getProperty('facing') ?? 'south';
-      const chestType = block.getProperty('type') ?? 'single';
-
-      const mesh = createChestModel(chestType, chestKind, atlas);
-
-      const t = mat4.create();
-      mat4.translate(t, t, [8, 8, 8]);
-      mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
-      mat4.translate(t, t, [-8, -8, -8]);
-      mesh.transform(t);
-
-      const rootMat = mat4.create();
-      mat4.scale(rootMat, rootMat, [0.0625, 0.0625, 0.0625]);
-      return mesh.transform(rootMat);
-    }
-
-    // Custom Hanging Sign
-    if (blockName.endsWith('_hanging_sign')) {
-      const isWall = blockName.includes('_wall_hanging_sign');
-      const woodType = blockName.replace('minecraft:', '').replace('_wall_hanging_sign', '').replace('_hanging_sign', '');
-      const attached = (block.getProperty('attached') ?? 'false') === 'true';
-
-      const mesh = createHangingSignModel(woodType, attached, isWall, atlas);
-
-      const t = mat4.create();
-      mat4.translate(t, t, [8, 8, 8]);
-      if (isWall) {
-        const facing = block.getProperty('facing') ?? 'south';
-        mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
-      } else {
-        const rotation = (parseInt(block.getProperty('rotation') ?? '0') / 16) * Math.PI * 2;
-        mat4.rotateY(t, t, rotation);
-        mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
-      }
-      mat4.translate(t, t, [-8, -8, -8]);
-      mesh.transform(t);
-
-      const rootMat = mat4.create();
-      mat4.scale(rootMat, rootMat, [0.0625, 0.0625, 0.0625]);
-      return mesh.transform(rootMat);
-    }
-
-    // Custom Item Frame & Glow Item Frame
-    if (blockName === 'minecraft:item_frame' || blockName === 'minecraft:glow_item_frame') {
-      const facing = block.getProperty('facing') ?? 'south';
-      const isGlow = blockName === 'minecraft:glow_item_frame';
-
-      const mesh = createItemFrameModel(isGlow, facing, atlas);
-
-      const rootMat = mat4.create();
-      mat4.scale(rootMat, rootMat, [0.0625, 0.0625, 0.0625]);
-      return mesh.transform(rootMat);
-    }
-
-    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
   };
 }
 
@@ -429,32 +156,37 @@ ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPosit
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
-  await (this as any).chunkBuilder.updateStructureBuffersAsync({
-    chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
-    onProgress: (done: number, total: number) => {
-      if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 50);
-        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+  const self = this as any;
+  const origRebuildChunkObjectsAsync = self.rebuildChunkObjectsAsync;
+
+  // Progressive chunk streaming with progress callbacks and single final mesh commit
+  const buildPromise = (async () => {
+    await self.chunkBuilder.updateStructureBuffersAsync({
+      chunkPositions,
+      timeSliceMs: self.asyncChunkBuildTimeMs || 12,
+      onProgress: (done: number, total: number) => {
+        if (token !== self.buildToken) return;
+        if (window.AndroidHost) {
+          const pct = Math.floor((done / Math.max(1, total)) * 100);
+          window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+        }
       }
-    }
-  });
+    });
 
-  if (token !== (this as any).buildToken) return;
+    if (token !== self.buildToken) return;
 
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
+    await origRebuildChunkObjectsAsync.call(self, token);
+    if (self.chunkMeshes) {
+      for (let i = 0; i < self.chunkMeshes.length; i++) {
+        const mesh = self.chunkMeshes[i];
         mesh.visible = true;
         mesh.frustumCulled = false;
       }
     }
-    if (window.AndroidHost && token === (this as any).buildToken) {
+    if (window.AndroidHost && token === self.buildToken) {
       window.AndroidHost.onLoadingProgress('RENDERING_100%');
     }
-  });
+  })();
 
   (this as any).buildPromise = buildPromise;
   return buildPromise;
@@ -475,6 +207,92 @@ async function init() {
     const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/';
     const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
     currentResources = loaded.resources;
+
+    // Custom model overrides for Item Frames, Chests, and Signs
+    const assets = currentResources.assets;
+
+    // Item Frame block models using minecraft:item/item_frame texture
+    assets.models['minecraft:block/item_frame'] = {
+      parent: 'block/block',
+      textures: {
+        particle: 'minecraft:block/birch_planks',
+        wood: 'minecraft:block/birch_planks',
+        map: 'minecraft:item/item_frame'
+      },
+      elements: [
+        {
+          from: [3, 3, 15], to: [13, 13, 16],
+          faces: {
+            north: { texture: '#map', uv: [0, 0, 16, 16] },
+            south: { texture: '#wood', uv: [3, 3, 13, 13] },
+            east: { texture: '#wood', uv: [15, 3, 16, 13] },
+            west: { texture: '#wood', uv: [0, 3, 1, 13] },
+            up: { texture: '#wood', uv: [3, 15, 13, 16] },
+            down: { texture: '#wood', uv: [3, 0, 13, 1] }
+          }
+        }
+      ]
+    };
+    assets.models['block/item_frame'] = assets.models['minecraft:block/item_frame'];
+
+    // Double Chest Models (Left & Right halves)
+    const registerChestModel = (name: string, tex: string, isLeft: boolean) => {
+      const fromX = isLeft ? 0 : 1;
+      const toX = isLeft ? 15 : 16;
+      assets.models[name] = {
+        parent: 'block/block',
+        textures: { particle: tex, chest: tex },
+        elements: [
+          {
+            from: [fromX, 0, 1], to: [toX, 10, 15],
+            faces: {
+              north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 8.25, isLeft ? 14.25 : 10.5, 12] },
+              south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 8.25, isLeft ? 7 : 3.5, 12] },
+              west: { texture: '#chest', uv: [0, 8.25, 3.5, 12] },
+              east: { texture: '#chest', uv: [3.5, 8.25, 7, 12] },
+              up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 7] },
+              down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 3.5, isLeft ? 10.5 : 7, 7] }
+            }
+          },
+          {
+            from: [fromX, 9, 0], to: [toX, 14, 15],
+            faces: {
+              north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 3.5, isLeft ? 14.25 : 10.5, 4.75] },
+              south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 4.75] },
+              west: { texture: '#chest', uv: [0, 3.5, 3.5, 4.75] },
+              east: { texture: '#chest', uv: [3.5, 3.5, 7, 4.75] },
+              up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 0, isLeft ? 7 : 3.5, 3.5] },
+              down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 0, isLeft ? 10.5 : 7, 3.5] }
+            }
+          }
+        ]
+      };
+    };
+
+    registerChestModel('minecraft:block/chest_left', 'minecraft:entity/chest/normal_left', true);
+    registerChestModel('minecraft:block/chest_right', 'minecraft:entity/chest/normal_right', false);
+    registerChestModel('block/chest_left', 'minecraft:entity/chest/normal_left', true);
+    registerChestModel('block/chest_right', 'minecraft:entity/chest/normal_right', false);
+
+    // Map minecraft:chest blockstate variants for type=left and type=right to chest_left and chest_right models
+    if (assets.blockstates['minecraft:chest']) {
+      const chestVariants = assets.blockstates['minecraft:chest'].variants || {};
+      for (const [key, val] of Object.entries(chestVariants)) {
+        if (key.includes('type=left')) {
+          if (Array.isArray(val)) {
+            val.forEach((v: any) => { if (v) v.model = 'block/chest_left'; });
+          } else if (val && typeof val === 'object') {
+            (val as any).model = 'block/chest_left';
+          }
+        } else if (key.includes('type=right')) {
+          if (Array.isArray(val)) {
+            val.forEach((v: any) => { if (v) v.model = 'block/chest_right'; });
+          } else if (val && typeof val === 'object') {
+            (val as any).model = 'block/chest_right';
+          }
+        }
+      }
+    }
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
@@ -792,36 +610,11 @@ async function buildRendererForRegion(regionName: string) {
   const rendererOptions: any = {
     asyncBuild: true,
     asyncChunkBuildTimeMs: 12,
-    chunkSize: [chunkSize, chunkSize, chunkSize],
-    sunlight: {
-      intensity: 0.7,
-      ambientIntensity: 0.5,
-      fillIntensity: 0.25,
-      exposure: 0.9,
-      color: [1.0, 0.95, 0.9],
-      ambientColor: [0.5, 0.55, 0.6]
-    }
+    chunkSize: [chunkSize, chunkSize, chunkSize]
   };
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
-
-  if (renderer.renderer) {
-    renderer.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.renderer.toneMappingExposure = 0.9;
-    renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-    const maxAnisotropy = renderer.renderer.capabilities.getMaxAnisotropy();
-    if ((renderer as any).atlasTexture) {
-      const atlasTex = (renderer as any).atlasTexture as THREE.Texture;
-      atlasTex.generateMipmaps = true;
-      atlasTex.minFilter = THREE.NearestMipmapLinearFilter;
-      atlasTex.magFilter = THREE.NearestFilter;
-      atlasTex.anisotropy = Math.min(maxAnisotropy, 8);
-      atlasTex.needsUpdate = true;
-    }
-  }
 
   // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
@@ -837,6 +630,16 @@ async function buildRendererForRegion(regionName: string) {
   }
   if (renderer.renderer) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
+    renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.renderer.toneMappingExposure = 1.0;
+  }
+
+  // Calibrate lights
+  if ((renderer as any).sunlight) {
+    const sun = (renderer as any).sunlight;
+    if (sun.light) sun.light.intensity = 0.7;
+    if (sun.ambient) sun.ambient.intensity = 0.5;
   }
 
   const aspect = window.innerWidth / window.innerHeight;

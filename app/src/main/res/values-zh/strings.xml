@@ -13,7 +13,7 @@
     <string name="menu_about">关于项目</string>
     <string name="menu_oss">开源组件列表</string>
     <string name="menu_exit">退出应用</string>
-    <string name="toast_pack_reset_success">已恢复内置默认原版资源包</string>
+    <string name="toast_pack_reset">已成功恢复默认资源包</string>
     <string name="dialog_ok">确定</string>
     <string name="folder_tag">文件夹</string>
     <string name="file_size_bytes">%1$s 字节</string>
