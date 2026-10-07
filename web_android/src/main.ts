@@ -212,13 +212,13 @@ function createChestModel(textureKey: string, type: 'single' | 'left' | 'right')
   let latchFrom: [number, number, number];
   let latchTo: [number, number, number];
 
-  if (type === 'left') {
-    // left half in block space [1, 0, 1] to [16, 10, 15]
+  if (type === 'right') {
+    // right half in Minecraft block space [1, 0, 1] to [16, 10, 15] (connecting at x=16)
     baseFrom = [1, 0, 1]; baseTo = [16, 10, 15];
     lidFrom = [1, 10, 1]; lidTo = [16, 14, 15];
     latchFrom = [15, 7, 0]; latchTo = [16, 11, 2];
-  } else if (type === 'right') {
-    // right half in block space [0, 0, 1] to [15, 10, 15]
+  } else if (type === 'left') {
+    // left half in Minecraft block space [0, 0, 1] to [15, 10, 15] (connecting at x=0)
     baseFrom = [0, 0, 1]; baseTo = [15, 10, 15];
     lidFrom = [0, 10, 1]; lidTo = [15, 14, 15];
     latchFrom = [0, 7, 0]; latchTo = [1, 11, 2];
@@ -312,14 +312,18 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
       const facing = props.facing || 'north';
       const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
 
-      // Lodestone standard [8, 8, 8] pixel rotation pivot and single 0.0625 matrix scale
-      const t = mat4.create();
-      mat4.translate(t, t, [8, 8, 8]);
+      const rot = mat4.create();
+      mat4.translate(rot, rot, [8, 8, 8]);
       if (angle !== 0) {
-        mat4.rotateY(t, t, angle);
+        mat4.rotateY(rot, rot, angle);
       }
-      mat4.translate(t, t, [-8, -8, -8]);
-      mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+      mat4.translate(rot, rot, [-8, -8, -8]);
+
+      const scale = mat4.create();
+      mat4.scale(scale, scale, [0.0625, 0.0625, 0.0625]);
+
+      const t = mat4.create();
+      mat4.multiply(t, scale, rot); // t = Scale * Rot Matrix (scales pixel coordinates down to [0, 1])
 
       mesh.transform(t);
 
@@ -349,19 +353,24 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
       };
       const mesh = model.getMesh(this.resources, cull);
 
-      const t = mat4.create();
-      mat4.translate(t, t, [8, 8, 8]);
+      const rot = mat4.create();
+      mat4.translate(rot, rot, [8, 8, 8]);
       if (props.facing) {
         const facing = props.facing;
         const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
-        if (angle !== 0) mat4.rotateY(t, t, angle);
+        if (angle !== 0) mat4.rotateY(rot, rot, angle);
       } else if (props.rotation !== undefined) {
         const rot = parseFloat(props.rotation) || 0;
         const angle = (rot / 16) * Math.PI * 2;
-        if (angle !== 0) mat4.rotateY(t, t, angle);
+        if (angle !== 0) mat4.rotateY(rot, rot, angle);
       }
-      mat4.translate(t, t, [-8, -8, -8]);
-      mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+      mat4.translate(rot, rot, [-8, -8, -8]);
+
+      const scale = mat4.create();
+      mat4.scale(scale, scale, [0.0625, 0.0625, 0.0625]);
+
+      const t = mat4.create();
+      mat4.multiply(t, scale, rot);
 
       mesh.transform(t);
 
@@ -393,18 +402,23 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
       const mesh = model.getMesh(this.resources, cull);
 
       const facing = props.facing || 'north';
-      const t = mat4.create();
-      mat4.translate(t, t, [8, 8, 8]);
+      const rot = mat4.create();
+      mat4.translate(rot, rot, [8, 8, 8]);
       if (facing === 'up') {
-        mat4.rotateX(t, t, -Math.PI / 2);
+        mat4.rotateX(rot, rot, -Math.PI / 2);
       } else if (facing === 'down') {
-        mat4.rotateX(t, t, Math.PI / 2);
+        mat4.rotateX(rot, rot, Math.PI / 2);
       } else {
         const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
-        if (angle !== 0) mat4.rotateY(t, t, angle);
+        if (angle !== 0) mat4.rotateY(rot, rot, angle);
       }
-      mat4.translate(t, t, [-8, -8, -8]);
-      mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+      mat4.translate(rot, rot, [-8, -8, -8]);
+
+      const scale = mat4.create();
+      mat4.scale(scale, scale, [0.0625, 0.0625, 0.0625]);
+
+      const t = mat4.create();
+      mat4.multiply(t, scale, rot);
 
       mesh.transform(t);
 
@@ -823,14 +837,14 @@ async function buildRendererForRegion(regionName: string) {
     sunlight: {
       direction: [-0.4, 0.8, -0.4],
       color: [1.0, 1.0, 0.95],
-      ambientColor: [0.65, 0.7, 0.8],
-      fillColor: [0.5, 0.5, 0.55],
-      rimColor: [0.8, 0.85, 0.9],
-      intensity: 0.9,
-      ambientIntensity: 0.5,
-      fillIntensity: 0.3,
-      rimIntensity: 0.15,
-      exposure: 0.95,
+      ambientColor: [0.6, 0.65, 0.75],
+      fillColor: [0.4, 0.4, 0.45],
+      rimColor: [0.6, 0.65, 0.7],
+      intensity: 0.65,
+      ambientIntensity: 0.35,
+      fillIntensity: 0.15,
+      rimIntensity: 0.1,
+      exposure: 0.85,
       sky: {
         zenithColor: [0.35, 0.55, 0.85],
         horizonColor: [0.75, 0.85, 0.95],
@@ -1036,14 +1050,14 @@ window.setDayNight = function (isNight: boolean) {
   }
   if (renderer) {
     const options = isNightMode ? {
-      intensity: 0.25,
-      ambientIntensity: 0.35,
-      exposure: 0.85,
+      intensity: 0.2,
+      ambientIntensity: 0.25,
+      exposure: 0.75,
       direction: [-0.2, -0.8, -0.2]
     } : {
-      intensity: 0.9,
-      ambientIntensity: 0.5,
-      exposure: 0.95,
+      intensity: 0.65,
+      ambientIntensity: 0.35,
+      exposure: 0.85,
       direction: [-0.4, 0.8, -0.4]
     };
     if (typeof (renderer as any).setSunlight === 'function') {
