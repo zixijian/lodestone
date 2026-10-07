@@ -187,13 +187,13 @@ function createItemFrameModel(isGlow: boolean) {
   const backTex = isGlow ? 'item/glow_item_frame' : 'item/item_frame';
 
   return new (Lodestone as any).BlockModel(undefined, { frame: frameTex, back: backTex }, [
-    // Outer wooden border
+    // Outer wooden border & back plate
     {
       from: [2, 2, 0],
       to: [14, 14, 1],
       faces: {
-        north: { uv: [2, 2, 14, 14], texture: '#back' },
-        south: { uv: [2, 2, 14, 14], texture: '#frame' },
+        south: { uv: [2, 2, 14, 14], texture: '#back' },
+        north: { uv: [2, 2, 14, 14], texture: '#frame' },
         east: { uv: [0, 2, 1, 14], texture: '#frame' },
         west: { uv: [0, 2, 1, 14], texture: '#frame' },
         up: { uv: [2, 0, 14, 1], texture: '#frame' },
@@ -234,10 +234,10 @@ function createChestModel(textureKey: string, type: 'single' | 'left' | 'right')
       from: baseFrom,
       to: baseTo,
       faces: {
-        north: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
-        east: { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
-        south: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
-        west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+        north: { uv: [3.5, 8.25, 7.25, 10.75], texture: '#0' },
+        east: { uv: [7.25, 8.25, 10.75, 10.75], texture: '#0' },
+        south: { uv: [10.75, 8.25, 14.5, 10.75], texture: '#0' },
+        west: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' },
         up: { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' },
         down: { uv: [7.25, 4.75, 11, 8.25], texture: '#0' },
       }
@@ -246,10 +246,10 @@ function createChestModel(textureKey: string, type: 'single' | 'left' | 'right')
       from: lidFrom,
       to: lidTo,
       faces: {
-        north: { uv: [3.5, 3.5, 7.25, 4.5], rotation: 180, texture: '#0' },
-        east: { uv: [7.25, 3.5, 10.75, 4.5], rotation: 180, texture: '#0' },
-        south: { uv: [10.75, 3.5, 14.5, 4.5], rotation: 180, texture: '#0' },
-        west: { uv: [0, 3.5, 3.5, 4.5], rotation: 180, texture: '#0' },
+        north: { uv: [3.5, 3.5, 7.25, 4.5], texture: '#0' },
+        east: { uv: [7.25, 3.5, 10.75, 4.5], texture: '#0' },
+        south: { uv: [10.75, 3.5, 14.5, 4.5], texture: '#0' },
+        west: { uv: [0, 3.5, 3.5, 4.5], texture: '#0' },
         up: { uv: [3.5, 0, 7.25, 3.5], texture: '#0' },
         down: { uv: [7.25, 0, 11, 3.5], texture: '#0' },
       }
@@ -258,12 +258,12 @@ function createChestModel(textureKey: string, type: 'single' | 'left' | 'right')
       from: latchFrom,
       to: latchTo,
       faces: {
-        north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
-        east: { uv: [0.5, 0.25, 1.0, 1.25], rotation: 180, texture: '#0' },
-        south: { uv: [1.0, 0.25, 1.25, 1.25], rotation: 180, texture: '#0' },
-        west: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-        up: { uv: [0.25, 0, 0.5, 0.25], rotation: 180, texture: '#0' },
-        down: { uv: [0.5, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+        north: { uv: [0.25, 0.25, 0.5, 1.25], texture: '#0' },
+        east: { uv: [0.5, 0.25, 1.0, 1.25], texture: '#0' },
+        south: { uv: [1.0, 0.25, 1.25, 1.25], texture: '#0' },
+        west: { uv: [0, 0.25, 0.25, 1.25], texture: '#0' },
+        up: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
+        down: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' },
       }
     }
   ]);
@@ -840,11 +840,11 @@ async function buildRendererForRegion(regionName: string) {
       ambientColor: [0.6, 0.65, 0.75],
       fillColor: [0.4, 0.4, 0.45],
       rimColor: [0.6, 0.65, 0.7],
-      intensity: 0.65,
-      ambientIntensity: 0.35,
-      fillIntensity: 0.15,
+      intensity: 0.80,
+      ambientIntensity: 0.40,
+      fillIntensity: 0.20,
       rimIntensity: 0.1,
-      exposure: 0.85,
+      exposure: 0.95,
       sky: {
         zenithColor: [0.35, 0.55, 0.85],
         horizonColor: [0.75, 0.85, 0.95],
@@ -1055,9 +1055,9 @@ window.setDayNight = function (isNight: boolean) {
       exposure: 0.75,
       direction: [-0.2, -0.8, -0.2]
     } : {
-      intensity: 0.65,
-      ambientIntensity: 0.35,
-      exposure: 0.85,
+      intensity: 0.80,
+      ambientIntensity: 0.40,
+      exposure: 0.95,
       direction: [-0.4, 0.8, -0.4]
     };
     if (typeof (renderer as any).setSunlight === 'function') {

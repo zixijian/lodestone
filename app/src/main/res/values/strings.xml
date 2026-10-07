@@ -5,7 +5,9 @@
     <string name="pack_info_title">Current Resource Pack</string>
     <string name="pack_info_desc">Default Pack (Minecraft 1.21.x)</string>
     <string name="btn_import">Import Pack</string>
+    <string name="btn_reset_pack">Reset</string>
     <string name="toast_pack_imported">Resource pack imported successfully</string>
+    <string name="toast_pack_reset">Resource pack reset to default</string>
     <string name="usage_title">Usage</string>
     <string name="usage_content">1. Click "Open Schematic File" to select any .litematic file via the System Storage Access Framework (SAF).\n2. Click "Import Pack" to select a custom .zip resource pack.\n3. In 3D preview, use gestures to rotate, pan, and zoom. Use controls to switch camera modes, reset view, or select rendering sub-regions.\n4. Slide the bottom panel up/down to inspect detailed block statistics.</string>
     <string name="about_title">About Project</string>

@@ -72,9 +72,32 @@ class MainActivity : AppCompatActivity() {
             openResourcePackLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
         }
 
+        binding.btnResetPack.setOnClickListener {
+            resetDefaultResourcePack()
+        }
+
         binding.btnMenu.setOnClickListener { view ->
             showPopupMenu(view)
         }
+    }
+
+    private fun resetDefaultResourcePack() {
+        try {
+            val customPackDir = java.io.File(filesDir, "custom_pack")
+            if (customPackDir.exists()) {
+                customPackDir.deleteRecursively()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .remove("custom_pack_name")
+            .apply()
+
+        updatePackInfoUI()
+        Toast.makeText(this, R.string.toast_pack_reset, Toast.LENGTH_SHORT).show()
     }
 
     private fun updatePackInfoUI() {
@@ -82,8 +105,10 @@ class MainActivity : AppCompatActivity() {
         val packName = prefs.getString("custom_pack_name", null)
         if (packName != null) {
             binding.tvPackDesc.text = packName
+            binding.btnResetPack.visibility = View.VISIBLE
         } else {
             binding.tvPackDesc.setText(R.string.pack_info_desc)
+            binding.btnResetPack.visibility = View.GONE
         }
     }
 
