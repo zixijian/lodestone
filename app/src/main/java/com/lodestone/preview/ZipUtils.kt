@@ -1,7 +1,13 @@
 package com.lodestone.preview
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.net.Uri
+import android.util.Log
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -132,6 +138,73 @@ object ZipUtils {
             return ValidationResult(false, "解压材质包失败: ${e.localizedMessage}")
         }
 
+        // Generate custom atlas.png and assets.json from extracted textures
+        try {
+            generateCustomAtlas(context, targetDir)
+        } catch (e: Exception) {
+            Log.e("ZipUtils", "Failed to generate custom atlas", e)
+        }
+
         return ValidationResult(true)
+    }
+
+    private fun generateCustomAtlas(context: Context, customPackDir: File) {
+        val assetsManager = context.assets
+
+        // 1. Load default atlas image from assets
+        val defaultAtlasStream = assetsManager.open("web/default-pack/atlas.png")
+        val defaultAtlasBitmap = BitmapFactory.decodeStream(defaultAtlasStream)
+            ?: return
+        defaultAtlasStream.close()
+
+        val mutableAtlas = defaultAtlasBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(mutableAtlas)
+
+        // 2. Load default assets.json metadata
+        val jsonStream = assetsManager.open("web/default-pack/assets.json")
+        val jsonString = jsonStream.bufferedReader().use { it.readText() }
+        jsonStream.close()
+
+        // Copy default assets.json to customPackDir if not present
+        val targetJsonFile = File(customPackDir, "assets.json")
+        if (!targetJsonFile.exists()) {
+            targetJsonFile.writeText(jsonString)
+        }
+
+        val rootObj = JSONObject(jsonString)
+        val texturesObj = rootObj.optJSONObject("textures") ?: return
+
+        val keys = texturesObj.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val texFile = File(customPackDir, "assets/minecraft/textures/$key.png")
+            if (texFile.exists() && texFile.isFile) {
+                try {
+                    val customBm = BitmapFactory.decodeFile(texFile.absolutePath)
+                    if (customBm != null) {
+                        val arr = texturesObj.getJSONArray(key)
+                        val x = arr.getInt(0)
+                        val y = arr.getInt(1)
+                        val w = arr.getInt(2)
+                        val h = arr.getInt(3)
+
+                        val srcRect = Rect(0, 0, customBm.width, customBm.height)
+                        val dstRect = Rect(x, y, x + w, y + h)
+                        canvas.drawBitmap(customBm, srcRect, dstRect, null)
+                        customBm.recycle()
+                    }
+                } catch (e: Exception) {
+                    Log.w("ZipUtils", "Error stitching texture for key $key", e)
+                }
+            }
+        }
+
+        // Save generated atlas.png to customPackDir
+        val targetAtlasFile = File(customPackDir, "atlas.png")
+        FileOutputStream(targetAtlasFile).use { out ->
+            mutableAtlas.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        mutableAtlas.recycle()
+        defaultAtlasBitmap.recycle()
     }
 }

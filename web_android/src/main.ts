@@ -92,6 +92,7 @@ function getWoodType(blockName: string): string {
 function createHangingSignModel(blockName: string, props: Record<string, string>) {
   const wood = getWoodType(blockName);
   const plankTex = 'block/' + wood + '_planks';
+  const signEntityTex = 'entity/signs/hanging/' + wood;
   const chainTex = 'block/chain';
 
   const isWall = blockName.includes('wall');
@@ -103,8 +104,8 @@ function createHangingSignModel(blockName: string, props: Record<string, string>
       from: [1, 2, 7],
       to: [15, 10, 9],
       faces: {
-        north: { uv: [1, 6, 15, 14], texture: '#plank' },
-        south: { uv: [1, 6, 15, 14], texture: '#plank' },
+        north: { uv: [1, 6, 15, 14], texture: '#sign' },
+        south: { uv: [1, 6, 15, 14], texture: '#sign' },
         east: { uv: [7, 6, 9, 14], texture: '#plank' },
         west: { uv: [7, 6, 9, 14], texture: '#plank' },
         up: { uv: [1, 7, 15, 9], texture: '#plank' },
@@ -177,13 +178,13 @@ function createHangingSignModel(blockName: string, props: Record<string, string>
     );
   }
 
-  return new (Lodestone as any).BlockModel(undefined, { plank: plankTex, chain: chainTex }, elements);
+  return new (Lodestone as any).BlockModel(undefined, { sign: signEntityTex, plank: plankTex, chain: chainTex }, elements);
 }
 
 // Helper to generate item frame models (regular & glow)
 function createItemFrameModel(isGlow: boolean) {
   const frameTex = 'block/birch_planks';
-  const backTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
+  const backTex = isGlow ? 'item/glow_item_frame' : 'item/item_frame';
 
   return new (Lodestone as any).BlockModel(undefined, { frame: frameTex, back: backTex }, [
     // Outer wooden border
@@ -202,16 +203,29 @@ function createItemFrameModel(isGlow: boolean) {
   ]);
 }
 
-// Helper to generate double chest half models (left / right) with accurate geometry & UV mappings
-function createChestHalfModel(textureKey: string, isLeft: boolean) {
-  // type=left: body [1, 0, 1] to [16, 10, 15], latch [15, 7, 0] to [16, 11, 2] (meets right half at x=16)
-  // type=right: body [0, 0, 1] to [15, 10, 15], latch [0, 7, 0] to [1, 11, 2] (meets left half at x=0)
-  const baseFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
-  const baseTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
-  const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
-  const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
-  const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
-  const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
+// Helper to generate chest models (single, left, right) with accurate geometry & UV mappings
+function createChestModel(textureKey: string, type: 'single' | 'left' | 'right') {
+  let baseFrom: [number, number, number];
+  let baseTo: [number, number, number];
+  let lidFrom: [number, number, number];
+  let lidTo: [number, number, number];
+  let latchFrom: [number, number, number];
+  let latchTo: [number, number, number];
+
+  if (type === 'left') {
+    baseFrom = [1, 0, 1]; baseTo = [16, 10, 15];
+    lidFrom = [1, 10, 1]; lidTo = [16, 14, 15];
+    latchFrom = [15, 7, 0]; latchTo = [16, 11, 2];
+  } else if (type === 'right') {
+    baseFrom = [0, 0, 1]; baseTo = [15, 10, 15];
+    lidFrom = [0, 10, 1]; lidTo = [15, 14, 15];
+    latchFrom = [0, 7, 0]; latchTo = [1, 11, 2];
+  } else {
+    // single
+    baseFrom = [1, 0, 1]; baseTo = [15, 10, 15];
+    lidFrom = [1, 10, 1]; lidTo = [15, 14, 15];
+    latchFrom = [7, 7, 0]; latchTo = [9, 11, 2];
+  }
 
   return new (Lodestone as any).BlockModel(undefined, { 0: textureKey }, [
     {
@@ -259,57 +273,58 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
   (Lodestone as any).ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
     const blockName = block.state.getName ? block.state.getName().toString() : String(block.state);
 
-    // Handle double chests directly
+    // Handle chests directly (single and double)
     if (blockName.includes('chest') && !blockName.includes('boat')) {
+      if (this.isFullyOccluded(block)) return;
+      const chunkPos = [
+        Math.floor(block.pos[0] / this.chunkSize[0]),
+        Math.floor(block.pos[1] / this.chunkSize[1]),
+        Math.floor(block.pos[2] / this.chunkSize[2]),
+      ];
+      const chunkKey = this.chunkKey(chunkPos);
+      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
+      const chunk = this.getChunk(chunkPos);
+
       const props = this.getBlockProps(block.state);
-      const type = props.type || 'single';
-      if (type === 'left' || type === 'right') {
-        if (this.isFullyOccluded(block)) return;
-        const chunkPos = [
-          Math.floor(block.pos[0] / this.chunkSize[0]),
-          Math.floor(block.pos[1] / this.chunkSize[1]),
-          Math.floor(block.pos[2] / this.chunkSize[2]),
-        ];
-        const chunkKey = this.chunkKey(chunkPos);
-        if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-        const chunk = this.getChunk(chunkPos);
+      const type = (props.type as 'single' | 'left' | 'right') || 'single';
 
-        let texPrefix = 'normal';
-        if (blockName.includes('trapped')) texPrefix = 'trapped';
-        else if (blockName.includes('ender')) texPrefix = 'ender';
-        const texKey = 'entity/chest/' + texPrefix + '_' + type;
-        const model = createChestHalfModel(texKey, type === 'left');
-        const cull = {
-          up: this.needsCull(block, (Lodestone as any).Direction.UP),
-          down: this.needsCull(block, (Lodestone as any).Direction.DOWN),
-          west: this.needsCull(block, (Lodestone as any).Direction.WEST),
-          east: this.needsCull(block, (Lodestone as any).Direction.EAST),
-          north: this.needsCull(block, (Lodestone as any).Direction.NORTH),
-          south: this.needsCull(block, (Lodestone as any).Direction.SOUTH),
-        };
-        const mesh = model.getMesh(this.resources, cull);
+      let texPrefix = 'normal';
+      if (blockName.includes('trapped')) texPrefix = 'trapped';
+      else if (blockName.includes('ender')) texPrefix = 'ender';
 
-        const facing = props.facing || 'north';
-        const t = mat4.create();
-        mat4.translate(t, t, [8, 8, 8]);
-        mat4.rotateY(
-          t,
-          t,
-          facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0
-        );
-        mat4.translate(t, t, [-8, -8, -8]);
+      const texKey = type === 'single'
+        ? 'entity/chest/' + texPrefix
+        : 'entity/chest/' + texPrefix + '_' + type;
 
-        const s = mat4.create();
-        mat4.scale(s, s, [0.0625, 0.0625, 0.0625]);
-        mat4.multiply(t, s, t);
-        mesh.transform(t);
+      const model = createChestModel(texKey, type);
+      const cull = {
+        up: this.needsCull(block, (Lodestone as any).Direction.UP),
+        down: this.needsCull(block, (Lodestone as any).Direction.DOWN),
+        west: this.needsCull(block, (Lodestone as any).Direction.WEST),
+        east: this.needsCull(block, (Lodestone as any).Direction.EAST),
+        north: this.needsCull(block, (Lodestone as any).Direction.NORTH),
+        south: this.needsCull(block, (Lodestone as any).Direction.SOUTH),
+      };
+      const mesh = model.getMesh(this.resources, cull);
 
-        if (!mesh.isEmpty()) {
-          this.finishChunkMesh(mesh, block.pos, blockName, props, chunkKey);
-          chunk.mesh.merge(mesh);
-        }
-        return;
+      const facing = props.facing || 'north';
+      const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
+
+      const t = mat4.create();
+      mat4.translate(t, t, [0.5, 0.5, 0.5]);
+      if (angle !== 0) {
+        mat4.rotateY(t, t, angle);
       }
+      mat4.translate(t, t, [-0.5, -0.5, -0.5]);
+      mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+
+      mesh.transform(t);
+
+      if (!mesh.isEmpty()) {
+        this.finishChunkMesh(mesh, block.pos, blockName, props, chunkKey);
+        chunk.mesh.merge(mesh);
+      }
+      return;
     }
 
     // Handle hanging signs directly
@@ -332,22 +347,19 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
       const mesh = model.getMesh(this.resources, cull);
 
       const t = mat4.create();
-      mat4.translate(t, t, [8, 8, 8]);
+      mat4.translate(t, t, [0.5, 0.5, 0.5]);
       if (props.facing) {
         const facing = props.facing;
-        mat4.rotateY(
-          t, t,
-          facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0
-        );
+        const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
+        if (angle !== 0) mat4.rotateY(t, t, angle);
       } else if (props.rotation !== undefined) {
         const rot = parseFloat(props.rotation) || 0;
-        mat4.rotateY(t, t, (rot / 16) * Math.PI * 2);
+        const angle = (rot / 16) * Math.PI * 2;
+        if (angle !== 0) mat4.rotateY(t, t, angle);
       }
-      mat4.translate(t, t, [-8, -8, -8]);
+      mat4.translate(t, t, [-0.5, -0.5, -0.5]);
+      mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
 
-      const s = mat4.create();
-      mat4.scale(s, s, [0.0625, 0.0625, 0.0625]);
-      mat4.multiply(t, s, t);
       mesh.transform(t);
 
       if (!mesh.isEmpty()) {
@@ -379,22 +391,18 @@ if ((Lodestone as any).ChunkBuilder?.prototype?.processBlock) {
 
       const facing = props.facing || 'north';
       const t = mat4.create();
-      mat4.translate(t, t, [8, 8, 8]);
+      mat4.translate(t, t, [0.5, 0.5, 0.5]);
       if (facing === 'up') {
         mat4.rotateX(t, t, -Math.PI / 2);
       } else if (facing === 'down') {
         mat4.rotateX(t, t, Math.PI / 2);
       } else {
-        mat4.rotateY(
-          t, t,
-          facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0
-        );
+        const angle = facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? (Math.PI * 3) / 2 : 0;
+        if (angle !== 0) mat4.rotateY(t, t, angle);
       }
-      mat4.translate(t, t, [-8, -8, -8]);
+      mat4.translate(t, t, [-0.5, -0.5, -0.5]);
+      mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
 
-      const s = mat4.create();
-      mat4.scale(s, s, [0.0625, 0.0625, 0.0625]);
-      mat4.multiply(t, s, t);
       mesh.transform(t);
 
       if (!mesh.isEmpty()) {
@@ -814,11 +822,11 @@ async function buildRendererForRegion(regionName: string) {
       ambientColor: [0.65, 0.7, 0.8],
       fillColor: [0.5, 0.5, 0.55],
       rimColor: [0.8, 0.85, 0.9],
-      intensity: 1.1,
-      ambientIntensity: 0.8,
-      fillIntensity: 0.4,
-      rimIntensity: 0.2,
-      exposure: 1.0,
+      intensity: 0.9,
+      ambientIntensity: 0.5,
+      fillIntensity: 0.3,
+      rimIntensity: 0.15,
+      exposure: 0.95,
       sky: {
         zenithColor: [0.35, 0.55, 0.85],
         horizonColor: [0.75, 0.85, 0.95],
