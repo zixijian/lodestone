@@ -307,14 +307,6 @@ async function init() {
     // Create custom blockstates and models for double chests (left/right)
     const createChestBlockState = (modelName: string) => ({
       variants: {
-        'facing=north': { model: modelName, y: 0 },
-        'facing=south': { model: modelName, y: 180 },
-        'facing=west': { model: modelName, y: 270 },
-        'facing=east': { model: modelName, y: 90 },
-        'type=single,facing=north': { model: modelName, y: 0 },
-        'type=single,facing=south': { model: modelName, y: 180 },
-        'type=single,facing=west': { model: modelName, y: 270 },
-        'type=single,facing=east': { model: modelName, y: 90 },
         'type=left,facing=north': { model: 'block/chest_left', y: 0 },
         'type=left,facing=south': { model: 'block/chest_left', y: 180 },
         'type=left,facing=west': { model: 'block/chest_left', y: 270 },
@@ -322,7 +314,15 @@ async function init() {
         'type=right,facing=north': { model: 'block/chest_right', y: 0 },
         'type=right,facing=south': { model: 'block/chest_right', y: 180 },
         'type=right,facing=west': { model: 'block/chest_right', y: 270 },
-        'type=right,facing=east': { model: 'block/chest_right', y: 90 }
+        'type=right,facing=east': { model: 'block/chest_right', y: 90 },
+        'type=single,facing=north': { model: modelName, y: 0 },
+        'type=single,facing=south': { model: modelName, y: 180 },
+        'type=single,facing=west': { model: modelName, y: 270 },
+        'type=single,facing=east': { model: modelName, y: 90 },
+        'facing=north': { model: modelName, y: 0 },
+        'facing=south': { model: modelName, y: 180 },
+        'facing=west': { model: modelName, y: 270 },
+        'facing=east': { model: modelName, y: 90 }
       }
     });
 
