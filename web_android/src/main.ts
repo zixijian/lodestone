@@ -431,8 +431,13 @@ async function init() {
       };
     };
 
-    loaded.assets.models['block/chest_left'] = createChestHalfModel(true, 'entity/chest/normal_left');
-    loaded.assets.models['block/chest_right'] = createChestHalfModel(false, 'entity/chest/normal_right');
+    if (loaded.assets.textures['entity/chest/normal']) {
+      loaded.assets.textures['entity/chest/normal_left'] = loaded.assets.textures['entity/chest/normal'];
+      loaded.assets.textures['entity/chest/normal_right'] = loaded.assets.textures['entity/chest/normal'];
+    }
+
+    loaded.assets.models['block/chest_left'] = createChestHalfModel(true, 'entity/chest/normal');
+    loaded.assets.models['block/chest_right'] = createChestHalfModel(false, 'entity/chest/normal');
 
     const createSingleChestModel = (texPath: string) => ({
       textures: { '0': texPath },
@@ -819,23 +824,34 @@ async function loadRegionAsync(
 
   let lastYield = performance.now();
 
+  const blocksPerLong = Math.floor(64 / bitsPerBlock);
+  const isPadded = blocksPerLong > 0 && numLongs >= Math.ceil(volume / blocksPerLong);
+
   for (let index = 0; index < volume; index++) {
     let paletteIndex = 0;
     if (numLongs > 0) {
-      const startBit = BigInt(index * bitsPerBlock);
-      const startLong = Number(startBit >> 6n);
-      const startBitOffset = startBit & 63n;
-      const endBit = BigInt((index + 1) * bitsPerBlock - 1);
-      const endLong = Number(endBit >> 6n);
+      if (isPadded) {
+        const longIndex = Math.floor(index / blocksPerLong);
+        const bitOffset = BigInt((index % blocksPerLong) * bitsPerBlock);
+        if (longIndex < numLongs) {
+          paletteIndex = Number((longArray[longIndex] >> bitOffset) & maskBig);
+        }
+      } else {
+        const startBit = BigInt(index * bitsPerBlock);
+        const startLong = Number(startBit >> 6n);
+        const startBitOffset = startBit & 63n;
+        const endBit = BigInt((index + 1) * bitsPerBlock - 1);
+        const endLong = Number(endBit >> 6n);
 
-      if (startLong < numLongs) {
-        if (startLong === endLong) {
-          paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
-        } else if (endLong < numLongs) {
-          const endOffset = 64n - startBitOffset;
-          paletteIndex = Number(
-            ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
-          );
+        if (startLong < numLongs) {
+          if (startLong === endLong) {
+            paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
+          } else if (endLong < numLongs) {
+            const endOffset = 64n - startBitOffset;
+            paletteIndex = Number(
+              ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
+            );
+          }
         }
       }
     }
