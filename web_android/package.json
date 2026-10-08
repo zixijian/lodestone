@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build && mkdir -p ../app/src/main/assets/web/default-pack && cp -r public/default-pack/* ../app/src/main/assets/web/default-pack/"
   },
   "dependencies": {
     "@mattzh72/lodestone": "^0.6.0",

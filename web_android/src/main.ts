@@ -121,6 +121,20 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
   };
 }
 
+// Override SpecialRenderers.getBlockMesh to allow double chests (left/right) to render via BlockDefinition
+if ((Lodestone as any).SpecialRenderers) {
+  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
+  if (typeof origGetBlockMesh === 'function') {
+    (Lodestone as any).SpecialRenderers.getBlockMesh = function (blockState: any, nbt: any, atlas: any, cull: any) {
+      const name = blockState.getName().toString();
+      if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+        return new Lodestone.Mesh();
+      }
+      return origGetBlockMesh.call(this, blockState, nbt, atlas, cull);
+    };
+  }
+}
+
 // Infinite View: override applyDrawDistance so chunks are never culled when zooming out
 ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   if ((this as any).chunkMeshes) {
@@ -230,10 +244,10 @@ async function init() {
 
     const [loaded, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
       loadDefaultPackResources({ baseUrl: packBaseUrl + `?cb=${cb}` }),
-      fetch(packBaseUrl + `block_flags/opaque.txt?cb=${cb}`).catch(() => null),
-      fetch(packBaseUrl + `block_flags/transparent.txt?cb=${cb}`).catch(() => null),
-      fetch(packBaseUrl + `block_flags/non_self_culling.txt?cb=${cb}`).catch(() => null),
-      fetch(packBaseUrl + `block_flags/emissive.json?cb=${cb}`).catch(() => null)
+      fetch(packBaseUrl + `block-flags/opaque.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/transparent.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/non-self-culling.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
@@ -281,6 +295,14 @@ async function init() {
     };
 
     const assets = loaded.assets;
+
+    // Map hanging sign texture keys so Lodestone's native hangingSignRenderer finds texture coordinates in atlas
+    const woodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'bamboo', 'crimson', 'warped'];
+    woodTypes.forEach(wood => {
+      if (assets.textures[`entity/signs/${wood}`]) {
+        assets.textures[`entity/signs/hanging/${wood}`] = assets.textures[`entity/signs/${wood}`];
+      }
+    });
 
     // Item Frame block models
     assets.models['block/item_frame'] = {
@@ -367,7 +389,6 @@ async function init() {
     assets.blockstates['trapped_chest'] = { variants: chestVariants };
 
     // Hanging Signs
-    const woodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'bamboo', 'crimson', 'warped'];
     woodTypes.forEach(wood => {
       const plankTex = `minecraft:block/${wood}_planks`;
       const signModelKey = `block/${wood}_hanging_sign`;
