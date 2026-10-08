@@ -310,13 +310,13 @@ async function init() {
       textures: {
         particle: 'minecraft:block/oak_planks',
         wood: 'minecraft:block/oak_planks',
-        map: 'minecraft:item/item_frame'
+        map: 'minecraft:block/birch_planks'
       },
       elements: [
         {
           from: [3, 3, 15], to: [13, 13, 16],
           faces: {
-            north: { texture: '#map', uv: [0, 0, 16, 16] },
+            north: { texture: '#map', uv: [3, 3, 13, 13] },
             south: { texture: '#wood', uv: [3, 3, 13, 13] },
             east: { texture: '#wood', uv: [15, 3, 16, 13] },
             west: { texture: '#wood', uv: [0, 3, 1, 13] },
@@ -339,34 +339,61 @@ async function init() {
     assets.blockstates['item_frame'] = { variants: itemFrameVariants };
     assets.blockstates['glow_item_frame'] = { variants: itemFrameVariants };
 
-    // Double Chest Models (Left & Right halves)
+    // Double Chest Models (Left & Right halves with latch)
     const registerChestModel = (name: string, tex: string, isLeft: boolean) => {
       const fromX = isLeft ? 0 : 1;
       const toX = isLeft ? 15 : 16;
+      const latchFromX = isLeft ? 0 : 15;
+      const latchToX = isLeft ? 1 : 16;
+
+      const bodyFaces: Record<string, any> = {
+        north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 8.25, isLeft ? 14.25 : 10.5, 12] },
+        south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 8.25, isLeft ? 7 : 3.5, 12] },
+        up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 7] },
+        down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 3.5, isLeft ? 10.5 : 7, 7] }
+      };
+      if (isLeft) {
+        bodyFaces.east = { texture: '#chest', uv: [3.5, 8.25, 7, 12] };
+      } else {
+        bodyFaces.west = { texture: '#chest', uv: [0, 8.25, 3.5, 12] };
+      }
+
+      const lidFaces: Record<string, any> = {
+        north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 3.5, isLeft ? 14.25 : 10.5, 4.75] },
+        south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 4.75] },
+        up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 0, isLeft ? 7 : 3.5, 3.5] },
+        down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 0, isLeft ? 10.5 : 7, 3.5] }
+      };
+      if (isLeft) {
+        lidFaces.east = { texture: '#chest', uv: [3.5, 3.5, 7, 4.75] };
+      } else {
+        lidFaces.west = { texture: '#chest', uv: [0, 3.5, 3.5, 4.75] };
+      }
+
       assets.models[name] = {
         parent: 'block/block',
         textures: { particle: tex, chest: tex },
         elements: [
+          // Base body
           {
             from: [fromX, 0, 1], to: [toX, 10, 15],
-            faces: {
-              north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 8.25, isLeft ? 14.25 : 10.5, 12] },
-              south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 8.25, isLeft ? 7 : 3.5, 12] },
-              west: { texture: '#chest', uv: [0, 8.25, 3.5, 12] },
-              east: { texture: '#chest', uv: [3.5, 8.25, 7, 12] },
-              up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 7] },
-              down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 3.5, isLeft ? 10.5 : 7, 7] }
-            }
+            faces: bodyFaces
           },
+          // Top lid
           {
             from: [fromX, 9, 0], to: [toX, 14, 15],
+            faces: lidFaces
+          },
+          // Latch
+          {
+            from: [latchFromX, 7, 0], to: [latchToX, 11, 1],
             faces: {
-              north: { texture: '#chest', uv: [isLeft ? 10.5 : 7, 3.5, isLeft ? 14.25 : 10.5, 4.75] },
-              south: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 3.5, isLeft ? 7 : 3.5, 4.75] },
-              west: { texture: '#chest', uv: [0, 3.5, 3.5, 4.75] },
-              east: { texture: '#chest', uv: [3.5, 3.5, 7, 4.75] },
-              up: { texture: '#chest', uv: [isLeft ? 3.5 : 0, 0, isLeft ? 7 : 3.5, 3.5] },
-              down: { texture: '#chest', uv: [isLeft ? 7 : 3.5, 0, isLeft ? 10.5 : 7, 3.5] }
+              north: { texture: '#chest', uv: [0.5, 0.25, 1, 1.25] },
+              south: { texture: '#chest', uv: [1.5, 0.25, 2, 1.25] },
+              west: { texture: '#chest', uv: [0, 0.25, 0.5, 1.25] },
+              east: { texture: '#chest', uv: [1, 0.25, 1.5, 1.25] },
+              up: { texture: '#chest', uv: [0.5, 0, 1, 0.25] },
+              down: { texture: '#chest', uv: [1, 0, 1.5, 0.25] }
             }
           }
         ]
