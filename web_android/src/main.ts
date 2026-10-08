@@ -286,18 +286,22 @@ function createChestMesh(type: string, isTrapped: boolean, facing: string, resou
   const model = new Lodestone.BlockModel(undefined, { '0': texPath }, elements);
   const mesh = model.getMesh(resources, {});
 
+  // 1. Scale voxel space (0..16) to block space (0..1) FIRST
   const t = mat4.create();
-  mat4.translate(t, t, [8, 8, 8]);
+  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+
+  // 2. Rotate around block center [0.5, 0.5, 0.5]
   let angleY = 0;
   if (facing === 'west') angleY = Math.PI * 0.5;
   else if (facing === 'south') angleY = Math.PI;
   else if (facing === 'east') angleY = Math.PI * 1.5;
-  mat4.rotateY(t, t, angleY);
-  mat4.translate(t, t, [-8, -8, -8]);
 
-  // Convert 0..16 voxel coordinates to 0..1 standard block coordinates
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+  const rot = mat4.create();
+  mat4.translate(rot, rot, [0.5, 0.5, 0.5]);
+  mat4.rotateY(rot, rot, angleY);
+  mat4.translate(rot, rot, [-0.5, -0.5, -0.5]);
 
+  mat4.multiply(t, rot, t);
   mesh.transform(t);
   return mesh;
 }
@@ -312,9 +316,11 @@ function createHangingSignMesh(name: string, props: any, resources: any) {
     }
   }
   const texKey = `block/${wood}_planks`;
+  const chainTex = 'block/chain';
   const isWall = name.includes('wall_hanging_sign');
 
   const elements: any[] = [
+    // Hanging Sign Board
     {
       from: [1, isWall ? 0 : 2, 7],
       to: [15, isWall ? 10 : 12, 9],
@@ -326,10 +332,33 @@ function createHangingSignMesh(name: string, props: any, resources: any) {
         up: { uv: [1, 7, 15, 9], texture: '#plank' },
         down: { uv: [1, 7, 15, 9], texture: '#plank' }
       }
+    },
+    // Left Hanging Chain
+    {
+      from: [3, 10, 7.5],
+      to: [5, 16, 8.5],
+      faces: {
+        north: { uv: [0, 0, 2, 6], texture: '#chain' },
+        south: { uv: [0, 0, 2, 6], texture: '#chain' },
+        east: { uv: [0, 0, 1, 6], texture: '#chain' },
+        west: { uv: [0, 0, 1, 6], texture: '#chain' }
+      }
+    },
+    // Right Hanging Chain
+    {
+      from: [11, 10, 7.5],
+      to: [13, 16, 8.5],
+      faces: {
+        north: { uv: [0, 0, 2, 6], texture: '#chain' },
+        south: { uv: [0, 0, 2, 6], texture: '#chain' },
+        east: { uv: [0, 0, 1, 6], texture: '#chain' },
+        west: { uv: [0, 0, 1, 6], texture: '#chain' }
+      }
     }
   ];
 
   if (isWall) {
+    // Top Horizontal Support Bar for Wall Hanging Signs
     elements.push({
       from: [0, 10, 6],
       to: [16, 12, 10],
@@ -344,28 +373,31 @@ function createHangingSignMesh(name: string, props: any, resources: any) {
     });
   }
 
-  const model = new Lodestone.BlockModel(undefined, { plank: texKey, particle: texKey }, elements);
+  const model = new Lodestone.BlockModel(undefined, { plank: texKey, chain: chainTex }, elements);
   const mesh = model.getMesh(resources, {});
 
+  // 1. Scale voxel space (0..16) to block space (0..1) FIRST
   const t = mat4.create();
-  mat4.translate(t, t, [8, 8, 8]);
+  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
 
+  // 2. Rotate around block center [0.5, 0.5, 0.5]
+  let angleY = 0;
   if (props.facing) {
     const facing = props.facing;
-    let angleY = 0;
     if (facing === 'west') angleY = Math.PI * 1.5;
     else if (facing === 'south') angleY = Math.PI;
     else if (facing === 'east') angleY = Math.PI * 0.5;
-    mat4.rotateY(t, t, angleY);
   } else if (props.rotation !== undefined) {
     const rot = parseInt(props.rotation) || 0;
-    mat4.rotateY(t, t, (rot / 16) * Math.PI * 2);
+    angleY = (rot / 16) * Math.PI * 2;
   }
 
-  mat4.translate(t, t, [-8, -8, -8]);
-  // Convert 0..16 voxel coordinates to 0..1 standard block coordinates
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+  const rot = mat4.create();
+  mat4.translate(rot, rot, [0.5, 0.5, 0.5]);
+  mat4.rotateY(rot, rot, angleY);
+  mat4.translate(rot, rot, [-0.5, -0.5, -0.5]);
 
+  mat4.multiply(t, rot, t);
   mesh.transform(t);
   return mesh;
 }
@@ -433,19 +465,23 @@ function createItemFrameMesh(name: string, facing: string, resources: any) {
   const model = new Lodestone.BlockModel(undefined, { back: woodTex, frame: frameTex }, elements);
   const mesh = model.getMesh(resources, {});
 
+  // 1. Scale voxel space (0..16) to block space (0..1) FIRST
   const t = mat4.create();
-  mat4.translate(t, t, [8, 8, 8]);
-
-  if (facing === 'south') mat4.rotateY(t, t, Math.PI);
-  else if (facing === 'west') mat4.rotateY(t, t, Math.PI * 1.5);
-  else if (facing === 'east') mat4.rotateY(t, t, Math.PI * 0.5);
-  else if (facing === 'up') mat4.rotateX(t, t, -Math.PI * 0.5);
-  else if (facing === 'down') mat4.rotateX(t, t, Math.PI * 0.5);
-
-  mat4.translate(t, t, [-8, -8, -8]);
-  // Convert 0..16 voxel coordinates to 0..1 standard block coordinates
   mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
 
+  // 2. Rotate around block center [0.5, 0.5, 0.5]
+  const rot = mat4.create();
+  mat4.translate(rot, rot, [0.5, 0.5, 0.5]);
+
+  if (facing === 'south') mat4.rotateY(rot, rot, Math.PI);
+  else if (facing === 'west') mat4.rotateY(rot, rot, Math.PI * 1.5);
+  else if (facing === 'east') mat4.rotateY(rot, rot, Math.PI * 0.5);
+  else if (facing === 'up') mat4.rotateX(rot, rot, -Math.PI * 0.5);
+  else if (facing === 'down') mat4.rotateX(rot, rot, Math.PI * 0.5);
+
+  mat4.translate(rot, rot, [-0.5, -0.5, -0.5]);
+
+  mat4.multiply(t, rot, t);
   mesh.transform(t);
   return mesh;
 }
@@ -463,6 +499,17 @@ if (Lodestone.ChunkBuilder) {
   };
 
   Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
+    const blockName = block.state.getName().toString();
+    if (
+      blockName === 'minecraft:chest' ||
+      blockName === 'minecraft:trapped_chest' ||
+      blockName.includes('hanging_sign') ||
+      blockName === 'minecraft:item_frame' ||
+      blockName === 'minecraft:glow_item_frame'
+    ) {
+      return false;
+    }
+
     const dirs = [
       Lodestone.Direction.UP, Lodestone.Direction.DOWN,
       Lodestone.Direction.NORTH, Lodestone.Direction.SOUTH,
@@ -485,7 +532,6 @@ if (Lodestone.ChunkBuilder) {
     const props = this.getBlockProps(block.state);
 
     if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-      if (this.isFullyOccluded(block)) return;
       const chunkPos = [
         Math.floor(block.pos[0] / this.chunkSize[0]),
         Math.floor(block.pos[1] / this.chunkSize[1]),
@@ -508,7 +554,6 @@ if (Lodestone.ChunkBuilder) {
     }
 
     if (name.includes('hanging_sign')) {
-      if (this.isFullyOccluded(block)) return;
       const chunkPos = [
         Math.floor(block.pos[0] / this.chunkSize[0]),
         Math.floor(block.pos[1] / this.chunkSize[1]),
@@ -527,7 +572,6 @@ if (Lodestone.ChunkBuilder) {
     }
 
     if (name === 'minecraft:item_frame' || name === 'minecraft:glow_item_frame') {
-      if (this.isFullyOccluded(block)) return;
       const chunkPos = [
         Math.floor(block.pos[0] / this.chunkSize[0]),
         Math.floor(block.pos[1] / this.chunkSize[1]),
