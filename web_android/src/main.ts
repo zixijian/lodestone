@@ -330,23 +330,65 @@ async function init() {
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest');
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
-      // Left half spans x: 1..16 (inner seam at 16), Right half spans x: 0..15 (inner seam at 0)
-      const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
-      const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
-      const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
-      const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
-      // Latch is at the center seam (x = 15..16 on left half, x = 0..1 on right half)
-      const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
-      const latchTo: [number, number, number] = isLeft ? [16, 11, 1] : [1, 11, 1];
+      // Left half spans x: 0..15 (seam at right 15..16), Right half spans x: 1..16 (seam at left 0..1)
+      const bodyFrom: [number, number, number] = isLeft ? [0, 0, 1] : [1, 0, 1];
+      const bodyTo: [number, number, number] = isLeft ? [15, 10, 15] : [16, 10, 15];
+      const lidFrom: [number, number, number] = isLeft ? [0, 10, 1] : [1, 10, 1];
+      const lidTo: [number, number, number] = isLeft ? [15, 14, 15] : [16, 14, 15];
+      // Latch at center seam: x=14..16 on left half, x=0..2 on right half
+      const latchFrom: [number, number, number] = isLeft ? [14, 7, 0] : [0, 7, 0];
+      const latchTo: [number, number, number] = isLeft ? [16, 11, 1] : [2, 11, 1];
 
-      const bodyNorthUv: [number, number, number, number] = isLeft ? [10.5, 8.25, 14.25, 10.75] : [7, 8.25, 10.75, 10.75];
-      const bodySouthUv: [number, number, number, number] = isLeft ? [3.5, 8.25, 7.25, 10.75] : [0, 8.25, 3.5, 10.75];
-      const bodyWestUv: [number, number, number, number] = isLeft ? [0, 8.25, 3.5, 10.75] : [10.5, 8.25, 14.25, 10.75];
-      const bodyEastUv: [number, number, number, number] = isLeft ? [7, 8.25, 10.5, 10.75] : [3.5, 8.25, 7, 10.75];
+      if (isLeft) {
+        // User custom geometry transformations for left chest half
+        return {
+          textures: { '0': texPath },
+          elements: [
+            {
+              from: bodyFrom,
+              to: bodyTo,
+              faces: {
+                // North: Front face
+                north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: '#0' },
+                // West: Left side face
+                west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+                // South: Back face mapped with side texture & 180 rot per spec
+                south: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
+                // East: Interior seam face - NOT rendered
+                // Top: Flat top face translated left and rotated 180 deg
+                up: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' },
+                // Down: Swapped bottom face
+                down: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' }
+              }
+            },
+            {
+              from: lidFrom,
+              to: lidTo,
+              faces: {
+                north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: '#0' },
+                west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+                south: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
+                up: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' },
+                down: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' }
+              }
+            },
+            {
+              from: latchFrom,
+              to: latchTo,
+              faces: {
+                north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+                east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+                south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+                west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+                up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+                down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
+              }
+            }
+          ]
+        };
+      }
 
-      const lidNorthUv: [number, number, number, number] = isLeft ? [10.5, 3.75, 14.25, 4.75] : [7, 3.75, 10.75, 4.75];
-      const lidSouthUv: [number, number, number, number] = isLeft ? [3.5, 3.75, 7.25, 4.75] : [0, 3.75, 3.5, 4.75];
-
+      // Right half
       return {
         textures: { '0': texPath },
         elements: [
@@ -354,11 +396,11 @@ async function init() {
             from: bodyFrom,
             to: bodyTo,
             faces: {
-              north: { uv: bodyNorthUv, rotation: 180, texture: '#0' },
-              east: { uv: bodyEastUv, rotation: 180, texture: '#0' },
-              south: { uv: bodySouthUv, rotation: 180, texture: '#0' },
-              west: { uv: bodyWestUv, rotation: 180, texture: '#0' },
-              up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
+              north: { uv: [7, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
+              east: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
+              south: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+              // West: Interior seam face - NOT rendered
+              up: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' },
               down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
             }
           },
@@ -366,11 +408,10 @@ async function init() {
             from: lidFrom,
             to: lidTo,
             faces: {
-              north: { uv: lidNorthUv, rotation: 180, texture: '#0' },
-              east: { uv: bodyEastUv, rotation: 180, texture: '#0' },
-              south: { uv: lidSouthUv, rotation: 180, texture: '#0' },
-              west: { uv: bodyWestUv, rotation: 180, texture: '#0' },
-              up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
+              north: { uv: [7, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' },
+              east: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
+              south: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+              up: { uv: [3.5, 0, 7, 3.5], texture: '#0' },
               down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
             }
           },
@@ -440,9 +481,43 @@ async function init() {
     // Ensure hanging sign textures resolve correctly in atlas
     const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
     woodTypes.forEach(w => {
-      if (loaded.assets.textures[`entity/signs/${w}`]) {
-        loaded.assets.textures[`entity/signs/hanging/${w}`] = loaded.assets.textures[`entity/signs/${w}`];
-      }
+      const texKey = `block/${w}_planks`;
+      const signModelKey = `block/${w}_hanging_sign`;
+
+      const hangingSignBlockState = {
+        variants: {
+          'facing=north': { model: signModelKey },
+          'facing=south': { model: signModelKey, y: 180 },
+          'facing=west': { model: signModelKey, y: 270 },
+          'facing=east': { model: signModelKey, y: 90 },
+          'rotation=0': { model: signModelKey },
+          'rotation=4': { model: signModelKey, y: 90 },
+          'rotation=8': { model: signModelKey, y: 180 },
+          'rotation=12': { model: signModelKey, y: 270 },
+          '': { model: signModelKey }
+        }
+      };
+
+      loaded.assets.blockstates[`${w}_hanging_sign`] = hangingSignBlockState;
+      loaded.assets.blockstates[`${w}_wall_hanging_sign`] = hangingSignBlockState;
+
+      loaded.assets.models[signModelKey] = {
+        textures: { particle: texKey, plank: texKey },
+        elements: [
+          {
+            from: [1, 2, 7],
+            to: [15, 12, 9],
+            faces: {
+              north: { uv: [1, 2, 15, 12], texture: '#plank' },
+              south: { uv: [1, 2, 15, 12], texture: '#plank' },
+              east: { uv: [7, 2, 9, 12], texture: '#plank' },
+              west: { uv: [7, 2, 9, 12], texture: '#plank' },
+              up: { uv: [1, 7, 15, 9], texture: '#plank' },
+              down: { uv: [1, 7, 15, 9], texture: '#plank' }
+            }
+          }
+        ]
+      };
     });
 
     // Custom blockstate for item frames across orientations
@@ -459,76 +534,81 @@ async function init() {
         'map=false,facing=west': { model: modelName, y: 270 },
         'map=false,facing=east': { model: modelName, y: 90 },
         'map=false,facing=up': { model: modelName, x: 270 },
-        'map=false,facing=down': { model: modelName, x: 90 }
+        'map=false,facing=down': { model: modelName, x: 90 },
+        'map=true,facing=north': { model: modelName },
+        'map=true,facing=south': { model: modelName, y: 180 },
+        'map=true,facing=west': { model: modelName, y: 270 },
+        'map=true,facing=east': { model: modelName, y: 90 },
+        'map=true,facing=up': { model: modelName, x: 270 },
+        'map=true,facing=down': { model: modelName, x: 90 }
       }
     });
 
     loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
     loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
 
-    const createItemFrameModel = (backTex: string) => ({
+    const createItemFrameModel = () => ({
       textures: {
-        back: backTex,
         wood: 'block/birch_planks'
       },
       elements: [
         {
-          from: [3, 3, 15.5],
+          from: [3, 3, 15],
           to: [13, 13, 16],
           faces: {
-            north: { uv: [3, 3, 13, 13], texture: '#back' },
-            south: { uv: [3, 3, 13, 13], texture: '#back' }
+            north: { uv: [3, 3, 13, 13], texture: '#wood' },
+            south: { uv: [3, 3, 13, 13], texture: '#wood' }
           }
         },
         {
-          from: [2, 2, 15],
+          from: [2, 2, 14],
           to: [14, 3, 16],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
-            up: { uv: [2, 15, 14, 16], texture: '#wood' },
-            down: { uv: [2, 0, 14, 1], texture: '#wood' },
-            east: { uv: [0, 13, 1, 14], texture: '#wood' },
-            west: { uv: [15, 13, 16, 14], texture: '#wood' }
+            up: { uv: [2, 14, 14, 16], texture: '#wood' },
+            down: { uv: [2, 0, 14, 2], texture: '#wood' },
+            east: { uv: [0, 13, 2, 14], texture: '#wood' },
+            west: { uv: [14, 13, 16, 14], texture: '#wood' }
           }
         },
         {
-          from: [2, 13, 15],
+          from: [2, 13, 14],
           to: [14, 14, 16],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
-            up: { uv: [2, 15, 14, 16], texture: '#wood' },
-            down: { uv: [2, 0, 14, 1], texture: '#wood' },
-            east: { uv: [0, 2, 1, 3], texture: '#wood' },
-            west: { uv: [15, 2, 16, 3], texture: '#wood' }
+            up: { uv: [2, 14, 14, 16], texture: '#wood' },
+            down: { uv: [2, 0, 14, 2], texture: '#wood' },
+            east: { uv: [0, 2, 2, 3], texture: '#wood' },
+            west: { uv: [14, 2, 16, 3], texture: '#wood' }
           }
         },
         {
-          from: [2, 3, 15],
+          from: [2, 3, 14],
           to: [3, 13, 16],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
-            east: { uv: [0, 3, 1, 13], texture: '#wood' },
-            west: { uv: [15, 3, 16, 13], texture: '#wood' }
+            east: { uv: [0, 3, 2, 13], texture: '#wood' },
+            west: { uv: [14, 3, 16, 13], texture: '#wood' }
           }
         },
         {
-          from: [13, 3, 15],
+          from: [13, 3, 14],
           to: [14, 13, 16],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
-            east: { uv: [0, 3, 1, 13], texture: '#wood' },
-            west: { uv: [15, 3, 16, 13], texture: '#wood' }
+            east: { uv: [0, 3, 2, 13], texture: '#wood' },
+            west: { uv: [14, 3, 16, 13], texture: '#wood' }
           }
         }
       ]
     });
 
-    loaded.assets.models['block/item_frame'] = createItemFrameModel('block/item_frame');
-    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel('block/glow_item_frame');
+    loaded.assets.models['block/item_frame'] = createItemFrameModel();
+    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
 
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
@@ -689,17 +769,41 @@ async function loadRegionAsync(
   const blockStatesNbt = regionCompound.has('BlockStates')
     ? regionCompound.getLongArray('BlockStates')
     : null;
-  const items = blockStatesNbt ? blockStatesNbt.getItems() : [];
-  const numLongs = items.length;
-  const longArray = new BigUint64Array(numLongs);
-  for (let i = 0; i < numLongs; i++) {
-    const pair = items[i].getAsPair(); // [high32, low32]
-    const high = BigInt(pair[0] >>> 0);
-    const low = BigInt(pair[1] >>> 0);
-    longArray[i] = (high << 32n) | low;
+
+  let numLongs = 0;
+  let longArray = new BigUint64Array(0);
+
+  if (blockStatesNbt) {
+    if (typeof blockStatesNbt.getItems === 'function') {
+      const items = blockStatesNbt.getItems();
+      numLongs = items.length;
+      longArray = new BigUint64Array(numLongs);
+      for (let i = 0; i < numLongs; i++) {
+        const item = items[i];
+        if (item && typeof item.getAsPair === 'function') {
+          const pair = item.getAsPair(); // [high32, low32]
+          const high = BigInt(pair[0] >>> 0);
+          const low = BigInt(pair[1] >>> 0);
+          longArray[i] = (high << 32n) | low;
+        } else if (item && typeof item.value === 'bigint') {
+          longArray[i] = BigInt(item.value);
+        } else if (Array.isArray(item)) {
+          const high = BigInt((item[0] ?? 0) >>> 0);
+          const low = BigInt((item[1] ?? 0) >>> 0);
+          longArray[i] = (high << 32n) | low;
+        }
+      }
+    } else if (Array.isArray((blockStatesNbt as any).value)) {
+      const arr = (blockStatesNbt as any).value;
+      numLongs = arr.length;
+      longArray = new BigUint64Array(numLongs);
+      for (let i = 0; i < numLongs; i++) {
+        longArray[i] = BigInt(arr[i]);
+      }
+    }
   }
 
-  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
+  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
   const maskBig = (1n << BigInt(bitsPerBlock)) - 1n;
 
   const width = size[0];
