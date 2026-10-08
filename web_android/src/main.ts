@@ -986,6 +986,16 @@ async function init() {
       flags
     });
 
+    // Alias all texture keys in atlas to include minecraft: namespace prefix for BlockModel lookup compatibility
+    if (currentResources && currentResources.textures) {
+      const texMap = currentResources.textures;
+      Object.keys(texMap).forEach(key => {
+        if (!key.startsWith('minecraft:')) {
+          texMap['minecraft:' + key] = texMap[key];
+        }
+      });
+    }
+
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
     }
@@ -1164,34 +1174,23 @@ async function loadRegionAsync(
 
   let lastYield = performance.now();
 
-  const blocksPerLong = Math.floor(64 / bitsPerBlock);
-  const isPadded = blocksPerLong > 0 && numLongs >= Math.ceil(volume / blocksPerLong);
-
   for (let index = 0; index < volume; index++) {
     let paletteIndex = 0;
     if (numLongs > 0) {
-      if (isPadded) {
-        const longIndex = Math.floor(index / blocksPerLong);
-        const bitOffset = BigInt((index % blocksPerLong) * bitsPerBlock);
-        if (longIndex < numLongs) {
-          paletteIndex = Number((longArray[longIndex] >> bitOffset) & maskBig);
-        }
-      } else {
-        const startBit = BigInt(index * bitsPerBlock);
-        const startLong = Number(startBit >> 6n);
-        const startBitOffset = startBit & 63n;
-        const endBit = BigInt((index + 1) * bitsPerBlock - 1);
-        const endLong = Number(endBit >> 6n);
+      const startBit = BigInt(index * bitsPerBlock);
+      const startLong = Number(startBit >> 6n);
+      const startBitOffset = startBit & 63n;
+      const endBit = BigInt((index + 1) * bitsPerBlock - 1);
+      const endLong = Number(endBit >> 6n);
 
-        if (startLong < numLongs) {
-          if (startLong === endLong) {
-            paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
-          } else if (endLong < numLongs) {
-            const endOffset = 64n - startBitOffset;
-            paletteIndex = Number(
-              ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
-            );
-          }
+      if (startLong < numLongs) {
+        if (startLong === endLong) {
+          paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
+        } else if (endLong < numLongs) {
+          const endOffset = 64n - startBitOffset;
+          paletteIndex = Number(
+            ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
+          );
         }
       }
     }
