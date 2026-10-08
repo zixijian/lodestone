@@ -160,7 +160,12 @@ const isNonFullBlock = (name: string) => {
 };
 
 function createChestMesh(type: string, isTrapped: boolean, facing: string, resources: any) {
-  const texPath = isTrapped ? 'entity/chest/trapped' : 'entity/chest/normal';
+  let texPath = isTrapped ? 'entity/chest/trapped' : 'entity/chest/normal';
+  if (type === 'left') {
+    texPath = isTrapped ? 'entity/chest/trapped_left' : 'entity/chest/normal_left';
+  } else if (type === 'right') {
+    texPath = isTrapped ? 'entity/chest/trapped_right' : 'entity/chest/normal_right';
+  }
 
   let elements: any[] = [];
   if (type === 'left') {
@@ -290,6 +295,9 @@ function createChestMesh(type: string, isTrapped: boolean, facing: string, resou
   mat4.rotateY(t, t, angleY);
   mat4.translate(t, t, [-8, -8, -8]);
 
+  // Convert 0..16 voxel coordinates to 0..1 standard block coordinates
+  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+
   mesh.transform(t);
   return mesh;
 }
@@ -355,68 +363,74 @@ function createHangingSignMesh(name: string, props: any, resources: any) {
   }
 
   mat4.translate(t, t, [-8, -8, -8]);
+  // Convert 0..16 voxel coordinates to 0..1 standard block coordinates
+  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+
   mesh.transform(t);
   return mesh;
 }
 
-function createItemFrameMesh(facing: string, resources: any) {
-  const texKey = 'block/birch_planks';
+function createItemFrameMesh(name: string, facing: string, resources: any) {
+  const isGlow = name.includes('glow');
+  const frameTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
+  const woodTex = 'block/birch_planks';
+
   const elements = [
     {
       from: [3, 3, 15],
       to: [13, 13, 16],
       faces: {
-        north: { uv: [3, 3, 13, 13], texture: '#wood' },
-        south: { uv: [3, 3, 13, 13], texture: '#wood' }
+        north: { uv: [3, 3, 13, 13], texture: '#frame' },
+        south: { uv: [3, 3, 13, 13], texture: '#back' }
       }
     },
     {
       from: [2, 2, 14],
       to: [14, 3, 16],
       faces: {
-        north: { uv: [2, 13, 14, 14], texture: '#wood' },
-        south: { uv: [2, 13, 14, 14], texture: '#wood' },
-        up: { uv: [2, 14, 14, 16], texture: '#wood' },
-        down: { uv: [2, 0, 14, 2], texture: '#wood' },
-        east: { uv: [0, 13, 2, 14], texture: '#wood' },
-        west: { uv: [14, 13, 16, 14], texture: '#wood' }
+        north: { uv: [2, 13, 14, 14], texture: '#back' },
+        south: { uv: [2, 13, 14, 14], texture: '#back' },
+        up: { uv: [2, 14, 14, 16], texture: '#back' },
+        down: { uv: [2, 0, 14, 2], texture: '#back' },
+        east: { uv: [0, 13, 2, 14], texture: '#back' },
+        west: { uv: [14, 13, 16, 14], texture: '#back' }
       }
     },
     {
       from: [2, 13, 14],
       to: [14, 14, 16],
       faces: {
-        north: { uv: [2, 2, 14, 3], texture: '#wood' },
-        south: { uv: [2, 2, 14, 3], texture: '#wood' },
-        up: { uv: [2, 14, 14, 16], texture: '#wood' },
-        down: { uv: [2, 0, 14, 2], texture: '#wood' },
-        east: { uv: [0, 2, 2, 3], texture: '#wood' },
-        west: { uv: [14, 2, 16, 3], texture: '#wood' }
+        north: { uv: [2, 2, 14, 3], texture: '#back' },
+        south: { uv: [2, 2, 14, 3], texture: '#back' },
+        up: { uv: [2, 14, 14, 16], texture: '#back' },
+        down: { uv: [2, 0, 14, 2], texture: '#back' },
+        east: { uv: [0, 2, 2, 3], texture: '#back' },
+        west: { uv: [14, 2, 16, 3], texture: '#back' }
       }
     },
     {
       from: [2, 3, 14],
       to: [3, 13, 16],
       faces: {
-        north: { uv: [13, 3, 14, 13], texture: '#wood' },
-        south: { uv: [2, 3, 3, 13], texture: '#wood' },
-        east: { uv: [0, 3, 2, 13], texture: '#wood' },
-        west: { uv: [14, 3, 16, 13], texture: '#wood' }
+        north: { uv: [13, 3, 14, 13], texture: '#back' },
+        south: { uv: [2, 3, 3, 13], texture: '#back' },
+        east: { uv: [0, 3, 2, 13], texture: '#back' },
+        west: { uv: [14, 3, 16, 13], texture: '#back' }
       }
     },
     {
       from: [13, 3, 14],
       to: [14, 13, 16],
       faces: {
-        north: { uv: [2, 3, 3, 13], texture: '#wood' },
-        south: { uv: [13, 3, 14, 13], texture: '#wood' },
-        east: { uv: [0, 3, 2, 13], texture: '#wood' },
-        west: { uv: [14, 3, 16, 13], texture: '#wood' }
+        north: { uv: [2, 3, 3, 13], texture: '#back' },
+        south: { uv: [13, 3, 14, 13], texture: '#back' },
+        east: { uv: [0, 3, 2, 13], texture: '#back' },
+        west: { uv: [14, 3, 16, 13], texture: '#back' }
       }
     }
   ];
 
-  const model = new Lodestone.BlockModel(undefined, { wood: texKey }, elements);
+  const model = new Lodestone.BlockModel(undefined, { back: woodTex, frame: frameTex }, elements);
   const mesh = model.getMesh(resources, {});
 
   const t = mat4.create();
@@ -429,6 +443,9 @@ function createItemFrameMesh(facing: string, resources: any) {
   else if (facing === 'down') mat4.rotateX(t, t, Math.PI * 0.5);
 
   mat4.translate(t, t, [-8, -8, -8]);
+  // Convert 0..16 voxel coordinates to 0..1 standard block coordinates
+  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+
   mesh.transform(t);
   return mesh;
 }
@@ -521,7 +538,7 @@ if (Lodestone.ChunkBuilder) {
       const chunk = this.getChunk(chunkPos);
 
       const facing = props.facing || 'north';
-      const mesh = createItemFrameMesh(facing, this.resources);
+      const mesh = createItemFrameMesh(name, facing, this.resources);
       if (!mesh.isEmpty()) {
         this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, key);
         chunk.mesh.merge(mesh);
