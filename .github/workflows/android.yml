@@ -52,14 +52,3 @@ jobs:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           compression-level: 0
-
-      - name: Release Direct APK Asset
-        uses: softprops/action-gh-release@v2
-        if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/heads/dev-') || startsWith(github.ref, 'refs/heads/jules-'))
-        with:
-          tag_name: build-${{ github.sha }}
-          name: "Lodestone Previewer Build (${{ github.sha }})"
-          body: "Direct uncompressed APK download available in Release Assets below."
-          files: app/build/outputs/apk/debug/app-debug.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

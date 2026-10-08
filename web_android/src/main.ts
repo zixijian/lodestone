@@ -159,6 +159,280 @@ const isNonFullBlock = (name: string) => {
   return nonFullKeywords.some(kw => lower.includes(kw));
 };
 
+function createChestMesh(type: string, isTrapped: boolean, facing: string, resources: any) {
+  const texPath = isTrapped ? 'entity/chest/trapped' : 'entity/chest/normal';
+
+  let elements: any[] = [];
+  if (type === 'left') {
+    // Left chest half: spans x=1..16 (outer wall at x=1, inner seam at x=16)
+    elements = [
+      {
+        from: [1, 0, 1],
+        to: [16, 10, 15],
+        faces: {
+          north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: '#0' },
+          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+          south: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
+          up: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' },
+          down: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' }
+        }
+      },
+      {
+        from: [1, 10, 1],
+        to: [16, 14, 15],
+        faces: {
+          north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: '#0' },
+          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+          south: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
+          up: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' },
+          down: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' }
+        }
+      },
+      {
+        from: [15, 7, 0],
+        to: [16, 11, 1],
+        faces: {
+          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+          west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
+        }
+      }
+    ];
+  } else if (type === 'right') {
+    // Right chest half: spans x=0..15 (inner seam at x=0, outer wall at x=15)
+    elements = [
+      {
+        from: [0, 0, 1],
+        to: [15, 10, 15],
+        faces: {
+          north: { uv: [7, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
+          east: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
+          south: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+          up: { uv: [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' },
+          down: { uv: [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' }
+        }
+      },
+      {
+        from: [0, 10, 1],
+        to: [15, 14, 15],
+        faces: {
+          north: { uv: [7, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' },
+          east: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
+          south: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+          up: { uv: [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' },
+          down: { uv: [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' }
+        }
+      },
+      {
+        from: [0, 7, 0],
+        to: [1, 11, 1],
+        faces: {
+          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
+        }
+      }
+    ];
+  } else {
+    elements = [
+      {
+        from: [1, 0, 1],
+        to: [15, 10, 15],
+        faces: {
+          north: { uv: [10.5, 8.25, 14, 10.75], rotation: 180, texture: '#0' },
+          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
+          south: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
+          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+          up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
+          down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
+        }
+      },
+      {
+        from: [1, 10, 1],
+        to: [15, 14, 15],
+        faces: {
+          north: { uv: [10.5, 3.75, 14, 4.75], rotation: 180, texture: '#0' },
+          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
+          south: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
+          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+          up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
+          down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
+        }
+      },
+      {
+        from: [7, 7, 0],
+        to: [9, 11, 2],
+        faces: {
+          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+          west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
+        }
+      }
+    ];
+  }
+
+  const model = new Lodestone.BlockModel(undefined, { '0': texPath }, elements);
+  const mesh = model.getMesh(resources, {});
+
+  const t = mat4.create();
+  mat4.translate(t, t, [8, 8, 8]);
+  let angleY = 0;
+  if (facing === 'west') angleY = Math.PI * 0.5;
+  else if (facing === 'south') angleY = Math.PI;
+  else if (facing === 'east') angleY = Math.PI * 1.5;
+  mat4.rotateY(t, t, angleY);
+  mat4.translate(t, t, [-8, -8, -8]);
+
+  mesh.transform(t);
+  return mesh;
+}
+
+function createHangingSignMesh(name: string, props: any, resources: any) {
+  let wood = 'oak';
+  const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+  for (const w of woodTypes) {
+    if (name.includes(w)) {
+      wood = w;
+      break;
+    }
+  }
+  const texKey = `block/${wood}_planks`;
+  const isWall = name.includes('wall_hanging_sign');
+
+  const elements: any[] = [
+    {
+      from: [1, isWall ? 0 : 2, 7],
+      to: [15, isWall ? 10 : 12, 9],
+      faces: {
+        north: { uv: [1, 2, 15, 12], texture: '#plank' },
+        south: { uv: [1, 2, 15, 12], texture: '#plank' },
+        east: { uv: [7, 2, 9, 12], texture: '#plank' },
+        west: { uv: [7, 2, 9, 12], texture: '#plank' },
+        up: { uv: [1, 7, 15, 9], texture: '#plank' },
+        down: { uv: [1, 7, 15, 9], texture: '#plank' }
+      }
+    }
+  ];
+
+  if (isWall) {
+    elements.push({
+      from: [0, 10, 6],
+      to: [16, 12, 10],
+      faces: {
+        north: { uv: [0, 10, 16, 12], texture: '#plank' },
+        south: { uv: [0, 10, 16, 12], texture: '#plank' },
+        east: { uv: [6, 10, 10, 12], texture: '#plank' },
+        west: { uv: [6, 10, 10, 12], texture: '#plank' },
+        up: { uv: [0, 6, 16, 10], texture: '#plank' },
+        down: { uv: [0, 6, 16, 10], texture: '#plank' }
+      }
+    });
+  }
+
+  const model = new Lodestone.BlockModel(undefined, { plank: texKey, particle: texKey }, elements);
+  const mesh = model.getMesh(resources, {});
+
+  const t = mat4.create();
+  mat4.translate(t, t, [8, 8, 8]);
+
+  if (props.facing) {
+    const facing = props.facing;
+    let angleY = 0;
+    if (facing === 'west') angleY = Math.PI * 1.5;
+    else if (facing === 'south') angleY = Math.PI;
+    else if (facing === 'east') angleY = Math.PI * 0.5;
+    mat4.rotateY(t, t, angleY);
+  } else if (props.rotation !== undefined) {
+    const rot = parseInt(props.rotation) || 0;
+    mat4.rotateY(t, t, (rot / 16) * Math.PI * 2);
+  }
+
+  mat4.translate(t, t, [-8, -8, -8]);
+  mesh.transform(t);
+  return mesh;
+}
+
+function createItemFrameMesh(facing: string, resources: any) {
+  const texKey = 'block/birch_planks';
+  const elements = [
+    {
+      from: [3, 3, 15],
+      to: [13, 13, 16],
+      faces: {
+        north: { uv: [3, 3, 13, 13], texture: '#wood' },
+        south: { uv: [3, 3, 13, 13], texture: '#wood' }
+      }
+    },
+    {
+      from: [2, 2, 14],
+      to: [14, 3, 16],
+      faces: {
+        north: { uv: [2, 13, 14, 14], texture: '#wood' },
+        south: { uv: [2, 13, 14, 14], texture: '#wood' },
+        up: { uv: [2, 14, 14, 16], texture: '#wood' },
+        down: { uv: [2, 0, 14, 2], texture: '#wood' },
+        east: { uv: [0, 13, 2, 14], texture: '#wood' },
+        west: { uv: [14, 13, 16, 14], texture: '#wood' }
+      }
+    },
+    {
+      from: [2, 13, 14],
+      to: [14, 14, 16],
+      faces: {
+        north: { uv: [2, 2, 14, 3], texture: '#wood' },
+        south: { uv: [2, 2, 14, 3], texture: '#wood' },
+        up: { uv: [2, 14, 14, 16], texture: '#wood' },
+        down: { uv: [2, 0, 14, 2], texture: '#wood' },
+        east: { uv: [0, 2, 2, 3], texture: '#wood' },
+        west: { uv: [14, 2, 16, 3], texture: '#wood' }
+      }
+    },
+    {
+      from: [2, 3, 14],
+      to: [3, 13, 16],
+      faces: {
+        north: { uv: [13, 3, 14, 13], texture: '#wood' },
+        south: { uv: [2, 3, 3, 13], texture: '#wood' },
+        east: { uv: [0, 3, 2, 13], texture: '#wood' },
+        west: { uv: [14, 3, 16, 13], texture: '#wood' }
+      }
+    },
+    {
+      from: [13, 3, 14],
+      to: [14, 13, 16],
+      faces: {
+        north: { uv: [2, 3, 3, 13], texture: '#wood' },
+        south: { uv: [13, 3, 14, 13], texture: '#wood' },
+        east: { uv: [0, 3, 2, 13], texture: '#wood' },
+        west: { uv: [14, 3, 16, 13], texture: '#wood' }
+      }
+    }
+  ];
+
+  const model = new Lodestone.BlockModel(undefined, { wood: texKey }, elements);
+  const mesh = model.getMesh(resources, {});
+
+  const t = mat4.create();
+  mat4.translate(t, t, [8, 8, 8]);
+
+  if (facing === 'south') mat4.rotateY(t, t, Math.PI);
+  else if (facing === 'west') mat4.rotateY(t, t, Math.PI * 1.5);
+  else if (facing === 'east') mat4.rotateY(t, t, Math.PI * 0.5);
+  else if (facing === 'up') mat4.rotateX(t, t, -Math.PI * 0.5);
+  else if (facing === 'down') mat4.rotateX(t, t, Math.PI * 0.5);
+
+  mat4.translate(t, t, [-8, -8, -8]);
+  mesh.transform(t);
+  return mesh;
+}
+
 // Comprehensive Face Culling & Special Block Processing
 if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.needsCull = function (block: any, dir: any) {
@@ -186,6 +460,76 @@ if (Lodestone.ChunkBuilder) {
       if (!flags?.opaque) return false;
     }
     return true;
+  };
+
+  const origProcessBlock = Lodestone.ChunkBuilder.prototype.processBlock;
+  Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
+    const name = block.state.getName().toString();
+    const props = this.getBlockProps(block.state);
+
+    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+      if (this.isFullyOccluded(block)) return;
+      const chunkPos = [
+        Math.floor(block.pos[0] / this.chunkSize[0]),
+        Math.floor(block.pos[1] / this.chunkSize[1]),
+        Math.floor(block.pos[2] / this.chunkSize[2])
+      ];
+      const key = this.chunkKey(chunkPos);
+      if (chunkFilter && !chunkFilter.has(key)) return;
+      const chunk = this.getChunk(chunkPos);
+
+      const type = props.type || 'single';
+      const facing = props.facing || 'south';
+      const isTrapped = name === 'minecraft:trapped_chest';
+      const mesh = createChestMesh(type, isTrapped, facing, this.resources);
+
+      if (!mesh.isEmpty()) {
+        this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, key);
+        chunk.mesh.merge(mesh);
+      }
+      return;
+    }
+
+    if (name.includes('hanging_sign')) {
+      if (this.isFullyOccluded(block)) return;
+      const chunkPos = [
+        Math.floor(block.pos[0] / this.chunkSize[0]),
+        Math.floor(block.pos[1] / this.chunkSize[1]),
+        Math.floor(block.pos[2] / this.chunkSize[2])
+      ];
+      const key = this.chunkKey(chunkPos);
+      if (chunkFilter && !chunkFilter.has(key)) return;
+      const chunk = this.getChunk(chunkPos);
+
+      const mesh = createHangingSignMesh(name, props, this.resources);
+      if (!mesh.isEmpty()) {
+        this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, key);
+        chunk.mesh.merge(mesh);
+      }
+      return;
+    }
+
+    if (name === 'minecraft:item_frame' || name === 'minecraft:glow_item_frame') {
+      if (this.isFullyOccluded(block)) return;
+      const chunkPos = [
+        Math.floor(block.pos[0] / this.chunkSize[0]),
+        Math.floor(block.pos[1] / this.chunkSize[1]),
+        Math.floor(block.pos[2] / this.chunkSize[2])
+      ];
+      const key = this.chunkKey(chunkPos);
+      if (chunkFilter && !chunkFilter.has(key)) return;
+      const chunk = this.getChunk(chunkPos);
+
+      const facing = props.facing || 'north';
+      const mesh = createItemFrameMesh(facing, this.resources);
+      if (!mesh.isEmpty()) {
+        this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, key);
+        chunk.mesh.merge(mesh);
+      }
+      return;
+    }
+
+    return origProcessBlock.call(this, block, chunkFilter);
   };
 }
 
