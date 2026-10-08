@@ -196,6 +196,11 @@ class PreviewActivity : AppCompatActivity() {
         binding.webviewRenderer.evaluateJavascript("if(window.stopRenderLoop) window.stopRenderLoop();", null)
     }
 
+    override fun onResume() {
+        super.onResume()
+        binding.webviewRenderer.evaluateJavascript("if(window.startRenderLoop) window.startRenderLoop();", null)
+    }
+
     override fun onDestroy() {
         binding.webviewRenderer.evaluateJavascript("if(window.destroyRenderer) window.destroyRenderer();", null)
         binding.webviewRenderer.loadUrl("about:blank")

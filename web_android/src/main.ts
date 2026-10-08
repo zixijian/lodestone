@@ -25,6 +25,7 @@ declare global {
     resetCamera(): void;
     switchRegion(regionName: string): void;
     toggleDayNight(): boolean;
+    startRenderLoop(): void;
     stopRenderLoop(): void;
     destroyRenderer(): void;
   }
@@ -122,19 +123,6 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
   };
 }
 
-// Override SpecialRenderers.getBlockMesh to return empty mesh for chest and let ChunkBuilder handle chest meshes completely
-if ((Lodestone as any).SpecialRenderers) {
-  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
-  if (typeof origGetBlockMesh === 'function') {
-    (Lodestone as any).SpecialRenderers.getBlockMesh = function (blockState: any, nbt: any, atlas: any, cull: any) {
-      const name = blockState.getName().toString();
-      if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-        return new Lodestone.Mesh();
-      }
-      return origGetBlockMesh.call(this, blockState, nbt, atlas, cull);
-    };
-  }
-}
 
 // Non-full blocks that MUST NOT cull adjacent faces
 const nonFullKeywords = [
@@ -158,12 +146,10 @@ const isNonFullBlock = (name: string) => {
 
 // Helper to transform a 0..16 voxel mesh into 0..1 block space with rotation around center [0.5, 0.5, 0.5]
 function transformBlockMesh(mesh: any, rotYRad: number = 0, rotXRad: number = 0) {
-  // First, scale 0..16 voxel coordinates to 0..1 block coordinates
   const scaleMat = mat4.create();
   mat4.scale(scaleMat, scaleMat, [0.0625, 0.0625, 0.0625]);
   mesh.transform(scaleMat);
 
-  // Then apply rotation around center [0.5, 0.5, 0.5] in 0..1 block space
   if (rotYRad !== 0 || rotXRad !== 0) {
     const rotMat = mat4.create();
     mat4.translate(rotMat, rotMat, [0.5, 0.5, 0.5]);
@@ -174,111 +160,7 @@ function transformBlockMesh(mesh: any, rotYRad: number = 0, rotXRad: number = 0)
   }
 }
 
-// Procedural 3D Chest Generator (Single, Left Half, Right Half with Latch)
-function createChestMesh(type: string, facing: string, isTrapped: boolean, atlas: any): any {
-  const texName = isTrapped
-    ? (type === 'left' ? 'entity/chest/trapped_left' : type === 'right' ? 'entity/chest/trapped_right' : 'entity/chest/trapped')
-    : (type === 'left' ? 'entity/chest/normal_left' : type === 'right' ? 'entity/chest/normal_right' : 'entity/chest/normal');
-
-  const isLeft = type === 'left';
-  const isRight = type === 'right';
-  const isSingle = !isLeft && !isRight;
-
-  let elements: any[] = [];
-  if (isSingle) {
-    elements = [
-      {
-        from: [1, 0, 1], to: [15, 10, 15],
-        faces: {
-          north: { uv: [10.5, 8.25, 14, 10.75], rotation: 180, texture: '#0' },
-          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
-          south: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-          up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
-          down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' },
-        }
-      },
-      {
-        from: [1, 10, 1], to: [15, 14, 15],
-        faces: {
-          north: { uv: [10.5, 3.75, 14, 4.75], rotation: 180, texture: '#0' },
-          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
-          south: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-          up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
-          down: { uv: [3.5, 0, 7, 3.5], texture: '#0' },
-        }
-      },
-      {
-        from: [7, 7, 0], to: [9, 11, 2],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-          west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' },
-        }
-      }
-    ];
-  } else {
-    const fromX = isLeft ? 0 : 1;
-    const toX = isLeft ? 15 : 16;
-    const latchFromX = isLeft ? 0 : 15;
-    const latchToX = isLeft ? 1 : 16;
-
-    const bodyFaces: any = {
-      north: { uv: isLeft ? [10.5, 8.25, 14.25, 10.75] : [7, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
-      south: { uv: isLeft ? [3.5, 8.25, 7.25, 10.75] : [0, 8.25, 3.75, 10.75], rotation: 180, texture: '#0' },
-      up: { uv: isLeft ? [3.5, 3.5, 7.25, 7] : [0, 3.5, 3.75, 7], texture: '#0' },
-      down: { uv: isLeft ? [7.25, 3.5, 11, 7] : [3.75, 3.5, 7.5, 7], texture: '#0' },
-    };
-    if (isLeft) {
-      bodyFaces.east = { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' };
-    } else {
-      bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-    }
-
-    const lidFaces: any = {
-      north: { uv: isLeft ? [10.5, 3.75, 14.25, 4.75] : [7, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' },
-      south: { uv: isLeft ? [3.5, 3.75, 7.25, 4.75] : [0, 3.75, 3.75, 4.75], rotation: 180, texture: '#0' },
-      up: { uv: isLeft ? [3.5, 0, 7.25, 3.5] : [0, 0, 3.75, 3.5], texture: '#0' },
-      down: { uv: isLeft ? [7.25, 0, 11, 3.5] : [3.75, 0, 7.5, 3.5], texture: '#0' },
-    };
-    if (isLeft) {
-      lidFaces.east = { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' };
-    } else {
-      lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-    }
-
-    elements = [
-      { from: [fromX, 0, 1], to: [toX, 10, 15], faces: bodyFaces },
-      { from: [fromX, 10, 1], to: [toX, 14, 15], faces: lidFaces },
-      {
-        from: [latchFromX, 7, 0], to: [latchToX, 11, 1],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-          west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' },
-        }
-      }
-    ];
-  }
-
-  const model = new Lodestone.BlockModel(undefined, { 0: texName }, elements);
-  const mesh = model.getMesh(atlas, {});
-
-  // Default chest faces North (-Z, latch at z=0..2)
-  const rad = facing === 'east' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'west' ? Math.PI * 3 / 2 : 0;
-  transformBlockMesh(mesh, rad, 0);
-
-  return mesh;
-}
-
-// Procedural Item Frame Builder
+// Procedural Item Frame Builder with slight depth offset
 function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
   const backTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
   const model = new Lodestone.BlockModel(undefined, {
@@ -287,7 +169,7 @@ function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
   }, [
     // Backing plate
     {
-      from: [3, 3, 15.5], to: [13, 13, 16],
+      from: [3, 3, 15.01], to: [13, 13, 15.51],
       faces: {
         north: { texture: '#back', uv: [3, 3, 13, 13] },
         south: { texture: '#back', uv: [3, 3, 13, 13] }
@@ -295,7 +177,7 @@ function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
     },
     // Wooden borders
     {
-      from: [2, 2, 15], to: [14, 3, 16],
+      from: [2, 2, 14.5], to: [14, 3, 15.5],
       faces: {
         north: { texture: '#wood', uv: [2, 13, 14, 14] },
         south: { texture: '#wood', uv: [2, 13, 14, 14] },
@@ -306,7 +188,7 @@ function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
       }
     },
     {
-      from: [2, 13, 15], to: [14, 14, 16],
+      from: [2, 13, 14.5], to: [14, 14, 15.5],
       faces: {
         north: { texture: '#wood', uv: [2, 2, 14, 3] },
         south: { texture: '#wood', uv: [2, 2, 14, 3] },
@@ -317,7 +199,7 @@ function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
       }
     },
     {
-      from: [2, 3, 15], to: [3, 13, 16],
+      from: [2, 3, 14.5], to: [3, 13, 15.5],
       faces: {
         north: { texture: '#wood', uv: [13, 3, 14, 13] },
         south: { texture: '#wood', uv: [2, 3, 3, 13] },
@@ -326,7 +208,7 @@ function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
       }
     },
     {
-      from: [13, 3, 15], to: [14, 13, 16],
+      from: [13, 3, 14.5], to: [14, 13, 15.5],
       faces: {
         north: { texture: '#wood', uv: [2, 3, 3, 13] },
         south: { texture: '#wood', uv: [13, 3, 14, 13] },
@@ -337,7 +219,6 @@ function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
   ]);
   const mesh = model.getMesh(atlas, {});
 
-  // Default item frame element is at z=15..16 facing South (+Z)
   let rotY = 0;
   let rotX = 0;
   if (facing === 'north') rotY = Math.PI;
@@ -351,11 +232,11 @@ function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
   return mesh;
 }
 
-// Procedural Hanging Sign Builder
+// Procedural Hanging Sign Builder with matching top/bottom wood textures and 3D chains
 function createHangingSignMesh(wood: string, rotation: number, facing: string, atlas: any): any {
   const plankTex = `block/${wood}_planks`;
   const model = new Lodestone.BlockModel(undefined, { board: plankTex }, [
-    // Board
+    // Board (top, bottom, north, south, east, west with matching wood plank texture)
     {
       from: [1, 0, 7], to: [15, 10, 9],
       faces: {
@@ -367,19 +248,24 @@ function createHangingSignMesh(wood: string, rotation: number, facing: string, a
         down: { texture: '#board', uv: [1, 7, 15, 9] }
       }
     },
-    // Chains
+    // Left Chain (with 3D thickness so visible from all sides)
     {
-      from: [3, 10, 8], to: [5, 16, 8],
+      from: [3, 10, 7.5], to: [5, 16, 8.5],
       faces: {
         north: { texture: '#board', uv: [3, 0, 5, 6] },
-        south: { texture: '#board', uv: [3, 0, 5, 6] }
+        south: { texture: '#board', uv: [3, 0, 5, 6] },
+        east: { texture: '#board', uv: [7.5, 0, 8.5, 6] },
+        west: { texture: '#board', uv: [7.5, 0, 8.5, 6] }
       }
     },
+    // Right Chain
     {
-      from: [11, 10, 8], to: [13, 16, 8],
+      from: [11, 10, 7.5], to: [13, 16, 8.5],
       faces: {
         north: { texture: '#board', uv: [11, 0, 13, 6] },
-        south: { texture: '#board', uv: [11, 0, 13, 6] }
+        south: { texture: '#board', uv: [11, 0, 13, 6] },
+        east: { texture: '#board', uv: [7.5, 0, 8.5, 6] },
+        west: { texture: '#board', uv: [7.5, 0, 8.5, 6] }
       }
     }
   ]);
@@ -429,33 +315,6 @@ if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
     const name = block?.state?.getName?.()?.toString();
     const props = this.getBlockProps(block.state);
-
-    // Process Double Chests / Chests directly
-    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-      const type = props.type || 'single';
-      const facing = props.facing || 'north';
-      const isTrapped = name === 'minecraft:trapped_chest';
-
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2]),
-      ];
-      const chunkKey = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      try {
-        const mesh = createChestMesh(type, facing, isTrapped, this.resources);
-        if (mesh && !mesh.isEmpty()) {
-          this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, chunkKey);
-          chunk.mesh.merge(mesh);
-        }
-      } catch (e) {
-        console.error('Error rendering chest', e);
-      }
-      return;
-    }
 
     // Process Hanging Signs
     if (name.includes('hanging_sign')) {
@@ -721,6 +580,12 @@ function tick() {
     renderer.drawStructure(cachedViewMatrix);
   }
 }
+
+window.startRenderLoop = function () {
+  if (animFrameId === null) {
+    tick();
+  }
+};
 
 window.stopRenderLoop = function () {
   if (animFrameId !== null) {
@@ -1031,24 +896,26 @@ async function buildRendererForRegion(regionName: string) {
   if ((renderer as any).skyScene) {
     ((renderer as any).skyScene as THREE.Scene).clear();
   }
+  isNightMode = false;
   if (renderer.renderer) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
     renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.renderer.toneMappingExposure = 0.50;
+    renderer.renderer.toneMappingExposure = 0.70;
   }
 
-  // Calibrate smooth daylighting without specular glare or white overexposure to match shulkr.com
+  // Calibrate clear Day lighting with balanced contrast and subtle emissive glow
   if ((renderer as any).sunlight) {
     const sun = (renderer as any).sunlight;
-    sun.intensity = 0.30;
-    sun.ambientIntensity = 0.48;
-    sun.fillIntensity = 0.20;
+    sun.intensity = 0.45;
+    sun.ambientIntensity = 0.55;
+    sun.fillIntensity = 0.25;
     if (sun.emissive) {
       sun.emissive.intensity = 0.10;
     }
-    if (sun.light) sun.light.intensity = 0.30;
-    if (sun.ambient) sun.ambient.intensity = 0.48;
+    if (sun.light) sun.light.intensity = 0.45;
+    if (sun.ambient) sun.ambient.intensity = 0.55;
+    sun.direction = [0.6, 1.0, 0.8];
   }
 
   const aspect = window.innerWidth / window.innerHeight;
@@ -1205,19 +1072,21 @@ window.toggleDayNight = function () {
     if ((renderer as any).sunlight) {
       const sun = (renderer as any).sunlight;
       if (isNightMode) {
+        // Night Mode: Ambient 0.12, Sun 0.08, Background #040810, Clean contrast
         sun.intensity = 0.08;
-        sun.ambientIntensity = 0.15;
-        if (sun.emissive) sun.emissive.intensity = 0.20;
+        sun.ambientIntensity = 0.12;
+        if (sun.emissive) sun.emissive.intensity = 0.25;
         sun.direction = [-0.2, -0.9, -0.3];
         if (sun.light) sun.light.intensity = 0.08;
-        if (sun.ambient) sun.ambient.intensity = 0.15;
+        if (sun.ambient) sun.ambient.intensity = 0.12;
       } else {
-        sun.intensity = 0.30;
-        sun.ambientIntensity = 0.48;
+        // Day Mode: Ambient 0.55, Sun 0.45, Exposure 0.70, Emissive 0.10
+        sun.intensity = 0.45;
+        sun.ambientIntensity = 0.55;
         if (sun.emissive) sun.emissive.intensity = 0.10;
         sun.direction = [0.6, 1.0, 0.8];
-        if (sun.light) sun.light.intensity = 0.30;
-        if (sun.ambient) sun.ambient.intensity = 0.48;
+        if (sun.light) sun.light.intensity = 0.45;
+        if (sun.ambient) sun.ambient.intensity = 0.55;
       }
     }
     if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
