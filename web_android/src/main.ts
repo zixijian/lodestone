@@ -242,12 +242,39 @@ async function init() {
       return set;
     };
 
-    // Override ChunkBuilder.prototype.processBlock to completely disable culling for minecraft:hopper
+    // Comprehensive Face Culling Override: zero culling on non-full blocks & hoppers
     if (Lodestone.ChunkBuilder) {
+      Lodestone.ChunkBuilder.prototype.needsCull = function (block: any, dir: any) {
+        const neighbor = this.structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
+        if (!neighbor) return false;
+        const neighborName = neighbor.getName().toString();
+        const flags = this.resources.getBlockFlags(neighbor.getName());
+        if (!flags?.opaque) return false;
+        if (isNonFullBlock(neighborName)) return false;
+        return true;
+      };
+
+      Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
+        const dirs = [
+          Lodestone.Direction.UP, Lodestone.Direction.DOWN,
+          Lodestone.Direction.NORTH, Lodestone.Direction.SOUTH,
+          Lodestone.Direction.EAST, Lodestone.Direction.WEST
+        ];
+        for (const dir of dirs) {
+          const neighbor = this.structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
+          if (!neighbor) return false;
+          const name = neighbor.getName().toString();
+          if (isNonFullBlock(name)) return false;
+          const flags = this.resources.getBlockFlags(neighbor.getName());
+          if (!flags?.opaque) return false;
+        }
+        return true;
+      };
+
       const origProcessBlock = Lodestone.ChunkBuilder.prototype.processBlock;
       Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
         const name = block?.state?.getName?.()?.toString();
-        if (name === 'minecraft:hopper') {
+        if (name === 'minecraft:hopper' || isNonFullBlock(name)) {
           const blockName = block.state.getName();
           const blockProps = this.getBlockProps(block.state);
           const chunkPos = [
@@ -265,12 +292,20 @@ async function init() {
             if (blockDefinition) {
               mesh.merge(blockDefinition.getMesh(blockName, blockProps, this.resources, this.resources, cull));
             }
+            const specialMesh = Lodestone.SpecialRenderers?.getBlockMesh?.(block.state, block.nbt, this.resources, cull);
+            if (specialMesh && !specialMesh.isEmpty()) {
+              mesh.merge(specialMesh);
+            }
             if (!mesh.isEmpty()) {
               this.finishChunkMesh(mesh, block.pos, blockName, blockProps, chunkKey);
-              chunk.mesh.merge(mesh);
+              if (this.resources.getBlockFlags(block.state.getName())?.semi_transparent) {
+                chunk.transparentMesh.merge(mesh);
+              } else {
+                chunk.mesh.merge(mesh);
+              }
             }
           } catch (e) {
-            console.error(`Error rendering hopper`, e);
+            console.error(`Error rendering non-full block ${name}`, e);
           }
           return;
         }
@@ -844,16 +879,17 @@ async function buildRendererForRegion(regionName: string) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
     renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.renderer.toneMappingExposure = 0.9;
+    renderer.renderer.toneMappingExposure = 0.65;
   }
 
-  // Calibrate sunlight and ambient lighting (~90% of original brightness)
+  // Calibrate smooth daylighting without specular glare or white overexposure
   if ((renderer as any).sunlight) {
     const sun = (renderer as any).sunlight;
-    sun.intensity = 0.63;
-    sun.ambientIntensity = 0.45;
-    if (sun.light) sun.light.intensity = 0.63;
-    if (sun.ambient) sun.ambient.intensity = 0.45;
+    sun.intensity = 0.32;
+    sun.ambientIntensity = 0.58;
+    sun.fillIntensity = 0.25;
+    if (sun.light) sun.light.intensity = 0.32;
+    if (sun.ambient) sun.ambient.intensity = 0.58;
   }
 
   const aspect = window.innerWidth / window.innerHeight;
