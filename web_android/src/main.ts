@@ -56,11 +56,13 @@ let animFrameId: number | null = null;
   grid.fill(0xffff);
   const hd = h * d;
   this.placedBlockObjectMap = new Map();
+  this.placedBlockIndexMap = new Map();
 
   for (let i = 0; i < this.blocks.length; i++) {
     const b = this.blocks[i];
     const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
     grid[idx] = b.state;
+    this.placedBlockIndexMap.set(idx, i);
   }
   this.placedBlocksGrid = grid;
 };
@@ -75,7 +77,8 @@ let animFrameId: number | null = null;
 
   let blockObj = this.placedBlockObjectMap.get(idx);
   if (!blockObj) {
-    const origBlock = this.blocks.find((b: any) => b.pos[0] === pos[0] && b.pos[1] === pos[1] && b.pos[2] === pos[2]);
+    const origIndex = this.placedBlockIndexMap.get(idx);
+    const origBlock = origIndex !== undefined ? this.blocks[origIndex] : null;
     blockObj = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx], nbt: origBlock?.nbt };
     this.placedBlockObjectMap.set(idx, blockObj);
   }
@@ -144,144 +147,6 @@ const isNonFullBlock = (name: string) => {
   return nonFullKeywords.some(kw => lower.includes(kw));
 };
 
-// Helper to transform a 0..16 voxel mesh into 0..1 block space with rotation around center [0.5, 0.5, 0.5]
-function transformBlockMesh(mesh: any, rotYRad: number = 0, rotXRad: number = 0) {
-  const scaleMat = mat4.create();
-  mat4.scale(scaleMat, scaleMat, [0.0625, 0.0625, 0.0625]);
-  mesh.transform(scaleMat);
-
-  if (rotYRad !== 0 || rotXRad !== 0) {
-    const rotMat = mat4.create();
-    mat4.translate(rotMat, rotMat, [0.5, 0.5, 0.5]);
-    if (rotYRad !== 0) mat4.rotateY(rotMat, rotMat, rotYRad);
-    if (rotXRad !== 0) mat4.rotateX(rotMat, rotMat, rotXRad);
-    mat4.translate(rotMat, rotMat, [-0.5, -0.5, -0.5]);
-    mesh.transform(rotMat);
-  }
-}
-
-// Procedural Item Frame Builder with slight depth offset
-function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
-  const backTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
-  const model = new Lodestone.BlockModel(undefined, {
-    back: backTex,
-    wood: 'block/birch_planks'
-  }, [
-    // Backing plate
-    {
-      from: [3, 3, 15.01], to: [13, 13, 15.51],
-      faces: {
-        north: { texture: '#back', uv: [3, 3, 13, 13] },
-        south: { texture: '#back', uv: [3, 3, 13, 13] }
-      }
-    },
-    // Wooden borders
-    {
-      from: [2, 2, 14.5], to: [14, 3, 15.5],
-      faces: {
-        north: { texture: '#wood', uv: [2, 13, 14, 14] },
-        south: { texture: '#wood', uv: [2, 13, 14, 14] },
-        up: { texture: '#wood', uv: [2, 15, 14, 16] },
-        down: { texture: '#wood', uv: [2, 0, 14, 1] },
-        east: { texture: '#wood', uv: [0, 13, 1, 14] },
-        west: { texture: '#wood', uv: [15, 13, 16, 14] }
-      }
-    },
-    {
-      from: [2, 13, 14.5], to: [14, 14, 15.5],
-      faces: {
-        north: { texture: '#wood', uv: [2, 2, 14, 3] },
-        south: { texture: '#wood', uv: [2, 2, 14, 3] },
-        up: { texture: '#wood', uv: [2, 15, 14, 16] },
-        down: { texture: '#wood', uv: [2, 0, 14, 1] },
-        east: { texture: '#wood', uv: [0, 2, 1, 3] },
-        west: { texture: '#wood', uv: [15, 2, 16, 3] }
-      }
-    },
-    {
-      from: [2, 3, 14.5], to: [3, 13, 15.5],
-      faces: {
-        north: { texture: '#wood', uv: [13, 3, 14, 13] },
-        south: { texture: '#wood', uv: [2, 3, 3, 13] },
-        east: { texture: '#wood', uv: [0, 3, 1, 13] },
-        west: { texture: '#wood', uv: [15, 3, 16, 13] }
-      }
-    },
-    {
-      from: [13, 3, 14.5], to: [14, 13, 15.5],
-      faces: {
-        north: { texture: '#wood', uv: [2, 3, 3, 13] },
-        south: { texture: '#wood', uv: [13, 3, 14, 13] },
-        east: { texture: '#wood', uv: [0, 3, 1, 13] },
-        west: { texture: '#wood', uv: [15, 3, 16, 13] }
-      }
-    }
-  ]);
-  const mesh = model.getMesh(atlas, {});
-
-  let rotY = 0;
-  let rotX = 0;
-  if (facing === 'north') rotY = Math.PI;
-  else if (facing === 'east') rotY = Math.PI / 2;
-  else if (facing === 'west') rotY = -Math.PI / 2;
-  else if (facing === 'up') rotX = -Math.PI / 2;
-  else if (facing === 'down') rotX = Math.PI / 2;
-
-  transformBlockMesh(mesh, rotY, rotX);
-
-  return mesh;
-}
-
-// Procedural Hanging Sign Builder with matching top/bottom wood textures and 3D chains
-function createHangingSignMesh(wood: string, rotation: number, facing: string, atlas: any): any {
-  const plankTex = `block/${wood}_planks`;
-  const model = new Lodestone.BlockModel(undefined, { board: plankTex }, [
-    // Board (top, bottom, north, south, east, west with matching wood plank texture)
-    {
-      from: [1, 0, 7], to: [15, 10, 9],
-      faces: {
-        north: { texture: '#board', uv: [1, 6, 15, 16] },
-        south: { texture: '#board', uv: [1, 6, 15, 16] },
-        east: { texture: '#board', uv: [7, 6, 9, 16] },
-        west: { texture: '#board', uv: [7, 6, 9, 16] },
-        up: { texture: '#board', uv: [1, 7, 15, 9] },
-        down: { texture: '#board', uv: [1, 7, 15, 9] }
-      }
-    },
-    // Left Chain (with 3D thickness so visible from all sides)
-    {
-      from: [3, 10, 7.5], to: [5, 16, 8.5],
-      faces: {
-        north: { texture: '#board', uv: [3, 0, 5, 6] },
-        south: { texture: '#board', uv: [3, 0, 5, 6] },
-        east: { texture: '#board', uv: [7.5, 0, 8.5, 6] },
-        west: { texture: '#board', uv: [7.5, 0, 8.5, 6] }
-      }
-    },
-    // Right Chain
-    {
-      from: [11, 10, 7.5], to: [13, 16, 8.5],
-      faces: {
-        north: { texture: '#board', uv: [11, 0, 13, 6] },
-        south: { texture: '#board', uv: [11, 0, 13, 6] },
-        east: { texture: '#board', uv: [7.5, 0, 8.5, 6] },
-        west: { texture: '#board', uv: [7.5, 0, 8.5, 6] }
-      }
-    }
-  ]);
-  const mesh = model.getMesh(atlas, {});
-
-  let rad = 0;
-  if (facing === 'east') rad = Math.PI / 2;
-  else if (facing === 'south') rad = Math.PI;
-  else if (facing === 'west') rad = Math.PI * 3 / 2;
-  else if (rotation !== undefined) rad = (rotation / 16) * Math.PI * 2;
-
-  transformBlockMesh(mesh, rad, 0);
-
-  return mesh;
-}
-
 // Comprehensive Face Culling & Special Block Processing
 if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.needsCull = function (block: any, dir: any) {
@@ -309,104 +174,6 @@ if (Lodestone.ChunkBuilder) {
       if (!flags?.opaque) return false;
     }
     return true;
-  };
-
-  const origProcessBlock = Lodestone.ChunkBuilder.prototype.processBlock;
-  Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
-    const name = block?.state?.getName?.()?.toString();
-    const props = this.getBlockProps(block.state);
-
-    // Process Hanging Signs
-    if (name.includes('hanging_sign')) {
-      const wood = name.replace('minecraft:', '').replace('_wall_hanging_sign', '').replace('_hanging_sign', '');
-      const rotation = props.rotation !== undefined ? parseInt(props.rotation, 10) : 0;
-      const facing = props.facing || 'north';
-
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2]),
-      ];
-      const chunkKey = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      try {
-        const mesh = createHangingSignMesh(wood, rotation, facing, this.resources);
-        if (mesh && !mesh.isEmpty()) {
-          this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, chunkKey);
-          chunk.mesh.merge(mesh);
-        }
-      } catch (e) {
-        console.error('Error rendering hanging sign', e);
-      }
-      return;
-    }
-
-    // Process Item Frames
-    if (name === 'minecraft:item_frame' || name === 'minecraft:glow_item_frame') {
-      const facing = props.facing || 'north';
-      const isGlow = name === 'minecraft:glow_item_frame';
-
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2]),
-      ];
-      const chunkKey = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      try {
-        const mesh = createItemFrameMesh(facing, isGlow, this.resources);
-        if (mesh && !mesh.isEmpty()) {
-          this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, chunkKey);
-          chunk.mesh.merge(mesh);
-        }
-      } catch (e) {
-        console.error('Error rendering item frame', e);
-      }
-      return;
-    }
-
-    // Process Hoppers & Non-Full Blocks without face culling
-    if (name === 'minecraft:hopper' || isNonFullBlock(name)) {
-      const blockName = block.state.getName();
-      const blockProps = props;
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2]),
-      ];
-      const chunkKey = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-      const chunk = this.getChunk(chunkPos);
-      try {
-        const blockDefinition = this.resources.getBlockDefinition(blockName);
-        const cull = { up: false, down: false, west: false, east: false, north: false, south: false };
-        const mesh = new Lodestone.Mesh();
-        if (blockDefinition) {
-          mesh.merge(blockDefinition.getMesh(blockName, blockProps, this.resources, this.resources, cull));
-        }
-        const specialMesh = Lodestone.SpecialRenderers?.getBlockMesh?.(block.state, block.nbt, this.resources, cull);
-        if (specialMesh && !specialMesh.isEmpty()) {
-          mesh.merge(specialMesh);
-        }
-        if (!mesh.isEmpty()) {
-          this.finishChunkMesh(mesh, block.pos, blockName, blockProps, chunkKey);
-          if (this.resources.getBlockFlags(block.state.getName())?.semi_transparent) {
-            chunk.transparentMesh.merge(mesh);
-          } else {
-            chunk.mesh.merge(mesh);
-          }
-        }
-      } catch (e) {
-        console.error(`Error rendering non-full block ${name}`, e);
-      }
-      return;
-    }
-
-    return origProcessBlock.call(this, block, chunkFilter);
   };
 }
 
@@ -896,27 +663,15 @@ async function buildRendererForRegion(regionName: string) {
   if ((renderer as any).skyScene) {
     ((renderer as any).skyScene as THREE.Scene).clear();
   }
-  isNightMode = false;
   if (renderer.renderer) {
-    renderer.renderer.setClearColor(0x002b36, 1.0);
     renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.renderer.toneMappingExposure = 0.70;
   }
 
-  // Calibrate clear Day lighting with balanced contrast and subtle emissive glow
-  if ((renderer as any).sunlight) {
-    const sun = (renderer as any).sunlight;
-    sun.intensity = 0.45;
-    sun.ambientIntensity = 0.55;
-    sun.fillIntensity = 0.25;
-    if (sun.emissive) {
-      sun.emissive.intensity = 0.10;
-    }
-    if (sun.light) sun.light.intensity = 0.45;
-    if (sun.ambient) sun.ambient.intensity = 0.55;
-    sun.direction = [0.6, 1.0, 0.8];
-  }
+  // Force strict Day Mode initialization and synchronize all material lighting uniforms
+  isNightMode = true;
+  window.toggleDayNight();
 
   const aspect = window.innerWidth / window.innerHeight;
   perspectiveCamera.far = 100000.0;

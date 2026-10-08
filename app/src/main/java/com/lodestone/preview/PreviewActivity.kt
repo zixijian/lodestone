@@ -89,6 +89,7 @@ class PreviewActivity : AppCompatActivity() {
         webSettings.javaScriptEnabled = true
         webSettings.domStorageEnabled = true
         webSettings.allowFileAccess = true
+        webSettings.cacheMode = WebSettings.LOAD_NO_CACHE
 
         // Force Solarized Dark background on WebView before loading content
         binding.webviewRenderer.setBackgroundColor(getColor(R.color.solarized_base03))
