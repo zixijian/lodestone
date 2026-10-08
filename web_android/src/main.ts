@@ -74,7 +74,8 @@ let animFrameId: number | null = null;
 
   let blockObj = this.placedBlockObjectMap.get(idx);
   if (!blockObj) {
-    blockObj = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx] };
+    const origBlock = this.blocks.find((b: any) => b.pos[0] === pos[0] && b.pos[1] === pos[1] && b.pos[2] === pos[2]);
+    blockObj = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx], nbt: origBlock?.nbt };
     this.placedBlockObjectMap.set(idx, blockObj);
   }
   return blockObj;
@@ -93,7 +94,7 @@ let animFrameId: number | null = null;
     const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
     let placed = this.placedBlockObjectMap.get(idx);
     if (!placed) {
-      placed = { pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state] };
+      placed = { pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt };
       this.placedBlockObjectMap.set(idx, placed);
     }
     this.placedBlocksCache.push(placed);
@@ -154,6 +155,24 @@ const isNonFullBlock = (name: string) => {
   const lower = name.toLowerCase();
   return nonFullKeywords.some(kw => lower.includes(kw));
 };
+
+// Helper to transform a 0..16 voxel mesh into 0..1 block space with rotation around center [0.5, 0.5, 0.5]
+function transformBlockMesh(mesh: any, rotYRad: number = 0, rotXRad: number = 0) {
+  // First, scale 0..16 voxel coordinates to 0..1 block coordinates
+  const scaleMat = mat4.create();
+  mat4.scale(scaleMat, scaleMat, [0.0625, 0.0625, 0.0625]);
+  mesh.transform(scaleMat);
+
+  // Then apply rotation around center [0.5, 0.5, 0.5] in 0..1 block space
+  if (rotYRad !== 0 || rotXRad !== 0) {
+    const rotMat = mat4.create();
+    mat4.translate(rotMat, rotMat, [0.5, 0.5, 0.5]);
+    if (rotYRad !== 0) mat4.rotateY(rotMat, rotMat, rotYRad);
+    if (rotXRad !== 0) mat4.rotateX(rotMat, rotMat, rotXRad);
+    mat4.translate(rotMat, rotMat, [-0.5, -0.5, -0.5]);
+    mesh.transform(rotMat);
+  }
+}
 
 // Procedural 3D Chest Generator (Single, Left Half, Right Half with Latch)
 function createChestMesh(type: string, facing: string, isTrapped: boolean, atlas: any): any {
@@ -252,47 +271,82 @@ function createChestMesh(type: string, facing: string, isTrapped: boolean, atlas
   const model = new Lodestone.BlockModel(undefined, { 0: texName }, elements);
   const mesh = model.getMesh(atlas, {});
 
-  const rad = facing === 'east' ? Math.PI / 2 : facing === 'north' ? Math.PI : facing === 'west' ? Math.PI * 3 / 2 : 0;
-  const t = mat4.create();
-  mat4.translate(t, t, [8, 8, 8]);
-  mat4.rotateY(t, t, rad);
-  mat4.translate(t, t, [-8, -8, -8]);
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
-  mesh.transform(t);
+  // Default chest faces North (-Z, latch at z=0..2)
+  const rad = facing === 'east' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'west' ? Math.PI * 3 / 2 : 0;
+  transformBlockMesh(mesh, rad, 0);
 
   return mesh;
 }
 
 // Procedural Item Frame Builder
 function createItemFrameMesh(facing: string, isGlow: boolean, atlas: any): any {
+  const backTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
   const model = new Lodestone.BlockModel(undefined, {
-    frame: 'block/oak_planks',
-    map: 'block/birch_planks'
+    back: backTex,
+    wood: 'block/birch_planks'
   }, [
+    // Backing plate
     {
-      from: [3, 3, 15], to: [13, 13, 16],
+      from: [3, 3, 15.5], to: [13, 13, 16],
       faces: {
-        north: { texture: '#map', uv: [3, 3, 13, 13] },
-        south: { texture: '#frame', uv: [3, 3, 13, 13] },
-        east: { texture: '#frame', uv: [15, 3, 16, 13] },
-        west: { texture: '#frame', uv: [0, 3, 1, 13] },
-        up: { texture: '#frame', uv: [3, 15, 13, 16] },
-        down: { texture: '#frame', uv: [3, 0, 13, 1] }
+        north: { texture: '#back', uv: [3, 3, 13, 13] },
+        south: { texture: '#back', uv: [3, 3, 13, 13] }
+      }
+    },
+    // Wooden borders
+    {
+      from: [2, 2, 15], to: [14, 3, 16],
+      faces: {
+        north: { texture: '#wood', uv: [2, 13, 14, 14] },
+        south: { texture: '#wood', uv: [2, 13, 14, 14] },
+        up: { texture: '#wood', uv: [2, 15, 14, 16] },
+        down: { texture: '#wood', uv: [2, 0, 14, 1] },
+        east: { texture: '#wood', uv: [0, 13, 1, 14] },
+        west: { texture: '#wood', uv: [15, 13, 16, 14] }
+      }
+    },
+    {
+      from: [2, 13, 15], to: [14, 14, 16],
+      faces: {
+        north: { texture: '#wood', uv: [2, 2, 14, 3] },
+        south: { texture: '#wood', uv: [2, 2, 14, 3] },
+        up: { texture: '#wood', uv: [2, 15, 14, 16] },
+        down: { texture: '#wood', uv: [2, 0, 14, 1] },
+        east: { texture: '#wood', uv: [0, 2, 1, 3] },
+        west: { texture: '#wood', uv: [15, 2, 16, 3] }
+      }
+    },
+    {
+      from: [2, 3, 15], to: [3, 13, 16],
+      faces: {
+        north: { texture: '#wood', uv: [13, 3, 14, 13] },
+        south: { texture: '#wood', uv: [2, 3, 3, 13] },
+        east: { texture: '#wood', uv: [0, 3, 1, 13] },
+        west: { texture: '#wood', uv: [15, 3, 16, 13] }
+      }
+    },
+    {
+      from: [13, 3, 15], to: [14, 13, 16],
+      faces: {
+        north: { texture: '#wood', uv: [2, 3, 3, 13] },
+        south: { texture: '#wood', uv: [13, 3, 14, 13] },
+        east: { texture: '#wood', uv: [0, 3, 1, 13] },
+        west: { texture: '#wood', uv: [15, 3, 16, 13] }
       }
     }
   ]);
   const mesh = model.getMesh(atlas, {});
 
-  const t = mat4.create();
-  mat4.translate(t, t, [8, 8, 8]);
-  if (facing === 'east') mat4.rotateY(t, t, Math.PI / 2);
-  else if (facing === 'south') mat4.rotateY(t, t, Math.PI);
-  else if (facing === 'west') mat4.rotateY(t, t, Math.PI * 3 / 2);
-  else if (facing === 'up') mat4.rotateX(t, t, -Math.PI / 2);
-  else if (facing === 'down') mat4.rotateX(t, t, Math.PI / 2);
-  mat4.translate(t, t, [-8, -8, -8]);
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
-  mesh.transform(t);
+  // Default item frame element is at z=15..16 facing South (+Z)
+  let rotY = 0;
+  let rotX = 0;
+  if (facing === 'north') rotY = Math.PI;
+  else if (facing === 'east') rotY = Math.PI / 2;
+  else if (facing === 'west') rotY = -Math.PI / 2;
+  else if (facing === 'up') rotX = -Math.PI / 2;
+  else if (facing === 'down') rotX = Math.PI / 2;
+
+  transformBlockMesh(mesh, rotY, rotX);
 
   return mesh;
 }
@@ -337,12 +391,7 @@ function createHangingSignMesh(wood: string, rotation: number, facing: string, a
   else if (facing === 'west') rad = Math.PI * 3 / 2;
   else if (rotation !== undefined) rad = (rotation / 16) * Math.PI * 2;
 
-  const t = mat4.create();
-  mat4.translate(t, t, [8, 8, 8]);
-  mat4.rotateY(t, t, rad);
-  mat4.translate(t, t, [-8, -8, -8]);
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
-  mesh.transform(t);
+  transformBlockMesh(mesh, rad, 0);
 
   return mesh;
 }
@@ -986,17 +1035,20 @@ async function buildRendererForRegion(regionName: string) {
     renderer.renderer.setClearColor(0x002b36, 1.0);
     renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.renderer.toneMappingExposure = 0.65;
+    renderer.renderer.toneMappingExposure = 0.50;
   }
 
-  // Calibrate smooth daylighting without specular glare or white overexposure
+  // Calibrate smooth daylighting without specular glare or white overexposure to match shulkr.com
   if ((renderer as any).sunlight) {
     const sun = (renderer as any).sunlight;
-    sun.intensity = 0.32;
-    sun.ambientIntensity = 0.58;
-    sun.fillIntensity = 0.25;
-    if (sun.light) sun.light.intensity = 0.32;
-    if (sun.ambient) sun.ambient.intensity = 0.58;
+    sun.intensity = 0.30;
+    sun.ambientIntensity = 0.48;
+    sun.fillIntensity = 0.20;
+    if (sun.emissive) {
+      sun.emissive.intensity = 0.10;
+    }
+    if (sun.light) sun.light.intensity = 0.30;
+    if (sun.ambient) sun.ambient.intensity = 0.48;
   }
 
   const aspect = window.innerWidth / window.innerHeight;
@@ -1155,15 +1207,17 @@ window.toggleDayNight = function () {
       if (isNightMode) {
         sun.intensity = 0.08;
         sun.ambientIntensity = 0.15;
+        if (sun.emissive) sun.emissive.intensity = 0.20;
         sun.direction = [-0.2, -0.9, -0.3];
         if (sun.light) sun.light.intensity = 0.08;
         if (sun.ambient) sun.ambient.intensity = 0.15;
       } else {
-        sun.intensity = 0.32;
-        sun.ambientIntensity = 0.58;
+        sun.intensity = 0.30;
+        sun.ambientIntensity = 0.48;
+        if (sun.emissive) sun.emissive.intensity = 0.10;
         sun.direction = [0.6, 1.0, 0.8];
-        if (sun.light) sun.light.intensity = 0.32;
-        if (sun.ambient) sun.ambient.intensity = 0.58;
+        if (sun.light) sun.light.intensity = 0.30;
+        if (sun.ambient) sun.ambient.intensity = 0.48;
       }
     }
     if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);

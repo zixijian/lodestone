@@ -44,11 +44,15 @@ object ZipUtils {
                 val du = coords.getInt(2)
                 val dv = coords.getInt(3)
 
-                val candidateFiles = listOf(
+                val candidateFiles = mutableListOf(
                     File(targetDir, "assets/minecraft/textures/$texKey.png"),
                     File(targetDir, "textures/$texKey.png"),
                     File(targetDir, "$texKey.png")
                 )
+                targetDir.listFiles()?.filter { it.isDirectory }?.forEach { subDir ->
+                    candidateFiles.add(File(subDir, "assets/minecraft/textures/$texKey.png"))
+                    candidateFiles.add(File(subDir, "textures/$texKey.png"))
+                }
 
                 val texFile = candidateFiles.firstOrNull { it.exists() && it.isFile }
                 if (texFile != null) {
