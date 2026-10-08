@@ -242,6 +242,42 @@ async function init() {
       return set;
     };
 
+    // Override ChunkBuilder.prototype.processBlock to completely disable culling for minecraft:hopper
+    if (Lodestone.ChunkBuilder) {
+      const origProcessBlock = Lodestone.ChunkBuilder.prototype.processBlock;
+      Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
+        const name = block?.state?.getName?.()?.toString();
+        if (name === 'minecraft:hopper') {
+          const blockName = block.state.getName();
+          const blockProps = this.getBlockProps(block.state);
+          const chunkPos = [
+            Math.floor(block.pos[0] / this.chunkSize[0]),
+            Math.floor(block.pos[1] / this.chunkSize[1]),
+            Math.floor(block.pos[2] / this.chunkSize[2]),
+          ];
+          const chunkKey = this.chunkKey(chunkPos);
+          if (chunkFilter && !chunkFilter.has(chunkKey)) return;
+          const chunk = this.getChunk(chunkPos);
+          try {
+            const blockDefinition = this.resources.getBlockDefinition(blockName);
+            const cull = { up: false, down: false, west: false, east: false, north: false, south: false };
+            const mesh = new Lodestone.Mesh();
+            if (blockDefinition) {
+              mesh.merge(blockDefinition.getMesh(blockName, blockProps, this.resources, this.resources, cull));
+            }
+            if (!mesh.isEmpty()) {
+              this.finishChunkMesh(mesh, block.pos, blockName, blockProps, chunkKey);
+              chunk.mesh.merge(mesh);
+            }
+          } catch (e) {
+            console.error(`Error rendering hopper`, e);
+          }
+          return;
+        }
+        return origProcessBlock.call(this, block, chunkFilter);
+      };
+    }
+
     const [loaded, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
       loadDefaultPackResources({ baseUrl: packBaseUrl + `?cb=${cb}` }),
       fetch(packBaseUrl + `block-flags/opaque.txt?cb=${cb}`).catch(() => null),
