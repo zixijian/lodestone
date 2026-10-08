@@ -24,51 +24,146 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var fileAdapter: FileAdapter
-    private var currentDirectory: File = Environment.getExternalStorageDirectory()
-    private val rootDirectory: File = Environment.getExternalStorageDirectory()
-
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            onPermissionGranted()
-        } else {
-            Toast.makeText(this, R.string.toast_permission_needed, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private val requestAllFilesPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (Environment.isExternalStorageManager()) {
-                onPermissionGranted()
-            } else {
-                Toast.makeText(this, R.string.toast_permission_needed, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
     private val openDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
-            openPreviewActivity(it, null)
+            validateAndOpenSchematic(it)
         }
     }
 
-    // Intercept back gesture/press to go up in directory hierarchy until root, then exit activity safely
-    private val onBackPressedCallback = object : OnBackPressedCallback(true) {
-        override fun handleOnBackPressed() {
-            val currentNorm = currentDirectory.canonicalPath.removeSuffix("/")
-            val rootNorm = rootDirectory.canonicalPath.removeSuffix("/")
-            if (currentNorm != rootNorm) {
-                navigateUp()
-            } else {
-                finish()
+    private fun validateAndOpenSchematic(uri: Uri) {
+        val fileName = getFileNameFromUri(uri)?.lowercase() ?: ""
+
+        if (!fileName.endsWith(".litematic") && !fileName.endsWith(".schematic") && !fileName.endsWith(".nbt")) {
+            Toast.makeText(this, "无效的文件扩展名，仅支持选择 .litematic 投影文件", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        var isValidGzip = false
+        try {
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val header = ByteArray(2)
+                val readBytes = inputStream.read(header, 0, 2)
+                if (readBytes == 2 && header[0] == 0x1F.toByte() && header[1] == 0x8B.toByte()) {
+                    isValidGzip = true
+                }
+            }
+        } catch (e: Exception) {
+            isValidGzip = false
+        }
+
+        if (!isValidGzip) {
+            Toast.makeText(this, "无效的投影文件内容 (未通过 GZIP 压缩格式校验)", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        openPreviewActivity(uri, null)
+    }
+
+    private val openPackLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { processResourcePackImport(it) }
+    }
+
+    private fun processResourcePackImport(uri: Uri) {
+        try {
+            val fileName = getFileNameFromUri(uri) ?: "custom_pack.zip"
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val tempDir = File(cacheDir, "temp_pack")
+                if (tempDir.exists()) tempDir.deleteRecursively()
+                tempDir.mkdirs()
+
+                var hasValidStructure = false
+                java.util.zip.ZipInputStream(inputStream).use { zipIn ->
+                    var entry = zipIn.nextEntry
+                    while (entry != null) {
+                        val entryName = entry.name
+                        if (entryName.startsWith("assets/") || entryName == "pack.mcmeta" || entryName.endsWith("assets.json")) {
+                            hasValidStructure = true
+                        }
+                        val outFile = File(tempDir, entryName)
+                        if (!outFile.canonicalPath.startsWith(tempDir.canonicalPath)) {
+                            throw SecurityException("Zip Slip vulnerability detected in resource pack")
+                        }
+                        if (entry.isDirectory) {
+                            outFile.mkdirs()
+                        } else {
+                            outFile.parentFile?.mkdirs()
+                            outFile.outputStream().use { zipIn.copyTo(it) }
+                        }
+                        zipIn.closeEntry()
+                        entry = zipIn.nextEntry
+                    }
+                }
+
+                if (!hasValidStructure) {
+                    tempDir.deleteRecursively()
+                    Toast.makeText(this, "无效的材质包格式 (未找到 assets 文件夹或 pack.mcmeta)", Toast.LENGTH_LONG).show()
+                    return
+                }
+
+                val targetDir = File(filesDir, "custom_resource_pack")
+                if (targetDir.exists()) targetDir.deleteRecursively()
+                tempDir.renameTo(targetDir)
+
+                ZipUtils.generateCustomAtlas(this, targetDir)
+
+                getSharedPreferences("app_prefs", MODE_PRIVATE).edit().putString("custom_pack_name", fileName).apply()
+
+                Toast.makeText(this, "材质包导入成功！", Toast.LENGTH_SHORT).show()
+                updateResourcePackStatus()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "材质包导入失败: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun getFileNameFromUri(uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) {
+                        result = cursor.getString(index)
+                    }
+                }
             }
         }
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/') ?: -1
+            if (cut != -1) {
+                result = result?.substring(cut + 1)
+            }
+        }
+        return result
+    }
+
+    private fun updateResourcePackStatus() {
+        val packDir = File(filesDir, "custom_resource_pack")
+        val savedName = getSharedPreferences("app_prefs", MODE_PRIVATE).getString("custom_pack_name", null)
+        if (packDir.exists() && packDir.list()?.isNotEmpty() == true) {
+            val displayName = savedName ?: "自定义材质包"
+            binding.tvPackSubtitle.text = "已导入: $displayName"
+            binding.tvPackSubtitle.setTextColor(ContextCompat.getColor(this, R.color.solarized_green))
+        } else {
+            binding.tvPackSubtitle.text = "默认材质包 (Minecraft 1.21.x)"
+            binding.tvPackSubtitle.setTextColor(ContextCompat.getColor(this, R.color.solarized_base0))
+        }
+    }
+
+    private fun resetDefaultResourcePack() {
+        val packDir = File(filesDir, "custom_resource_pack")
+        if (packDir.exists()) {
+            packDir.deleteRecursively()
+        }
+        getSharedPreferences("app_prefs", MODE_PRIVATE).edit().remove("custom_pack_name").apply()
+        updateResourcePackStatus()
+        Toast.makeText(this, R.string.toast_pack_reset, Toast.LENGTH_SHORT).show()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,182 +171,33 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Register custom back press handler
-        onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
-
-        // Setup File RecyclerView
-        fileAdapter = FileAdapter(emptyList()) { selectedFile ->
-            if (DirectoryHelper.isItemDirectory(selectedFile)) {
-                navigateToDirectory(selectedFile)
-            } else {
-                if (selectedFile.name.endsWith(".litematic", ignoreCase = true)) {
-                    openPreviewActivity(null, selectedFile.absolutePath)
-                }
-            }
-        }
-        binding.rvFiles.layoutManager = LinearLayoutManager(this)
-        binding.rvFiles.adapter = fileAdapter
-
-        // Retrieve last visited directory if exists
-        val sharedPreferences = getSharedPreferences("lodestone_pref", Context.MODE_PRIVATE)
-        val lastPath = sharedPreferences.getString("last_visited_dir", null)
-        if (lastPath != null) {
-            val lastDir = File(lastPath)
-            if (lastDir.exists() && lastDir.isDirectory && isSubDirectoryOfRoot(lastDir)) {
-                currentDirectory = lastDir
-            }
-        }
-
         // Setup Buttons and Actions
         binding.btnSaf.setOnClickListener {
-            // Open document via SAF
             openDocumentLauncher.launch(arrayOf("*/*"))
+        }
+
+        binding.cardOpenFile.setOnClickListener {
+            openDocumentLauncher.launch(arrayOf("*/*"))
+        }
+
+        binding.btnImportPack.setOnClickListener {
+            openPackLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
+        }
+
+        binding.btnResetPack.setOnClickListener {
+            resetDefaultResourcePack()
         }
 
         binding.btnMenu.setOnClickListener { view ->
             showPopupMenu(view)
         }
 
-        binding.btnBack.setOnClickListener {
-            navigateUp()
-        }
-
-        binding.btnGrantPermission.setOnClickListener {
-            requestStoragePermission()
-        }
-
-        checkPermissions()
+        updateResourcePackStatus()
     }
 
     override fun onResume() {
         super.onResume()
-        // Always display directories under internal storage, whether permission is granted or not
-        if (hasStoragePermission()) {
-            binding.permissionBanner.visibility = View.GONE
-        } else {
-            binding.permissionBanner.visibility = View.VISIBLE
-        }
-        loadFilesOfCurrentDirectory()
-    }
-
-    private fun isSubDirectoryOfRoot(child: File): Boolean {
-        val rootNorm = rootDirectory.canonicalPath.removeSuffix("/")
-        var parent: File? = child
-        while (parent != null) {
-            if (parent.canonicalPath.removeSuffix("/") == rootNorm) {
-                return true
-            }
-            parent = parent.parentFile
-        }
-        return false
-    }
-
-    private fun checkPermissions() {
-        if (hasStoragePermission()) {
-            binding.permissionBanner.visibility = View.GONE
-        } else {
-            binding.permissionBanner.visibility = View.VISIBLE
-        }
-        loadFilesOfCurrentDirectory()
-    }
-
-    private fun hasStoragePermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-    private fun requestStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                requestAllFilesPermissionLauncher.launch(intent)
-            } catch (e: Exception) {
-                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                requestAllFilesPermissionLauncher.launch(intent)
-            }
-        } else {
-            requestPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
-    }
-
-    private fun onPermissionGranted() {
-        Toast.makeText(this, R.string.toast_permission_success, Toast.LENGTH_SHORT).show()
-        binding.permissionBanner.visibility = View.GONE
-        loadFilesOfCurrentDirectory()
-    }
-
-    private fun navigateToDirectory(directory: File) {
-        if (isSubDirectoryOfRoot(directory)) {
-            currentDirectory = directory
-            // Save last visited
-            getSharedPreferences("lodestone_pref", Context.MODE_PRIVATE)
-                .edit()
-                .putString("last_visited_dir", currentDirectory.absolutePath)
-                .apply()
-            loadFilesOfCurrentDirectory()
-        }
-    }
-
-    private fun navigateUp() {
-        val currentNorm = currentDirectory.canonicalPath.removeSuffix("/")
-        val rootNorm = rootDirectory.canonicalPath.removeSuffix("/")
-        if (currentNorm == rootNorm) {
-            Toast.makeText(this, R.string.already_highest, Toast.LENGTH_SHORT).show()
-        } else {
-            currentDirectory.parentFile?.let {
-                navigateToDirectory(it)
-            }
-        }
-    }
-
-    private fun loadFilesOfCurrentDirectory() {
-        binding.tvCurrentPath.text = getRelativePathString(currentDirectory)
-
-        // Attempt to read files
-        var filesList = currentDirectory.listFiles()
-
-        // If filesList is null or empty (which happens when permissions are not granted yet),
-        // we populate the list with standard system folder names to showcase the directory structure.
-        if (filesList == null || filesList.isEmpty()) {
-            val mockList = DirectoryHelper.getMockSubFiles(currentDirectory, rootDirectory)
-            if (mockList.isNotEmpty()) {
-                filesList = mockList.toTypedArray()
-            }
-        }
-
-        if (filesList != null && filesList.isNotEmpty()) {
-            val filteredList = filesList.filter {
-                DirectoryHelper.isItemDirectory(it) || it.name.endsWith(".litematic", ignoreCase = true)
-            }
-            fileAdapter.updateData(filteredList)
-            if (filteredList.isEmpty()) {
-                binding.tvEmpty.visibility = View.VISIBLE
-            } else {
-                binding.tvEmpty.visibility = View.GONE
-            }
-        } else {
-            fileAdapter.updateData(emptyList())
-            binding.tvEmpty.visibility = View.VISIBLE
-        }
-    }
-
-    private fun getRelativePathString(directory: File): String {
-        val rootPath = rootDirectory.canonicalPath.removeSuffix("/")
-        val currentPath = directory.canonicalPath.removeSuffix("/")
-        return if (currentPath.startsWith(rootPath)) {
-            val rel = currentPath.substring(rootPath.length)
-            if (rel.isEmpty()) "/" else rel
-        } else {
-            "/"
-        }
+        updateResourcePackStatus()
     }
 
     private fun showPopupMenu(anchorView: View) {
@@ -285,11 +231,11 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, PreviewActivity::class.java).apply {
             if (fileUri != null) {
                 data = fileUri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             if (filePath != null) {
                 putExtra("file_path", filePath)
             }
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(intent)
     }

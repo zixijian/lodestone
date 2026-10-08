@@ -7,6 +7,7 @@ const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
+  createResourcesFromPack,
   BlockState,
   NbtFile
 } = Lodestone;
@@ -23,6 +24,8 @@ declare global {
     toggleCameraView(): void;
     resetCamera(): void;
     switchRegion(regionName: string): void;
+    toggleDayNight(): boolean;
+    startRenderLoop(): void;
     stopRenderLoop(): void;
     destroyRenderer(): void;
   }
@@ -44,26 +47,63 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
 
-// High-performance, low-memory block caching patch using Map
+// High-performance, zero-GC Uint16Array flat block grid storage with on-demand lazy block object creation
 (Structure.prototype as any).ensurePlacedCaches = function () {
-  if (this.placedBlocksCache && this.placedBlocksMapCache) return;
-  this.placedBlocksCache = [];
-  this.placedBlocksMapCache = new Map();
+  if (this.placedBlocksGrid) return;
+  const w = this.size[0], h = this.size[1], d = this.size[2];
+  const volume = w * h * d;
+  const grid = new Uint16Array(volume);
+  grid.fill(0xffff);
+  const hd = h * d;
+  this.placedBlockObjectMap = new Map();
+  this.placedBlockIndexMap = new Map();
+
   for (let i = 0; i < this.blocks.length; i++) {
-    const block = this.blocks[i];
-    const placed = this.toPlacedBlock(block);
-    this.placedBlocksCache.push(placed);
-    this.placedBlocksMapCache.set(this.getIndex(block.pos), placed);
+    const b = this.blocks[i];
+    const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
+    grid[idx] = b.state;
+    this.placedBlockIndexMap.set(idx, i);
   }
+  this.placedBlocksGrid = grid;
 };
 
 (Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
   if (!this.isInside(pos)) return null;
   this.ensurePlacedCaches();
-  if (this.placedBlocksMapCache instanceof Map) {
-    return this.placedBlocksMapCache.get(this.getIndex(pos)) ?? null;
+  const w = this.size[0], h = this.size[1], d = this.size[2];
+  const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
+  const stateIdx = this.placedBlocksGrid[idx];
+  if (stateIdx === 0xffff) return null;
+
+  let blockObj = this.placedBlockObjectMap.get(idx);
+  if (!blockObj) {
+    const origIndex = this.placedBlockIndexMap.get(idx);
+    const origBlock = origIndex !== undefined ? this.blocks[origIndex] : null;
+    blockObj = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx], nbt: origBlock?.nbt };
+    this.placedBlockObjectMap.set(idx, blockObj);
   }
-  return this.placedBlocksMapCache?.[this.getIndex(pos)] ?? null;
+  return blockObj;
+};
+
+(Structure.prototype as any).getBlocks = function () {
+  this.ensurePlacedCaches();
+  if (this.placedBlocksCache && this.placedBlocksCache.length > 0) {
+    return this.placedBlocksCache;
+  }
+  this.placedBlocksCache = [];
+  const w = this.size[0], h = this.size[1], d = this.size[2];
+  const hd = h * d;
+  for (let i = 0; i < this.blocks.length; i++) {
+    const b = this.blocks[i];
+    const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
+    let placed = this.placedBlockObjectMap.get(idx);
+    if (!placed) {
+      placed = { pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt };
+      this.placedBlockObjectMap.set(idx, placed);
+    }
+    this.placedBlocksCache.push(placed);
+  }
+  return this.placedBlocksCache;
 };
 
 // Suppress parent model warning for builtin/entity
@@ -83,6 +123,57 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
       }
     }
     return origFlatten.call(this, accessor);
+  };
+}
+
+
+// Non-full blocks that MUST NOT cull adjacent faces
+const nonFullKeywords = [
+  'chest', 'sign', 'frame', 'stair', 'slab', 'glass', 'door', 'trapdoor',
+  'fence', 'wall', 'gate', 'lantern', 'torch', 'chain', 'ladder', 'bars',
+  'pane', 'carpet', 'flower', 'tulip', 'rose', 'orchid', 'dandelion', 'poppy',
+  'bluet', 'lily', 'sunflower', 'lilac', 'peony', 'bush', 'sapling', 'mushroom',
+  'fungus', 'roots', 'sprout', 'vine', 'lichen', 'rail', 'lever', 'button',
+  'pressure_plate', 'tripwire', 'redstone', 'repeater', 'comparator', 'campfire',
+  'candle', 'amethyst', 'dripstone', 'coral', 'pickle', 'egg', 'bell', 'conduit',
+  'beacon', 'brewing', 'cauldron', 'hopper', 'composter', 'lectern', 'grindstone',
+  'stonecutter', 'anvil', 'enchanting', 'portal', 'dragon_egg', 'cake', 'bed',
+  'piston', 'head', 'skull', 'banner', 'bamboo', 'sugar_cane', 'cactus', 'kelp', 'seagrass'
+];
+
+const isNonFullBlock = (name: string) => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return nonFullKeywords.some(kw => lower.includes(kw));
+};
+
+// Comprehensive Face Culling & Special Block Processing
+if (Lodestone.ChunkBuilder) {
+  Lodestone.ChunkBuilder.prototype.needsCull = function (block: any, dir: any) {
+    const neighbor = this.structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
+    if (!neighbor) return false;
+    const neighborName = neighbor.getName().toString();
+    const flags = this.resources.getBlockFlags(neighbor.getName());
+    if (!flags?.opaque) return false;
+    if (isNonFullBlock(neighborName)) return false;
+    return true;
+  };
+
+  Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
+    const dirs = [
+      Lodestone.Direction.UP, Lodestone.Direction.DOWN,
+      Lodestone.Direction.NORTH, Lodestone.Direction.SOUTH,
+      Lodestone.Direction.EAST, Lodestone.Direction.WEST
+    ];
+    for (const dir of dirs) {
+      const neighbor = this.structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
+      if (!neighbor) return false;
+      const name = neighbor.getName().toString();
+      if (isNonFullBlock(name)) return false;
+      const flags = this.resources.getBlockFlags(neighbor.getName());
+      if (!flags?.opaque) return false;
+    }
+    return true;
   };
 }
 
@@ -178,9 +269,59 @@ async function init() {
   activeCamera.position.set(10, 15, 20);
 
   try {
-    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + 'default-pack/';
-    const loaded = await loadDefaultPackResources({ baseUrl: packBaseUrl });
-    currentResources = loaded.resources;
+    const cb = Date.now();
+    const packBaseUrl = window.location.href.split('?')[0].replace('index.html', '') + `default-pack/`;
+
+    const parseBlockList = (text: string) => {
+      const set = new Set<string>();
+      if (!text) return set;
+      text.split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          set.add(trimmed.startsWith('minecraft:') ? trimmed : 'minecraft:' + trimmed);
+        }
+      });
+      return set;
+    };
+
+    const [loaded, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
+      loadDefaultPackResources({ baseUrl: packBaseUrl + `?cb=${cb}` }),
+      fetch(packBaseUrl + `block-flags/opaque.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/transparent.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/non-self-culling.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
+    ]);
+
+    const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
+    const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
+    const nonSelfCullingText = nonSelfCullingRes && nonSelfCullingRes.ok ? await nonSelfCullingRes.text() : '';
+    const emissiveJson = emissiveRes && emissiveRes.ok ? await emissiveRes.json() : {};
+
+    const parsedOpaque = parseBlockList(opaqueText);
+    const parsedTransparent = parseBlockList(transparentText);
+
+    // Filter opaque flags so ONLY true 1x1x1 solid cubes are opaque
+    const strictOpaque = new Set<string>();
+    parsedOpaque.forEach(id => {
+      if (!isNonFullBlock(id)) {
+        strictOpaque.add(id);
+      } else {
+        parsedTransparent.add(id);
+      }
+    });
+
+    const flags = {
+      opaque: strictOpaque,
+      transparent: parsedTransparent,
+      nonSelfCulling: parseBlockList(nonSelfCullingText),
+      emissive: emissiveJson
+    };
+
+    currentResources = createResourcesFromPack({
+      assets: loaded.assets,
+      atlas: loaded.atlas,
+      flags
+    });
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
@@ -206,6 +347,12 @@ function tick() {
     renderer.drawStructure(cachedViewMatrix);
   }
 }
+
+window.startRenderLoop = function () {
+  if (animFrameId === null) {
+    tick();
+  }
+};
 
 window.stopRenderLoop = function () {
   if (animFrameId !== null) {
@@ -517,8 +664,14 @@ async function buildRendererForRegion(regionName: string) {
     ((renderer as any).skyScene as THREE.Scene).clear();
   }
   if (renderer.renderer) {
-    renderer.renderer.setClearColor(0x002b36, 1.0);
+    renderer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.renderer.toneMappingExposure = 0.70;
   }
+
+  // Force strict Day Mode initialization and synchronize all material lighting uniforms
+  isNightMode = true;
+  window.toggleDayNight();
 
   const aspect = window.innerWidth / window.innerHeight;
   perspectiveCamera.far = 100000.0;
@@ -662,6 +815,39 @@ window.toggleCameraView = function () {
   controls.dampingFactor = 0.05;
   controls.target.copy(currentTarget);
   controls.update();
+};
+
+let isNightMode = false;
+window.toggleDayNight = function () {
+  isNightMode = !isNightMode;
+  if (renderer) {
+    if (renderer.renderer) {
+      renderer.renderer.setClearColor(isNightMode ? 0x040810 : 0x002b36, 1.0);
+    }
+    if ((renderer as any).sunlight) {
+      const sun = (renderer as any).sunlight;
+      if (isNightMode) {
+        // Night Mode: Ambient 0.12, Sun 0.08, Background #040810, Clean contrast
+        sun.intensity = 0.08;
+        sun.ambientIntensity = 0.12;
+        if (sun.emissive) sun.emissive.intensity = 0.25;
+        sun.direction = [-0.2, -0.9, -0.3];
+        if (sun.light) sun.light.intensity = 0.08;
+        if (sun.ambient) sun.ambient.intensity = 0.12;
+      } else {
+        // Day Mode: Ambient 0.55, Sun 0.45, Exposure 0.70, Emissive 0.10
+        sun.intensity = 0.45;
+        sun.ambientIntensity = 0.55;
+        if (sun.emissive) sun.emissive.intensity = 0.10;
+        sun.direction = [0.6, 1.0, 0.8];
+        if (sun.light) sun.light.intensity = 0.45;
+        if (sun.ambient) sun.ambient.intensity = 0.55;
+      }
+    }
+    if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
+    if ((renderer as any).transparentMaterial) (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
+  }
+  return isNightMode;
 };
 
 window.resetCamera = function () {

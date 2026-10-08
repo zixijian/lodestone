@@ -74,6 +74,10 @@ class PreviewActivity : AppCompatActivity() {
             binding.webviewRenderer.evaluateJavascript("resetCamera();", null)
         }
 
+        binding.fabDayNight.setOnClickListener {
+            binding.webviewRenderer.evaluateJavascript("toggleDayNight();", null)
+        }
+
         binding.fabRegionSwitch.setOnClickListener {
             showRegionSelector()
         }
@@ -85,6 +89,7 @@ class PreviewActivity : AppCompatActivity() {
         webSettings.javaScriptEnabled = true
         webSettings.domStorageEnabled = true
         webSettings.allowFileAccess = true
+        webSettings.cacheMode = WebSettings.LOAD_NO_CACHE
 
         // Force Solarized Dark background on WebView before loading content
         binding.webviewRenderer.setBackgroundColor(getColor(R.color.solarized_base03))
@@ -100,9 +105,37 @@ class PreviewActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
+                val path = url.path ?: ""
+
+                // Intercept default resource pack requests to serve custom uploaded resource pack files if available
+                if (path.contains("/default-pack/")) {
+                    val rawSub = path.substringAfter("/default-pack/").substringBefore("?")
+                    val subPath = rawSub
+                    val customPackFile = File(filesDir, "custom_resource_pack/$subPath")
+                    if (customPackFile.exists() && customPackFile.isFile) {
+                        try {
+                            val mimeType = when {
+                                subPath.endsWith(".png", ignoreCase = true) -> "image/png"
+                                subPath.endsWith(".json", ignoreCase = true) -> "application/json"
+                                else -> "application/octet-stream"
+                            }
+                            val encoding = if (mimeType.startsWith("image/") || mimeType == "application/octet-stream") null else "UTF-8"
+                            return WebResourceResponse(
+                                mimeType,
+                                encoding,
+                                200,
+                                "OK",
+                                mapOf("Access-Control-Allow-Origin" to "*"),
+                                FileInputStream(customPackFile)
+                            )
+                        } catch (e: Exception) {
+                            Log.e("Lodestone", "Failed to serve custom resource pack file", e)
+                        }
+                    }
+                }
 
                 // Read local schematic file stream for offline 3D rendering
-                if (url.path?.endsWith("/model.litematic") == true) {
+                if (path.endsWith("/model.litematic")) {
                     try {
                         val filePath = intent.getStringExtra("file_path")
                         val file = if (filePath != null) File(filePath) else null
@@ -162,6 +195,11 @@ class PreviewActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         binding.webviewRenderer.evaluateJavascript("if(window.stopRenderLoop) window.stopRenderLoop();", null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        binding.webviewRenderer.evaluateJavascript("if(window.startRenderLoop) window.startRenderLoop();", null)
     }
 
     override fun onDestroy() {

@@ -57,89 +57,145 @@
         </LinearLayout>
     </RelativeLayout>
 
-    <!-- Permission Guide Banner -->
+    <!-- Main Actions Cards Container -->
     <LinearLayout
-        android:id="@+id/permission_banner"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/solarized_base02"
         android:orientation="vertical"
-        android:padding="16dp"
-        android:visibility="gone"
-        tools:visibility="visible">
+        android:paddingHorizontal="16dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp">
 
-        <TextView
-            android:id="@+id/banner_description"
+        <!-- Card 1: Open Schematic File -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_open_file"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/banner_text"
-            android:textColor="@color/solarized_base0"
-            android:textSize="14sp" />
+            android:layout_height="120dp"
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/solarized_base02"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
 
-        <Button
-            android:id="@+id/btn_grant_permission"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:layout_marginTop="8dp"
-            android:backgroundTint="@color/solarized_blue"
-            android:text="@string/banner_action"
-            android:textColor="@color/solarized_base3" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:contentDescription="Open file"
+                    android:src="@android:drawable/ic_menu_add"
+                    app:tint="@color/solarized_green" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="打开投影文件"
+                    android:textColor="@color/solarized_base1"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="通过 SAF 选择 .litematic, .schem, .nbt, .mcstructure 文件"
+                    android:textColor="@color/solarized_base0"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Card 2: Resource Pack Settings (Same Height 120dp) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_resource_pack"
+            android:layout_width="match_parent"
+            android:layout_height="120dp"
+            app:cardBackgroundColor="@color/solarized_base02"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:padding="16dp">
+
+                <ImageView
+                    android:id="@+id/iv_pack_icon"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_centerVertical="true"
+                    android:layout_alignParentStart="true"
+                    android:contentDescription="Pack icon"
+                    android:src="@android:drawable/ic_menu_gallery"
+                    app:tint="@color/solarized_cyan" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    android:layout_marginStart="12dp"
+                    android:layout_toEndOf="@id/iv_pack_icon"
+                    android:layout_toStartOf="@id/pack_actions_layout"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_pack_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="当前材质包"
+                        android:textColor="@color/solarized_base1"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_pack_subtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="默认材质包 (Minecraft 1.21.x)"
+                        android:textColor="@color/solarized_base0"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- Action Buttons Vertically Stacked (Import Pack & Reset Pack) -->
+                <LinearLayout
+                    android:id="@+id/pack_actions_layout"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:gravity="end"
+                    android:orientation="vertical">
+
+                    <Button
+                        android:id="@+id/btn_import_pack"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:padding="0dp"
+                        android:text="导入材质"
+                        android:textColor="@color/solarized_blue"
+                        android:textSize="14sp" />
+
+                    <Button
+                        android:id="@+id/btn_reset_pack"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:padding="0dp"
+                        android:text="重置材质"
+                        android:textColor="@color/solarized_magenta"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+            </RelativeLayout>
+        </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
-
-    <!-- Navigation Path & Back Row -->
-    <RelativeLayout
-        android:id="@+id/nav_bar"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:background="@color/solarized_base03"
-        android:paddingHorizontal="16dp">
-
-        <Button
-            android:id="@+id/btn_back"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_alignParentStart="true"
-            android:layout_centerVertical="true"
-            android:text="@string/back_to_parent"
-            android:textColor="@color/solarized_blue" />
-
-        <TextView
-            android:id="@+id/tv_current_path"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_centerVertical="true"
-            android:layout_marginStart="8dp"
-            android:layout_toEndOf="@id/btn_back"
-            android:ellipsize="start"
-            android:singleLine="true"
-            android:text="/"
-            android:textColor="@color/solarized_base1"
-            android:textSize="12sp" />
-    </RelativeLayout>
-
-    <!-- File List Browser -->
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_files"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:paddingHorizontal="8dp" />
-
-        <TextView
-            android:id="@+id/tv_empty"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="@string/file_empty"
-            android:textColor="@color/solarized_base01"
-            android:textSize="16sp"
-            android:visibility="gone" />
-    </FrameLayout>
 
 </LinearLayout>
