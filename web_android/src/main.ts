@@ -340,7 +340,6 @@ async function init() {
       const latchTo: [number, number, number] = isLeft ? [16, 11, 1] : [2, 11, 1];
 
       if (isLeft) {
-        // User custom geometry transformations for left chest half
         return {
           textures: { '0': texPath },
           elements: [
@@ -348,16 +347,11 @@ async function init() {
               from: bodyFrom,
               to: bodyTo,
               faces: {
-                // North: Front face
                 north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: '#0' },
-                // West: Left side face
                 west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-                // South: Back face mapped with side texture & 180 rot per spec
                 south: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
-                // East: Interior seam face - NOT rendered
-                // Top: Flat top face translated left and rotated 180 deg
+                // east (middle seam) is NOT rendered
                 up: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' },
-                // Down: Swapped bottom face
                 down: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' }
               }
             },
@@ -368,6 +362,7 @@ async function init() {
                 north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: '#0' },
                 west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
                 south: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
+                // east (middle seam) is NOT rendered
                 up: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' },
                 down: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' }
               }
@@ -377,9 +372,9 @@ async function init() {
               to: latchTo,
               faces: {
                 north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-                east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
                 south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
                 west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+                // east (middle seam) is NOT rendered
                 up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
                 down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
               }
@@ -399,9 +394,9 @@ async function init() {
               north: { uv: [7, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
               east: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
               south: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-              // West: Interior seam face - NOT rendered
-              up: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' },
-              down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
+              // west (middle seam) is NOT rendered
+              up: { uv: [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' },
+              down: { uv: [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' }
             }
           },
           {
@@ -411,8 +406,9 @@ async function init() {
               north: { uv: [7, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' },
               east: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
               south: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-              up: { uv: [3.5, 0, 7, 3.5], texture: '#0' },
-              down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
+              // west (middle seam) is NOT rendered
+              up: { uv: [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' },
+              down: { uv: [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' }
             }
           },
           {
@@ -422,7 +418,7 @@ async function init() {
               north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
               east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
               south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-              west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+              // west (middle seam) is NOT rendered
               up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
               down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
             }
@@ -1203,13 +1199,13 @@ window.toggleDayNight = function () {
         if (sun.light) sun.light.intensity = 0.08;
         if (sun.ambient) sun.ambient.intensity = 0.12;
       } else {
-        // Day Mode: Ambient 0.55, Sun 0.45, Exposure 0.70, Emissive 0.10
-        sun.intensity = 0.45;
-        sun.ambientIntensity = 0.55;
+        // Day Mode: Ambient 0.65, Sun 0.50, Exposure 0.77, Emissive 0.10 (~10% boost for high clarity)
+        sun.intensity = 0.50;
+        sun.ambientIntensity = 0.65;
         if (sun.emissive) sun.emissive.intensity = 0.10;
         sun.direction = [0.6, 1.0, 0.8];
-        if (sun.light) sun.light.intensity = 0.45;
-        if (sun.ambient) sun.ambient.intensity = 0.55;
+        if (sun.light) sun.light.intensity = 0.50;
+        if (sun.ambient) sun.ambient.intensity = 0.65;
       }
     }
     if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
