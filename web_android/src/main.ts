@@ -75,14 +75,14 @@ let animFrameId: number | null = null;
   const stateIdx = this.placedBlocksGrid[idx];
   if (stateIdx === 0xffff) return null;
 
-  let blockObj = this.placedBlockObjectMap.get(idx);
-  if (!blockObj) {
+  let cached = this.placedBlockObjectMap.get(idx);
+  if (!cached) {
     const origIndex = this.placedBlockIndexMap.get(idx);
     const origBlock = origIndex !== undefined ? this.blocks[origIndex] : null;
-    blockObj = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx], nbt: origBlock?.nbt };
-    this.placedBlockObjectMap.set(idx, blockObj);
+    cached = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx], nbt: origBlock?.nbt };
+    this.placedBlockObjectMap.set(idx, cached);
   }
-  return blockObj;
+  return cached;
 };
 
 (Structure.prototype as any).getBlocks = function () {
@@ -106,6 +106,32 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
+// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
+if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
+  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
+  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+    const name = block.getName().toString();
+    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+      let type = 'single';
+      if (typeof block.getProperties === 'function') {
+        const props = block.getProperties();
+        if (props && props.type) type = props.type;
+      } else if (block.properties) {
+        type = block.properties.type || 'single';
+      }
+      if (type === 'left' || type === 'right') {
+        const emptyMesh = new (Lodestone as any).Mesh();
+        if (block.isWaterlogged && block.isWaterlogged()) {
+          const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
+          if (waterMesh) emptyMesh.merge(waterMesh);
+        }
+        return emptyMesh;
+      }
+    }
+    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+  };
+}
+
 // Suppress parent model warning for builtin/entity
 if ((Lodestone as any).BlockModel?.prototype?.flatten) {
   const origFlatten = (Lodestone as any).BlockModel.prototype.flatten;
@@ -125,7 +151,6 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
     return origFlatten.call(this, accessor);
   };
 }
-
 
 // Non-full blocks that MUST NOT cull adjacent faces
 const nonFullKeywords = [
@@ -160,6 +185,17 @@ if (Lodestone.ChunkBuilder) {
   };
 
   Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
+    const blockName = block.state.getName().toString();
+    if (
+      blockName === 'minecraft:chest' ||
+      blockName === 'minecraft:trapped_chest' ||
+      blockName.includes('hanging_sign') ||
+      blockName === 'minecraft:item_frame' ||
+      blockName === 'minecraft:glow_item_frame'
+    ) {
+      return false;
+    }
+
     const dirs = [
       Lodestone.Direction.UP, Lodestone.Direction.DOWN,
       Lodestone.Direction.NORTH, Lodestone.Direction.SOUTH,
@@ -292,6 +328,187 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
+    // Ensure hanging sign textures map correctly in atlas
+    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+    woodTypes.forEach(w => {
+      const signKey = `entity/signs/${w}`;
+      const hangingKey = `entity/signs/hanging/${w}`;
+      if (loaded.assets.textures[signKey]) {
+        loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
+      }
+    });
+
+    // Create custom blockstates and models for double chests (left/right)
+    const createChestBlockState = (modelName: string, leftModel: string, rightModel: string) => ({
+      variants: {
+        'type=left,facing=north': { model: leftModel, y: 0 },
+        'type=left,facing=south': { model: leftModel, y: 180 },
+        'type=left,facing=west': { model: leftModel, y: 270 },
+        'type=left,facing=east': { model: leftModel, y: 90 },
+        'type=right,facing=north': { model: rightModel, y: 0 },
+        'type=right,facing=south': { model: rightModel, y: 180 },
+        'type=right,facing=west': { model: rightModel, y: 270 },
+        'type=right,facing=east': { model: rightModel, y: 90 },
+        'type=single,facing=north': { model: modelName, y: 0 },
+        'type=single,facing=south': { model: modelName, y: 180 },
+        'type=single,facing=west': { model: modelName, y: 270 },
+        'type=single,facing=east': { model: modelName, y: 90 },
+        'facing=north': { model: modelName, y: 0 },
+        'facing=south': { model: modelName, y: 180 },
+        'facing=west': { model: modelName, y: 270 },
+        'facing=east': { model: modelName, y: 90 }
+      }
+    });
+
+    loaded.assets.blockstates['chest'] = createChestBlockState('block/chest', 'block/chest_left', 'block/chest_right');
+    loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
+
+    const createChestHalfModel = (isLeft: boolean, texPath: string) => {
+      // isLeft = type=left (Left half of double chest from viewer perspective):
+      // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
+      // isRight = type=right (Right half of double chest from viewer perspective):
+      // Spans x = 0..15, outer wall at x=15 (east), inner seam at x=0 (west). Latch at x=0..1.
+      const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
+      const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
+
+      const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
+      const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
+
+      const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
+      const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
+
+      const bodyFaces: any = {
+        north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
+        south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
+        up: { uv: [11.0, 8.25, 7.25, 4.75], texture: '#0' },
+        down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' },
+        west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+        east: { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' }
+      };
+
+      const lidFaces: any = {
+        north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
+        south: { uv: [3.5, 3.75, 7.25, 4.75], rotation: 180, texture: '#0' },
+        up: { uv: [11.0, 3.5, 7.25, 0], texture: '#0' },
+        down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' },
+        west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+        east: { uv: [7.25, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' }
+      };
+
+      const latchFaces = {
+        north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
+        south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: '#0' },
+        west: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+        east: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+        up: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' },
+        down: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' }
+      };
+
+      return {
+        textures: { '0': texPath },
+        elements: [
+          { from: bodyFrom, to: bodyTo, faces: bodyFaces },
+          { from: lidFrom, to: lidTo, faces: lidFaces },
+          { from: latchFrom, to: latchTo, faces: latchFaces }
+        ]
+      };
+    };
+
+    loaded.assets.models['block/chest_left'] = createChestHalfModel(true, 'entity/chest/normal_left');
+    loaded.assets.models['block/chest_right'] = createChestHalfModel(false, 'entity/chest/normal_right');
+    loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
+    loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
+
+    // Custom blockstate for item frames across orientations
+    const createItemFrameBlockState = (modelName: string) => ({
+      variants: {
+        'facing=north': { model: modelName },
+        'facing=south': { model: modelName, y: 180 },
+        'facing=west': { model: modelName, y: 270 },
+        'facing=east': { model: modelName, y: 90 },
+        'facing=up': { model: modelName, x: 270 },
+        'facing=down': { model: modelName, x: 90 },
+        'map=false,facing=north': { model: modelName },
+        'map=false,facing=south': { model: modelName, y: 180 },
+        'map=false,facing=west': { model: modelName, y: 270 },
+        'map=false,facing=east': { model: modelName, y: 90 },
+        'map=false,facing=up': { model: modelName, x: 270 },
+        'map=false,facing=down': { model: modelName, x: 90 },
+        'map=true,facing=north': { model: modelName },
+        'map=true,facing=south': { model: modelName, y: 180 },
+        'map=true,facing=west': { model: modelName, y: 270 },
+        'map=true,facing=east': { model: modelName, y: 90 },
+        'map=true,facing=up': { model: modelName, x: 270 },
+        'map=true,facing=down': { model: modelName, x: 90 }
+      }
+    });
+
+    loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
+    loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
+
+    const createItemFrameModel = () => ({
+      textures: {
+        wood: 'block/birch_planks'
+      },
+      elements: [
+        {
+          from: [3, 3, 15],
+          to: [13, 13, 16],
+          faces: {
+            north: { uv: [3, 3, 13, 13], texture: '#wood' },
+            south: { uv: [3, 3, 13, 13], texture: '#wood' }
+          }
+        },
+        {
+          from: [2, 2, 14],
+          to: [14, 3, 16],
+          faces: {
+            north: { uv: [2, 13, 14, 14], texture: '#wood' },
+            south: { uv: [2, 13, 14, 14], texture: '#wood' },
+            up: { uv: [2, 14, 14, 16], texture: '#wood' },
+            down: { uv: [2, 0, 14, 2], texture: '#wood' },
+            east: { uv: [0, 13, 2, 14], texture: '#wood' },
+            west: { uv: [14, 13, 16, 14], texture: '#wood' }
+          }
+        },
+        {
+          from: [2, 13, 14],
+          to: [14, 14, 16],
+          faces: {
+            north: { uv: [2, 2, 14, 3], texture: '#wood' },
+            south: { uv: [2, 2, 14, 3], texture: '#wood' },
+            up: { uv: [2, 14, 14, 16], texture: '#wood' },
+            down: { uv: [2, 0, 14, 2], texture: '#wood' },
+            east: { uv: [0, 2, 2, 3], texture: '#wood' },
+            west: { uv: [14, 2, 16, 3], texture: '#wood' }
+          }
+        },
+        {
+          from: [2, 3, 14],
+          to: [3, 13, 16],
+          faces: {
+            north: { uv: [13, 3, 14, 13], texture: '#wood' },
+            south: { uv: [2, 3, 3, 13], texture: '#wood' },
+            east: { uv: [0, 3, 2, 13], texture: '#wood' },
+            west: { uv: [14, 3, 16, 13], texture: '#wood' }
+          }
+        },
+        {
+          from: [13, 3, 14],
+          to: [14, 13, 16],
+          faces: {
+            north: { uv: [2, 3, 3, 13], texture: '#wood' },
+            south: { uv: [13, 3, 14, 13], texture: '#wood' },
+            east: { uv: [0, 3, 2, 13], texture: '#wood' },
+            west: { uv: [14, 3, 16, 13], texture: '#wood' }
+          }
+        }
+      ]
+    });
+
+    loaded.assets.models['block/item_frame'] = createItemFrameModel();
+    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
+
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
     const nonSelfCullingText = nonSelfCullingRes && nonSelfCullingRes.ok ? await nonSelfCullingRes.text() : '';
@@ -322,6 +539,16 @@ async function init() {
       atlas: loaded.atlas,
       flags
     });
+
+    // Alias all texture keys in atlas to include minecraft: namespace prefix for BlockModel lookup compatibility
+    if (currentResources && currentResources.textures) {
+      const texMap = currentResources.textures;
+      Object.keys(texMap).forEach(key => {
+        if (!key.startsWith('minecraft:')) {
+          texMap['minecraft:' + key] = texMap[key];
+        }
+      });
+    }
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
@@ -451,17 +678,41 @@ async function loadRegionAsync(
   const blockStatesNbt = regionCompound.has('BlockStates')
     ? regionCompound.getLongArray('BlockStates')
     : null;
-  const items = blockStatesNbt ? blockStatesNbt.getItems() : [];
-  const numLongs = items.length;
-  const longArray = new BigUint64Array(numLongs);
-  for (let i = 0; i < numLongs; i++) {
-    const pair = items[i].getAsPair(); // [high32, low32]
-    const high = BigInt(pair[0] >>> 0);
-    const low = BigInt(pair[1] >>> 0);
-    longArray[i] = (high << 32n) | low;
+
+  let numLongs = 0;
+  let longArray = new BigUint64Array(0);
+
+  if (blockStatesNbt) {
+    if (typeof blockStatesNbt.getItems === 'function') {
+      const items = blockStatesNbt.getItems();
+      numLongs = items.length;
+      longArray = new BigUint64Array(numLongs);
+      for (let i = 0; i < numLongs; i++) {
+        const item = items[i];
+        if (item && typeof item.getAsPair === 'function') {
+          const pair = item.getAsPair(); // [high32, low32]
+          const high = BigInt(pair[0] >>> 0);
+          const low = BigInt(pair[1] >>> 0);
+          longArray[i] = (high << 32n) | low;
+        } else if (item && typeof item.value === 'bigint') {
+          longArray[i] = BigInt(item.value);
+        } else if (Array.isArray(item)) {
+          const high = BigInt((item[0] ?? 0) >>> 0);
+          const low = BigInt((item[1] ?? 0) >>> 0);
+          longArray[i] = (high << 32n) | low;
+        }
+      }
+    } else if (Array.isArray((blockStatesNbt as any).value)) {
+      const arr = (blockStatesNbt as any).value;
+      numLongs = arr.length;
+      longArray = new BigUint64Array(numLongs);
+      for (let i = 0; i < numLongs; i++) {
+        longArray[i] = BigInt(arr[i]);
+      }
+    }
   }
 
-  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
+  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
   const maskBig = (1n << BigInt(bitsPerBlock)) - 1n;
 
   const width = size[0];
@@ -651,6 +902,16 @@ async function buildRendererForRegion(regionName: string) {
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
 
+  if ((renderer as any).atlasTexture) {
+    const texture = (renderer as any).atlasTexture;
+    texture.minFilter = THREE.NearestMipmapLinearFilter;
+    texture.magFilter = THREE.NearestFilter;
+    if (renderer.renderer) {
+      texture.anisotropy = renderer.renderer.capabilities.getMaxAnisotropy();
+    }
+    texture.needsUpdate = true;
+  }
+
   // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
     (renderer as any).sunlight.fog.density = 0.0;
@@ -835,13 +1096,13 @@ window.toggleDayNight = function () {
         if (sun.light) sun.light.intensity = 0.08;
         if (sun.ambient) sun.ambient.intensity = 0.12;
       } else {
-        // Day Mode: Ambient 0.55, Sun 0.45, Exposure 0.70, Emissive 0.10
-        sun.intensity = 0.45;
-        sun.ambientIntensity = 0.55;
+        // Day Mode: Ambient 0.65, Sun 0.50, Exposure 0.77, Emissive 0.10 (~10% boost for high clarity)
+        sun.intensity = 0.50;
+        sun.ambientIntensity = 0.65;
         if (sun.emissive) sun.emissive.intensity = 0.10;
         sun.direction = [0.6, 1.0, 0.8];
-        if (sun.light) sun.light.intensity = 0.45;
-        if (sun.ambient) sun.ambient.intensity = 0.55;
+        if (sun.light) sun.light.intensity = 0.50;
+        if (sun.ambient) sun.ambient.intensity = 0.65;
       }
     }
     if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
