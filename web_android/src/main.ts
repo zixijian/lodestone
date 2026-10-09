@@ -368,13 +368,21 @@ async function init() {
       const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
       const latchTo: [number, number, number] = isLeft ? [16, 11, 1] : [1, 11, 1];
 
+      // Front (north) UVs: left chest uses right-half front texture [7.25..11], right chest uses left-half front texture [3.5..7.25]
+      const bodyNorthUv = isLeft ? [7.25, 8.25, 11, 10.75] : [3.5, 8.25, 7.25, 10.75];
+      const lidNorthUv = isLeft ? [7.25, 3.5, 11, 4.75] : [3.5, 3.5, 7.25, 4.75];
+
+      // Back (south) UVs: left chest uses left-half back texture [11..14.75], right chest uses right-half back texture [14.75..16]
+      const bodySouthUv = isLeft ? [11, 8.25, 14.75, 10.75] : [14.75, 8.25, 16, 10.75];
+      const lidSouthUv = isLeft ? [11, 3.5, 14.75, 4.75] : [14.75, 3.5, 16, 4.75];
+
       const rawElements = [
         {
           from: bodyFrom,
           to: bodyTo,
           faces: {
-            north: { uv: [10.75, 8.25, 14.5, 10.75], texture: '#0' },
-            south: { uv: [3.5, 8.25, 7.25, 10.75], texture: '#0' },
+            north: { uv: bodyNorthUv, texture: '#0' },
+            south: { uv: bodySouthUv, texture: '#0' },
             west: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' },
             east: { uv: [7.25, 8.25, 10.75, 10.75], texture: '#0' },
             up: { uv: [11, 8.25, 7.25, 4.75], texture: '#0' },
@@ -385,8 +393,8 @@ async function init() {
           from: lidFrom,
           to: lidTo,
           faces: {
-            north: { uv: [10.75, 3.5, 14.5, 4.75], texture: '#0' },
-            south: { uv: [3.5, 3.5, 7.25, 4.75], texture: '#0' },
+            north: { uv: lidNorthUv, texture: '#0' },
+            south: { uv: lidSouthUv, texture: '#0' },
             west: { uv: [0, 3.5, 3.5, 4.75], texture: '#0' },
             east: { uv: [7.25, 3.5, 10.75, 4.75], texture: '#0' },
             up: { uv: [11, 3.5, 7.25, 0], texture: '#0' },
