@@ -369,48 +369,49 @@ async function init() {
       const latchFrom: [number, number, number] = isLeft ? [0, 7, 0] : [15, 7, 0];
       const latchTo: [number, number, number] = isLeft ? [1, 11, 2] : [16, 11, 2];
 
-      const rawElements = [
-        {
-          from: bodyFrom,
-          to: bodyTo,
-          faces: {
-            north: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
-            south: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
-            east: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-            west: { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
-            up: { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' },
-            down: { uv: [7.25, 4.75, 11, 8.25], texture: '#0' }
-          }
-        },
-        {
-          from: lidFrom,
-          to: lidTo,
-          faces: {
-            north: { uv: [3.5, 3.5, 7.25, 4.5], rotation: 180, texture: '#0' },
-            south: { uv: [10.75, 3.5, 14.5, 4.5], rotation: 180, texture: '#0' },
-            east: { uv: [0, 3.5, 3.5, 4.5], rotation: 180, texture: '#0' },
-            west: { uv: [7.25, 3.5, 10.75, 4.5], rotation: 180, texture: '#0' },
-            up: { uv: [3.5, 0, 7.25, 3.5], texture: '#0' },
-            down: { uv: [7.25, 0, 11, 3.5], texture: '#0' }
-          }
-        },
-        {
-          from: latchFrom,
-          to: latchTo,
-          faces: {
-            north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
-            south: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-            east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-            west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-            up: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
-            down: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' }
-          }
-        }
-      ];
+      const bodyFaces: any = {
+        north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
+        south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
+        up: { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' },
+        down: { uv: [7.25, 4.75, 11, 8.25], texture: '#0' }
+      };
+      if (isLeft) {
+        bodyFaces.east = { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' };
+      } else {
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
+      }
+
+      const lidFaces: any = {
+        north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
+        south: { uv: [3.5, 3.75, 7.25, 4.75], rotation: 180, texture: '#0' },
+        up: { uv: [3.5, 0, 7.25, 3.5], texture: '#0' },
+        down: { uv: [7.25, 0, 11, 3.5], texture: '#0' }
+      };
+      if (isLeft) {
+        lidFaces.east = { uv: [7.25, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' };
+      } else {
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+      }
+
+      const latchFaces: any = {
+        north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
+        south: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+        up: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
+        down: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' }
+      };
+      if (isLeft) {
+        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
+      } else {
+        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
+      }
 
       return {
         textures: { '0': texPath },
-        elements: rawElements
+        elements: [
+          { from: bodyFrom, to: bodyTo, faces: bodyFaces },
+          { from: lidFrom, to: lidTo, faces: lidFaces },
+          { from: latchFrom, to: latchTo, faces: latchFaces }
+        ]
       };
     };
 
