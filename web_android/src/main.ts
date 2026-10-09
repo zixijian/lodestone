@@ -359,14 +359,14 @@ async function init() {
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest');
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
-      // Left half spans x: 0..15 (seam at right 15..16), Right half spans x: 1..16 (seam at left 0..1)
-      const bodyFrom: [number, number, number] = isLeft ? [0, 0, 1] : [1, 0, 1];
-      const bodyTo: [number, number, number] = isLeft ? [15, 10, 15] : [16, 10, 15];
-      const lidFrom: [number, number, number] = isLeft ? [0, 10, 1] : [1, 10, 1];
-      const lidTo: [number, number, number] = isLeft ? [15, 14, 15] : [16, 14, 15];
-      // Latch at center seam: x=14..16 on left half, x=0..2 on right half
-      const latchFrom: [number, number, number] = isLeft ? [14, 7, 0] : [0, 7, 0];
-      const latchTo: [number, number, number] = isLeft ? [16, 11, 1] : [2, 11, 1];
+      // Left half spans x: 1..16 (seam at right x=16), Right half spans x: 0..15 (seam at left x=0)
+      const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
+      const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
+      const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
+      const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
+      // Latch at center seam: x=15..16 on left half, x=0..1 on right half
+      const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
+      const latchTo: [number, number, number] = isLeft ? [16, 11, 1] : [1, 11, 1];
 
       const rawElements = [
         {
@@ -377,8 +377,8 @@ async function init() {
             south: { uv: [10.75, 8.25, 14.5, 10.75], texture: '#0' },
             west: isLeft ? { uv: [0, 8.25, 3.5, 10.75], texture: '#0' } : undefined,
             east: isLeft ? undefined : { uv: [7.25, 8.25, 10.75, 10.75], texture: '#0' },
-            up: { uv: [7.25, 4.75, 11, 8.25], texture: '#0' },
-            down: { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' }
+            up: { uv: [7.25, 4.75, 3.5, 8.25], texture: '#0' },
+            down: { uv: [11, 4.75, 7.25, 8.25], texture: '#0' }
           }
         },
         {
@@ -389,20 +389,20 @@ async function init() {
             south: { uv: [10.75, 3.5, 14.5, 4.5], texture: '#0' },
             west: isLeft ? { uv: [0, 3.5, 3.5, 4.5], texture: '#0' } : undefined,
             east: isLeft ? undefined : { uv: [7.25, 3.5, 10.75, 4.5], texture: '#0' },
-            up: { uv: [7.25, 0, 11, 3.5], texture: '#0' },
-            down: { uv: [3.5, 0, 7.25, 3.5], texture: '#0' }
+            up: { uv: [7.25, 0, 3.5, 3.5], texture: '#0' },
+            down: { uv: [11, 0, 7.25, 3.5], texture: '#0' }
           }
         },
         {
           from: latchFrom,
           to: latchTo,
           faces: {
-            north: { uv: [0.25, 0.25, 0.75, 1.25], texture: '#0' },
-            south: { uv: [1, 0.25, 1.5, 1.25], texture: '#0' },
+            north: { uv: [0.25, 0.25, 0.5, 1.25], texture: '#0' },
+            south: { uv: [1, 0.25, 1.25, 1.25], texture: '#0' },
             west: isLeft ? { uv: [0.75, 0.25, 1, 1.25], texture: '#0' } : undefined,
             east: isLeft ? undefined : { uv: [0.75, 0.25, 1, 1.25], texture: '#0' },
-            up: { uv: [0.25, 0, 0.75, 0.25], texture: '#0' },
-            down: { uv: [0.75, 0, 1.25, 0.25], texture: '#0' }
+            up: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
+            down: { uv: [0.75, 0, 1, 0.25], texture: '#0' }
           }
         }
       ];
