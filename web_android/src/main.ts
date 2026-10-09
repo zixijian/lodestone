@@ -359,54 +359,54 @@ async function init() {
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
-      // FRONT is NORTH (z=0..2)
-      // type=left (West half): outer wall at x=1 (west), inner seam at x=16 (east)
-      // type=right (East half): inner seam at x=0 (west), outer wall at x=15 (east)
-      const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
-      const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
+      // isLeft = type=left (EAST half in Minecraft when facing north):
+      //   Spans x = 0..15. Inner seam at x=0 (west), outer wall at x=15 (east).
+      //   Latch at x = 0..1.
+      // isRight = type=right (WEST half in Minecraft when facing north):
+      //   Spans x = 1..16. Outer wall at x=1 (west), inner seam at x=16 (east).
+      //   Latch at x = 15..16.
 
-      const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
-      const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
+      const bodyFrom: [number, number, number] = isLeft ? [0, 0, 1] : [1, 0, 1];
+      const bodyTo: [number, number, number] = isLeft ? [15, 10, 15] : [16, 10, 15];
 
-      // Latch: 1 px wide on inner edge
-      const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
-      const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
+      const lidFrom: [number, number, number] = isLeft ? [0, 10, 1] : [1, 10, 1];
+      const lidTo: [number, number, number] = isLeft ? [15, 14, 15] : [16, 14, 15];
+
+      const latchFrom: [number, number, number] = isLeft ? [0, 7, 0] : [15, 7, 0];
+      const latchTo: [number, number, number] = isLeft ? [1, 11, 2] : [16, 11, 2];
 
       const bodyFaces: any = {
         north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
         south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
-        up: { uv: [7.25, 4.75, 11, 8.25], texture: '#0' },
-        down: { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' }
+        up: isLeft ? { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' } : { uv: [7.25, 4.75, 11, 8.25], texture: '#0' },
+        down: isLeft ? { uv: [7.25, 4.75, 11, 8.25], texture: '#0' } : { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' }
       };
       if (isLeft) {
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-      } else {
         bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
+      } else {
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
       }
 
       const lidFaces: any = {
         north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
         south: { uv: [3.5, 3.75, 7.25, 4.75], rotation: 180, texture: '#0' },
-        up: { uv: [7.25, 0, 11, 3.5], texture: '#0' },
-        down: { uv: [3.5, 0, 7.25, 3.5], texture: '#0' }
+        up: isLeft ? { uv: [3.5, 0, 7.25, 3.5], texture: '#0' } : { uv: [7.25, 0, 11, 3.5], texture: '#0' },
+        down: isLeft ? { uv: [7.25, 0, 11, 3.5], texture: '#0' } : { uv: [3.5, 0, 7.25, 3.5], texture: '#0' }
       };
       if (isLeft) {
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-      } else {
         lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+      } else {
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
       }
 
       const latchFaces: any = {
-        north: { uv: isLeft ? [0.25, 0.25, 0.5, 1.25] : [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-        south: { uv: isLeft ? [0.75, 0.25, 1, 1.25] : [1, 0.25, 1.25, 1.25], rotation: 180, texture: '#0' },
-        up: { uv: isLeft ? [0.25, 0, 0.5, 0.25] : [0.5, 0, 0.75, 0.25], texture: '#0' },
-        down: { uv: isLeft ? [0.5, 0, 0.75, 0.25] : [0.75, 0, 1, 0.25], texture: '#0' }
+        north: { uv: isLeft ? [0.5, 0.25, 0.75, 1.25] : [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
+        south: { uv: isLeft ? [1, 0.25, 1.25, 1.25] : [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+        up: { uv: isLeft ? [0.5, 0, 0.75, 0.25] : [0.25, 0, 0.5, 0.25], texture: '#0' },
+        down: { uv: isLeft ? [0.75, 0, 1, 0.25] : [0.5, 0, 0.75, 0.25], texture: '#0' },
+        west: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+        east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' }
       };
-      if (isLeft) {
-        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
-      } else {
-        latchFaces.east = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
-      }
 
       return {
         textures: { '0': texPath },
