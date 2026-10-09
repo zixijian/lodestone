@@ -334,16 +334,16 @@ async function init() {
     });
 
     // Create custom blockstates and models for double chests (left/right)
-    const createChestBlockState = (modelName: string) => ({
+    const createChestBlockState = (modelName: string, leftModel: string, rightModel: string) => ({
       variants: {
-        'type=left,facing=north': { model: 'block/chest_left', y: 0 },
-        'type=left,facing=south': { model: 'block/chest_left', y: 180 },
-        'type=left,facing=west': { model: 'block/chest_left', y: 270 },
-        'type=left,facing=east': { model: 'block/chest_left', y: 90 },
-        'type=right,facing=north': { model: 'block/chest_right', y: 0 },
-        'type=right,facing=south': { model: 'block/chest_right', y: 180 },
-        'type=right,facing=west': { model: 'block/chest_right', y: 270 },
-        'type=right,facing=east': { model: 'block/chest_right', y: 90 },
+        'type=left,facing=north': { model: leftModel, y: 0 },
+        'type=left,facing=south': { model: leftModel, y: 180 },
+        'type=left,facing=west': { model: leftModel, y: 270 },
+        'type=left,facing=east': { model: leftModel, y: 90 },
+        'type=right,facing=north': { model: rightModel, y: 0 },
+        'type=right,facing=south': { model: rightModel, y: 180 },
+        'type=right,facing=west': { model: rightModel, y: 270 },
+        'type=right,facing=east': { model: rightModel, y: 90 },
         'type=single,facing=north': { model: modelName, y: 0 },
         'type=single,facing=south': { model: modelName, y: 180 },
         'type=single,facing=west': { model: modelName, y: 270 },
@@ -355,62 +355,55 @@ async function init() {
       }
     });
 
-    loaded.assets.blockstates['chest'] = createChestBlockState('block/chest');
-    loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest');
+    loaded.assets.blockstates['chest'] = createChestBlockState('block/chest', 'block/chest_left', 'block/chest_right');
+    loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
-      // Left half spans x: 1..16 (seam at right x=16), Right half spans x: 0..15 (seam at left x=0)
-      const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
-      const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
-      const lidFrom: [number, number, number] = isLeft ? [1, 10, 1] : [0, 10, 1];
-      const lidTo: [number, number, number] = isLeft ? [16, 14, 15] : [15, 14, 15];
-      // Latch at center seam: x=15..16 on left half, x=0..1 on right half
-      const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
-      const latchTo: [number, number, number] = isLeft ? [16, 11, 1] : [1, 11, 1];
-
-      // Front (north) UVs: left chest uses right-half front texture [7.25..11], right chest uses left-half front texture [3.5..7.25]
-      const bodyNorthUv = isLeft ? [7.25, 8.25, 11, 10.75] : [3.5, 8.25, 7.25, 10.75];
-      const lidNorthUv = isLeft ? [7.25, 3.5, 11, 4.75] : [3.5, 3.5, 7.25, 4.75];
-
-      // Back (south) UVs: left chest uses left-half back texture [11..14.75], right chest uses right-half back texture [14.75..16]
-      const bodySouthUv = isLeft ? [11, 8.25, 14.75, 10.75] : [14.75, 8.25, 16, 10.75];
-      const lidSouthUv = isLeft ? [11, 3.5, 14.75, 4.75] : [14.75, 3.5, 16, 4.75];
+      // type=left (player's left facing north): inner seam at x=0, spans x: 0..15
+      // type=right (player's right facing north): inner seam at x=16, spans x: 1..16
+      const bodyFrom: [number, number, number] = isLeft ? [0, 0, 1] : [1, 0, 1];
+      const bodyTo: [number, number, number] = isLeft ? [15, 10, 15] : [16, 10, 15];
+      const lidFrom: [number, number, number] = isLeft ? [0, 10, 1] : [1, 10, 1];
+      const lidTo: [number, number, number] = isLeft ? [15, 14, 15] : [16, 14, 15];
+      // Latch at center seam: x=0..1 on type=left, x=15..16 on type=right
+      const latchFrom: [number, number, number] = isLeft ? [0, 7, 0] : [15, 7, 0];
+      const latchTo: [number, number, number] = isLeft ? [1, 11, 2] : [16, 11, 2];
 
       const rawElements = [
         {
           from: bodyFrom,
           to: bodyTo,
           faces: {
-            north: { uv: bodyNorthUv, texture: '#0' },
-            south: { uv: bodySouthUv, texture: '#0' },
-            west: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' },
-            east: { uv: [7.25, 8.25, 10.75, 10.75], texture: '#0' },
-            up: { uv: [11, 8.25, 7.25, 4.75], texture: '#0' },
-            down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' }
+            north: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
+            south: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
+            east: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+            west: { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
+            up: { uv: [3.5, 4.75, 7.25, 8.25], texture: '#0' },
+            down: { uv: [7.25, 4.75, 11, 8.25], texture: '#0' }
           }
         },
         {
           from: lidFrom,
           to: lidTo,
           faces: {
-            north: { uv: lidNorthUv, texture: '#0' },
-            south: { uv: lidSouthUv, texture: '#0' },
-            west: { uv: [0, 3.5, 3.5, 4.75], texture: '#0' },
-            east: { uv: [7.25, 3.5, 10.75, 4.75], texture: '#0' },
-            up: { uv: [11, 3.5, 7.25, 0], texture: '#0' },
-            down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' }
+            north: { uv: [3.5, 3.5, 7.25, 4.5], rotation: 180, texture: '#0' },
+            south: { uv: [10.75, 3.5, 14.5, 4.5], rotation: 180, texture: '#0' },
+            east: { uv: [0, 3.5, 3.5, 4.5], rotation: 180, texture: '#0' },
+            west: { uv: [7.25, 3.5, 10.75, 4.5], rotation: 180, texture: '#0' },
+            up: { uv: [3.5, 0, 7.25, 3.5], texture: '#0' },
+            down: { uv: [7.25, 0, 11, 3.5], texture: '#0' }
           }
         },
         {
           from: latchFrom,
           to: latchTo,
           faces: {
-            north: { uv: [0.25, 0.25, 0.5, 1.25], texture: '#0' },
-            south: { uv: [1, 0.25, 1.25, 1.25], texture: '#0' },
-            west: { uv: [0.75, 0.25, 1, 1.25], texture: '#0' },
-            east: { uv: [0.75, 0.25, 1, 1.25], texture: '#0' },
+            north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
+            south: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+            east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+            west: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
             up: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
-            down: { uv: [0.75, 0, 1, 0.25], texture: '#0' }
+            down: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' }
           }
         }
       ];
@@ -423,6 +416,8 @@ async function init() {
 
     loaded.assets.models['block/chest_left'] = createChestHalfModel(true, 'entity/chest/normal_left');
     loaded.assets.models['block/chest_right'] = createChestHalfModel(false, 'entity/chest/normal_right');
+    loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
+    loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
 
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
