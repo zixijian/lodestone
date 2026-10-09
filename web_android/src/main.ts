@@ -101,18 +101,27 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Override SpecialRenderers.getBlockMesh to prevent default single chest rendering when chest blockstates are used
+// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
     const name = block.getName().toString();
     if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-      const emptyMesh = new (Lodestone as any).Mesh();
-      if (block.isWaterlogged()) {
-        const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
-        if (waterMesh) emptyMesh.merge(waterMesh);
+      let type = 'single';
+      if (typeof block.getProperties === 'function') {
+        const props = block.getProperties();
+        if (props && props.type) type = props.type;
+      } else if (block.properties) {
+        type = block.properties.type || 'single';
       }
-      return emptyMesh;
+      if (type === 'left' || type === 'right') {
+        const emptyMesh = new (Lodestone as any).Mesh();
+        if (block.isWaterlogged && block.isWaterlogged()) {
+          const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
+          if (waterMesh) emptyMesh.merge(waterMesh);
+        }
+        return emptyMesh;
+      }
     }
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
   };
@@ -138,7 +147,6 @@ if ((Lodestone as any).BlockModel?.prototype?.flatten) {
   };
 }
 
-
 // Non-full blocks that MUST NOT cull adjacent faces
 const nonFullKeywords = [
   'chest', 'sign', 'frame', 'stair', 'slab', 'glass', 'door', 'trapdoor',
@@ -158,333 +166,6 @@ const isNonFullBlock = (name: string) => {
   const lower = name.toLowerCase();
   return nonFullKeywords.some(kw => lower.includes(kw));
 };
-
-function createChestMesh(type: string, isTrapped: boolean, facing: string, resources: any) {
-  let texPath = isTrapped ? 'entity/chest/trapped' : 'entity/chest/normal';
-  if (type === 'left') {
-    texPath = isTrapped ? 'entity/chest/trapped_left' : 'entity/chest/normal_left';
-  } else if (type === 'right') {
-    texPath = isTrapped ? 'entity/chest/trapped_right' : 'entity/chest/normal_right';
-  }
-
-  let elements: any[] = [];
-  if (type === 'left') {
-    // Left chest half: spans x=1..16 (outer wall at x=1, inner seam at x=16)
-    elements = [
-      {
-        from: [1, 0, 1],
-        to: [16, 10, 15],
-        faces: {
-          north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: '#0' },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-          south: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
-          up: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' },
-          down: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' }
-        }
-      },
-      {
-        from: [1, 10, 1],
-        to: [16, 14, 15],
-        faces: {
-          north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: '#0' },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-          south: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
-          up: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' },
-          down: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' }
-        }
-      },
-      {
-        from: [15, 7, 0],
-        to: [16, 11, 1],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-          west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
-        }
-      }
-    ];
-  } else if (type === 'right') {
-    // Right chest half: spans x=0..15 (inner seam at x=0, outer wall at x=15)
-    elements = [
-      {
-        from: [0, 0, 1],
-        to: [15, 10, 15],
-        faces: {
-          north: { uv: [7, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
-          east: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
-          south: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-          up: { uv: [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' },
-          down: { uv: [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' }
-        }
-      },
-      {
-        from: [0, 10, 1],
-        to: [15, 14, 15],
-        faces: {
-          north: { uv: [7, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' },
-          east: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
-          south: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-          up: { uv: [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' },
-          down: { uv: [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' }
-        }
-      },
-      {
-        from: [0, 7, 0],
-        to: [1, 11, 1],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
-        }
-      }
-    ];
-  } else {
-    elements = [
-      {
-        from: [1, 0, 1],
-        to: [15, 10, 15],
-        faces: {
-          north: { uv: [10.5, 8.25, 14, 10.75], rotation: 180, texture: '#0' },
-          east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
-          south: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-          up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
-          down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
-        }
-      },
-      {
-        from: [1, 10, 1],
-        to: [15, 14, 15],
-        faces: {
-          north: { uv: [10.5, 3.75, 14, 4.75], rotation: 180, texture: '#0' },
-          east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
-          south: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-          up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
-          down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
-        }
-      },
-      {
-        from: [7, 7, 0],
-        to: [9, 11, 2],
-        faces: {
-          north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-          east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-          south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-          west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-          up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-          down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
-        }
-      }
-    ];
-  }
-
-  const model = new Lodestone.BlockModel(undefined, { '0': texPath }, elements);
-  const mesh = model.getMesh(resources, {});
-
-  // 1. Scale voxel space (0..16) to block space (0..1) FIRST
-  const t = mat4.create();
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
-
-  // 2. Rotate around block center [0.5, 0.5, 0.5]
-  let angleY = 0;
-  if (facing === 'west') angleY = Math.PI * 0.5;
-  else if (facing === 'south') angleY = Math.PI;
-  else if (facing === 'east') angleY = Math.PI * 1.5;
-
-  const rot = mat4.create();
-  mat4.translate(rot, rot, [0.5, 0.5, 0.5]);
-  mat4.rotateY(rot, rot, angleY);
-  mat4.translate(rot, rot, [-0.5, -0.5, -0.5]);
-
-  mat4.multiply(t, rot, t);
-  mesh.transform(t);
-  return mesh;
-}
-
-function createHangingSignMesh(name: string, props: any, resources: any) {
-  let wood = 'oak';
-  const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
-  for (const w of woodTypes) {
-    if (name.includes(w)) {
-      wood = w;
-      break;
-    }
-  }
-  const texKey = `block/${wood}_planks`;
-  const chainTex = 'block/chain';
-  const isWall = name.includes('wall_hanging_sign');
-
-  const elements: any[] = [
-    // Hanging Sign Board
-    {
-      from: [1, isWall ? 0 : 2, 7],
-      to: [15, isWall ? 10 : 12, 9],
-      faces: {
-        north: { uv: [1, 2, 15, 12], texture: '#plank' },
-        south: { uv: [1, 2, 15, 12], texture: '#plank' },
-        east: { uv: [7, 2, 9, 12], texture: '#plank' },
-        west: { uv: [7, 2, 9, 12], texture: '#plank' },
-        up: { uv: [1, 7, 15, 9], texture: '#plank' },
-        down: { uv: [1, 7, 15, 9], texture: '#plank' }
-      }
-    },
-    // Left Hanging Chain
-    {
-      from: [3, 10, 7.5],
-      to: [5, 16, 8.5],
-      faces: {
-        north: { uv: [0, 0, 2, 6], texture: '#chain' },
-        south: { uv: [0, 0, 2, 6], texture: '#chain' },
-        east: { uv: [0, 0, 1, 6], texture: '#chain' },
-        west: { uv: [0, 0, 1, 6], texture: '#chain' }
-      }
-    },
-    // Right Hanging Chain
-    {
-      from: [11, 10, 7.5],
-      to: [13, 16, 8.5],
-      faces: {
-        north: { uv: [0, 0, 2, 6], texture: '#chain' },
-        south: { uv: [0, 0, 2, 6], texture: '#chain' },
-        east: { uv: [0, 0, 1, 6], texture: '#chain' },
-        west: { uv: [0, 0, 1, 6], texture: '#chain' }
-      }
-    }
-  ];
-
-  if (isWall) {
-    // Top Horizontal Support Bar for Wall Hanging Signs
-    elements.push({
-      from: [0, 10, 6],
-      to: [16, 12, 10],
-      faces: {
-        north: { uv: [0, 10, 16, 12], texture: '#plank' },
-        south: { uv: [0, 10, 16, 12], texture: '#plank' },
-        east: { uv: [6, 10, 10, 12], texture: '#plank' },
-        west: { uv: [6, 10, 10, 12], texture: '#plank' },
-        up: { uv: [0, 6, 16, 10], texture: '#plank' },
-        down: { uv: [0, 6, 16, 10], texture: '#plank' }
-      }
-    });
-  }
-
-  const model = new Lodestone.BlockModel(undefined, { plank: texKey, chain: chainTex }, elements);
-  const mesh = model.getMesh(resources, {});
-
-  // 1. Scale voxel space (0..16) to block space (0..1) FIRST
-  const t = mat4.create();
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
-
-  // 2. Rotate around block center [0.5, 0.5, 0.5]
-  let angleY = 0;
-  if (props.facing) {
-    const facing = props.facing;
-    if (facing === 'west') angleY = Math.PI * 1.5;
-    else if (facing === 'south') angleY = Math.PI;
-    else if (facing === 'east') angleY = Math.PI * 0.5;
-  } else if (props.rotation !== undefined) {
-    const rot = parseInt(props.rotation) || 0;
-    angleY = (rot / 16) * Math.PI * 2;
-  }
-
-  const rot = mat4.create();
-  mat4.translate(rot, rot, [0.5, 0.5, 0.5]);
-  mat4.rotateY(rot, rot, angleY);
-  mat4.translate(rot, rot, [-0.5, -0.5, -0.5]);
-
-  mat4.multiply(t, rot, t);
-  mesh.transform(t);
-  return mesh;
-}
-
-function createItemFrameMesh(name: string, facing: string, resources: any) {
-  const isGlow = name.includes('glow');
-  const frameTex = isGlow ? 'block/glow_item_frame' : 'block/item_frame';
-  const woodTex = 'block/birch_planks';
-
-  const elements = [
-    {
-      from: [3, 3, 15],
-      to: [13, 13, 16],
-      faces: {
-        north: { uv: [3, 3, 13, 13], texture: '#frame' },
-        south: { uv: [3, 3, 13, 13], texture: '#back' }
-      }
-    },
-    {
-      from: [2, 2, 14],
-      to: [14, 3, 16],
-      faces: {
-        north: { uv: [2, 13, 14, 14], texture: '#back' },
-        south: { uv: [2, 13, 14, 14], texture: '#back' },
-        up: { uv: [2, 14, 14, 16], texture: '#back' },
-        down: { uv: [2, 0, 14, 2], texture: '#back' },
-        east: { uv: [0, 13, 2, 14], texture: '#back' },
-        west: { uv: [14, 13, 16, 14], texture: '#back' }
-      }
-    },
-    {
-      from: [2, 13, 14],
-      to: [14, 14, 16],
-      faces: {
-        north: { uv: [2, 2, 14, 3], texture: '#back' },
-        south: { uv: [2, 2, 14, 3], texture: '#back' },
-        up: { uv: [2, 14, 14, 16], texture: '#back' },
-        down: { uv: [2, 0, 14, 2], texture: '#back' },
-        east: { uv: [0, 2, 2, 3], texture: '#back' },
-        west: { uv: [14, 2, 16, 3], texture: '#back' }
-      }
-    },
-    {
-      from: [2, 3, 14],
-      to: [3, 13, 16],
-      faces: {
-        north: { uv: [13, 3, 14, 13], texture: '#back' },
-        south: { uv: [2, 3, 3, 13], texture: '#back' },
-        east: { uv: [0, 3, 2, 13], texture: '#back' },
-        west: { uv: [14, 3, 16, 13], texture: '#back' }
-      }
-    },
-    {
-      from: [13, 3, 14],
-      to: [14, 13, 16],
-      faces: {
-        north: { uv: [2, 3, 3, 13], texture: '#back' },
-        south: { uv: [13, 3, 14, 13], texture: '#back' },
-        east: { uv: [0, 3, 2, 13], texture: '#back' },
-        west: { uv: [14, 3, 16, 13], texture: '#back' }
-      }
-    }
-  ];
-
-  const model = new Lodestone.BlockModel(undefined, { back: woodTex, frame: frameTex }, elements);
-  const mesh = model.getMesh(resources, {});
-
-  // 1. Scale voxel space (0..16) to block space (0..1) FIRST
-  const t = mat4.create();
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
-
-  // 2. Rotate around block center [0.5, 0.5, 0.5]
-  const rot = mat4.create();
-  mat4.translate(rot, rot, [0.5, 0.5, 0.5]);
-
-  if (facing === 'south') mat4.rotateY(rot, rot, Math.PI);
-  else if (facing === 'west') mat4.rotateY(rot, rot, Math.PI * 1.5);
-  else if (facing === 'east') mat4.rotateY(rot, rot, Math.PI * 0.5);
-  else if (facing === 'up') mat4.rotateX(rot, rot, -Math.PI * 0.5);
-  else if (facing === 'down') mat4.rotateX(rot, rot, Math.PI * 0.5);
-
-  mat4.translate(rot, rot, [-0.5, -0.5, -0.5]);
-
-  mat4.multiply(t, rot, t);
-  mesh.transform(t);
-  return mesh;
-}
 
 // Comprehensive Face Culling & Special Block Processing
 if (Lodestone.ChunkBuilder) {
@@ -524,73 +205,6 @@ if (Lodestone.ChunkBuilder) {
       if (!flags?.opaque) return false;
     }
     return true;
-  };
-
-  const origProcessBlock = Lodestone.ChunkBuilder.prototype.processBlock;
-  Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
-    const name = block.state.getName().toString();
-    const props = this.getBlockProps(block.state);
-
-    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2])
-      ];
-      const key = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(key)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      const type = props.type || 'single';
-      const facing = props.facing || 'south';
-      const isTrapped = name === 'minecraft:trapped_chest';
-      const mesh = createChestMesh(type, isTrapped, facing, this.resources);
-
-      if (!mesh.isEmpty()) {
-        this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, key);
-        chunk.mesh.merge(mesh);
-      }
-      return;
-    }
-
-    if (name.includes('hanging_sign')) {
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2])
-      ];
-      const key = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(key)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      const mesh = createHangingSignMesh(name, props, this.resources);
-      if (!mesh.isEmpty()) {
-        this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, key);
-        chunk.mesh.merge(mesh);
-      }
-      return;
-    }
-
-    if (name === 'minecraft:item_frame' || name === 'minecraft:glow_item_frame') {
-      const chunkPos = [
-        Math.floor(block.pos[0] / this.chunkSize[0]),
-        Math.floor(block.pos[1] / this.chunkSize[1]),
-        Math.floor(block.pos[2] / this.chunkSize[2])
-      ];
-      const key = this.chunkKey(chunkPos);
-      if (chunkFilter && !chunkFilter.has(key)) return;
-      const chunk = this.getChunk(chunkPos);
-
-      const facing = props.facing || 'north';
-      const mesh = createItemFrameMesh(name, facing, this.resources);
-      if (!mesh.isEmpty()) {
-        this.finishChunkMesh(mesh, block.pos, block.state.getName(), props, key);
-        chunk.mesh.merge(mesh);
-      }
-      return;
-    }
-
-    return origProcessBlock.call(this, block, chunkFilter);
   };
 }
 
@@ -709,6 +323,16 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
+    // Ensure hanging sign textures map correctly in atlas
+    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+    woodTypes.forEach(w => {
+      const signKey = `entity/signs/${w}`;
+      const hangingKey = `entity/signs/hanging/${w}`;
+      if (loaded.assets.textures[signKey]) {
+        loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
+      }
+    });
+
     // Create custom blockstates and models for double chests (left/right)
     const createChestBlockState = (modelName: string) => ({
       variants: {
@@ -744,91 +368,53 @@ async function init() {
       const latchFrom: [number, number, number] = isLeft ? [14, 7, 0] : [0, 7, 0];
       const latchTo: [number, number, number] = isLeft ? [16, 11, 1] : [2, 11, 1];
 
-      if (isLeft) {
-        return {
-          textures: { '0': texPath },
-          elements: [
-            {
-              from: bodyFrom,
-              to: bodyTo,
-              faces: {
-                north: { uv: [10.5, 8.25, 14.25, 10.75], rotation: 180, texture: '#0' },
-                west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-                south: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
-                // east (middle seam) is NOT rendered
-                up: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' },
-                down: { uv: [7, 4.75, 10.5, 8.25], rotation: 180, texture: '#0' }
-              }
-            },
-            {
-              from: lidFrom,
-              to: lidTo,
-              faces: {
-                north: { uv: [10.5, 3.75, 14.25, 4.75], rotation: 180, texture: '#0' },
-                west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-                south: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
-                // east (middle seam) is NOT rendered
-                up: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' },
-                down: { uv: [7, 0, 10.5, 3.5], rotation: 180, texture: '#0' }
-              }
-            },
-            {
-              from: latchFrom,
-              to: latchTo,
-              faces: {
-                north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-                south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-                west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-                // east (middle seam) is NOT rendered
-                up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-                down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
-              }
-            }
-          ]
-        };
-      }
+      const rawElements = [
+        {
+          from: bodyFrom,
+          to: bodyTo,
+          faces: {
+            north: { uv: isLeft ? [10.5, 8.25, 14.25, 10.75] : [7, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
+            south: { uv: isLeft ? [7, 8.25, 10.5, 10.75] : [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+            west: isLeft ? { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' } : undefined,
+            east: !isLeft ? { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' } : undefined,
+            up: { uv: isLeft ? [7, 4.75, 10.5, 8.25] : [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' },
+            down: { uv: isLeft ? [7, 4.75, 10.5, 8.25] : [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' }
+          }
+        },
+        {
+          from: lidFrom,
+          to: lidTo,
+          faces: {
+            north: { uv: isLeft ? [10.5, 3.75, 14.25, 4.75] : [7, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' },
+            south: { uv: isLeft ? [7, 3.75, 10.5, 4.75] : [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+            west: isLeft ? { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' } : undefined,
+            east: !isLeft ? { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' } : undefined,
+            up: { uv: isLeft ? [7, 0, 10.5, 3.5] : [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' },
+            down: { uv: isLeft ? [7, 0, 10.5, 3.5] : [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' }
+          }
+        },
+        {
+          from: latchFrom,
+          to: latchTo,
+          faces: {
+            north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+            south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+            west: isLeft ? { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' } : undefined,
+            east: !isLeft ? { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' } : undefined,
+            up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
+            down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
+          }
+        }
+      ];
 
-      // Right half
+      const elements = rawElements.map(e => ({
+        ...e,
+        faces: Object.fromEntries(Object.entries(e.faces).filter(([_, v]) => v !== undefined))
+      }));
+
       return {
         textures: { '0': texPath },
-        elements: [
-          {
-            from: bodyFrom,
-            to: bodyTo,
-            faces: {
-              north: { uv: [7, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' },
-              east: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
-              south: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-              // west (middle seam) is NOT rendered
-              up: { uv: [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' },
-              down: { uv: [3.5, 4.75, 7, 8.25], rotation: 180, texture: '#0' }
-            }
-          },
-          {
-            from: lidFrom,
-            to: lidTo,
-            faces: {
-              north: { uv: [7, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' },
-              east: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
-              south: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-              // west (middle seam) is NOT rendered
-              up: { uv: [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' },
-              down: { uv: [3.5, 0, 7, 3.5], rotation: 180, texture: '#0' }
-            }
-          },
-          {
-            from: latchFrom,
-            to: latchTo,
-            faces: {
-              north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-              east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-              south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-              // west (middle seam) is NOT rendered
-              up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-              down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
-            }
-          }
-        ]
+        elements
       };
     };
 
@@ -839,92 +425,6 @@ async function init() {
 
     loaded.assets.models['block/chest_left'] = createChestHalfModel(true, 'entity/chest/normal');
     loaded.assets.models['block/chest_right'] = createChestHalfModel(false, 'entity/chest/normal');
-
-    const createSingleChestModel = (texPath: string) => ({
-      textures: { '0': texPath },
-      elements: [
-        {
-          from: [1, 0, 1],
-          to: [15, 10, 15],
-          faces: {
-            north: { uv: [10.5, 8.25, 14, 10.75], rotation: 180, texture: '#0' },
-            east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
-            south: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
-            west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
-            up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
-            down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
-          }
-        },
-        {
-          from: [1, 10, 1],
-          to: [15, 14, 15],
-          faces: {
-            north: { uv: [10.5, 3.75, 14, 4.75], rotation: 180, texture: '#0' },
-            east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
-            south: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
-            west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
-            up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
-            down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
-          }
-        },
-        {
-          from: [7, 7, 0],
-          to: [9, 11, 2],
-          faces: {
-            north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
-            east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-            south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
-            west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
-            up: { uv: [0.25, 0, 0.75, 0.25], rotation: 180, texture: '#0' },
-            down: { uv: [0.75, 0, 1.25, 0.25], rotation: 180, texture: '#0' }
-          }
-        }
-      ]
-    });
-
-    loaded.assets.models['block/chest'] = createSingleChestModel('entity/chest/normal');
-
-    // Ensure hanging sign textures resolve correctly in atlas
-    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
-    woodTypes.forEach(w => {
-      const texKey = `block/${w}_planks`;
-      const signModelKey = `block/${w}_hanging_sign`;
-
-      const hangingSignBlockState = {
-        variants: {
-          'facing=north': { model: signModelKey },
-          'facing=south': { model: signModelKey, y: 180 },
-          'facing=west': { model: signModelKey, y: 270 },
-          'facing=east': { model: signModelKey, y: 90 },
-          'rotation=0': { model: signModelKey },
-          'rotation=4': { model: signModelKey, y: 90 },
-          'rotation=8': { model: signModelKey, y: 180 },
-          'rotation=12': { model: signModelKey, y: 270 },
-          '': { model: signModelKey }
-        }
-      };
-
-      loaded.assets.blockstates[`${w}_hanging_sign`] = hangingSignBlockState;
-      loaded.assets.blockstates[`${w}_wall_hanging_sign`] = hangingSignBlockState;
-
-      loaded.assets.models[signModelKey] = {
-        textures: { particle: texKey, plank: texKey },
-        elements: [
-          {
-            from: [1, 2, 7],
-            to: [15, 12, 9],
-            faces: {
-              north: { uv: [1, 2, 15, 12], texture: '#plank' },
-              south: { uv: [1, 2, 15, 12], texture: '#plank' },
-              east: { uv: [7, 2, 9, 12], texture: '#plank' },
-              west: { uv: [7, 2, 9, 12], texture: '#plank' },
-              up: { uv: [1, 7, 15, 9], texture: '#plank' },
-              down: { uv: [1, 7, 15, 9], texture: '#plank' }
-            }
-          }
-        ]
-      };
-    });
 
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
