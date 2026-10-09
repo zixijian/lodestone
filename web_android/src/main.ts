@@ -373,10 +373,10 @@ async function init() {
           from: bodyFrom,
           to: bodyTo,
           faces: {
-            north: { uv: [10.75, 8.25, 14.5, 10.75], texture: '#0' },
-            south: { uv: [3.5, 8.25, 7.25, 10.75], texture: '#0' },
-            west: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' },
-            east: { uv: [7.25, 8.25, 10.75, 10.75], texture: '#0' },
+            north: { uv: [10.75, 10.75, 14.5, 8.25], texture: '#0' },
+            south: { uv: [3.5, 10.75, 7.25, 8.25], texture: '#0' },
+            west: isLeft ? { uv: [0, 8.25, 3.5, 10.75], texture: '#0' } : undefined,
+            east: isLeft ? undefined : { uv: [7.25, 8.25, 10.75, 10.75], texture: '#0' },
             up: { uv: [11, 8.25, 7.25, 4.75], texture: '#0' },
             down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' }
           }
@@ -385,10 +385,10 @@ async function init() {
           from: lidFrom,
           to: lidTo,
           faces: {
-            north: { uv: [10.75, 3.5, 14.5, 4.75], texture: '#0' },
-            south: { uv: [3.5, 3.5, 7.25, 4.75], texture: '#0' },
-            west: { uv: [0, 3.5, 3.5, 4.75], texture: '#0' },
-            east: { uv: [7.25, 3.5, 10.75, 4.75], texture: '#0' },
+            north: { uv: [10.75, 4.75, 14.5, 3.5], texture: '#0' },
+            south: { uv: [3.5, 4.75, 7.25, 3.5], texture: '#0' },
+            west: isLeft ? { uv: [0, 3.5, 3.5, 4.75], texture: '#0' } : undefined,
+            east: isLeft ? undefined : { uv: [7.25, 3.5, 10.75, 4.75], texture: '#0' },
             up: { uv: [11, 3.5, 7.25, 0], texture: '#0' },
             down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' }
           }
@@ -399,17 +399,22 @@ async function init() {
           faces: {
             north: { uv: [0.25, 0.25, 0.5, 1.25], texture: '#0' },
             south: { uv: [1, 0.25, 1.25, 1.25], texture: '#0' },
-            west: { uv: [0.75, 0.25, 1, 1.25], texture: '#0' },
-            east: { uv: [0.75, 0.25, 1, 1.25], texture: '#0' },
+            west: isLeft ? { uv: [0.75, 0.25, 1, 1.25], texture: '#0' } : undefined,
+            east: isLeft ? undefined : { uv: [0.75, 0.25, 1, 1.25], texture: '#0' },
             up: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
             down: { uv: [0.75, 0, 1, 0.25], texture: '#0' }
           }
         }
       ];
 
+      const elements = rawElements.map(e => ({
+        ...e,
+        faces: Object.fromEntries(Object.entries(e.faces).filter(([_, v]) => v !== undefined))
+      }));
+
       return {
         textures: { '0': texPath },
-        elements: rawElements
+        elements
       };
     };
 
