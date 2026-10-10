@@ -398,12 +398,12 @@ async function init() {
       };
 
       if (isLeft) {
-        // 左半箱 (isLeft / type=left)：右外侧面为 east (X=16 面)，删除内部缝隙面 west
+        // 连体箱子右侧面（即左半箱 isLeft 的 east）：外侧面为 east (X=16 面)，剔除内部缝隙面 west
         bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
         lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
         latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], texture: '#0' };
       } else {
-        // 右半箱 (!isLeft / type=right)：左外侧面为 west (X=0 面)，删除内部缝隙面 east
+        // 连体箱子左侧面（即右半箱 !isLeft 的 west）：外侧面为 west (X=0 面)，剔除内部缝隙面 east
         bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
         lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], texture: '#0' };
@@ -907,13 +907,6 @@ async function buildRendererForRegion(regionName: string) {
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
 
-  // Enable DoubleSide rendering on opaque/transparent materials to prevent back-face culling on chest faces
-  if ((renderer as any).opaqueMaterial) {
-    (renderer as any).opaqueMaterial.side = THREE.DoubleSide;
-  }
-  if ((renderer as any).transparentMaterial) {
-    (renderer as any).transparentMaterial.side = THREE.DoubleSide;
-  }
 
   if ((renderer as any).atlasTexture) {
     const texture = (renderer as any).atlasTexture;
