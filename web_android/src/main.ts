@@ -383,8 +383,8 @@ async function init() {
         up: { uv: [11.0, 8.25, 7.25, 4.75], texture: '#0' },
         down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' },
         ...(isLeft
-          ? { west: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' } }
-          : { east: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' } })
+          ? { east: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' } }
+          : { west: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' } })
       };
 
       const lidFaces: any = {
