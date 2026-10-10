@@ -907,6 +907,13 @@ async function buildRendererForRegion(regionName: string) {
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
 
+  if ((renderer as any).opaqueMaterial) {
+    (renderer as any).opaqueMaterial.side = THREE.DoubleSide;
+  }
+  if ((renderer as any).transparentMaterial) {
+    (renderer as any).transparentMaterial.side = THREE.DoubleSide;
+  }
+
 
   if ((renderer as any).atlasTexture) {
     const texture = (renderer as any).atlasTexture;
