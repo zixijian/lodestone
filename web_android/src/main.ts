@@ -106,19 +106,20 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Fully override SpecialRenderers.getBlockMesh and SpecialRenderers.chestRenderer to disable native single chest meshes
-if ((Lodestone as any).SpecialRenderers) {
-  (Lodestone as any).SpecialRenderers.chestRenderer = function () {
-    return function () {
-      return new (Lodestone as any).Mesh();
-    };
-  };
-
-  if ((Lodestone as any).SpecialRenderers.getBlockMesh) {
-    const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
-    (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
-      const name = block.getName().toString();
-      if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest' || name === 'minecraft:ender_chest') {
+// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
+if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
+  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
+  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+    const name = block.getName().toString();
+    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+      let type = 'single';
+      if (typeof block.getProperties === 'function') {
+        const props = block.getProperties();
+        if (props && props.type) type = props.type;
+      } else if (block.properties) {
+        type = block.properties.type || 'single';
+      }
+      if (type === 'left' || type === 'right') {
         const emptyMesh = new (Lodestone as any).Mesh();
         if (block.isWaterlogged && block.isWaterlogged()) {
           const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
@@ -126,9 +127,9 @@ if ((Lodestone as any).SpecialRenderers) {
         }
         return emptyMesh;
       }
-      return origGetBlockMesh.call(this, block, nbt, atlas, cull);
-    };
-  }
+    }
+    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+  };
 }
 
 // Suppress parent model warning for builtin/entity
@@ -364,9 +365,9 @@ async function init() {
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
       // isLeft = type=left (Left half of double chest from viewer perspective):
-      // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
-      // isRight = type=right (Right half of double chest from viewer perspective):
-      // Spans x = 0..15, outer wall at x=15 (east), inner seam at x=0 (west). Latch at x=0..1.
+      // Spans x = 1..16, outer wall at x=16 (east), inner seam at x=1 (west). Latch at x=15..16.
+      // !isLeft = type=right (Right half of double chest from viewer perspective):
+      // Spans x = 0..15, outer wall at x=0 (west), inner seam at x=15 (east). Latch at x=0..1.
       const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
       const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
 
@@ -402,17 +403,11 @@ async function init() {
         bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
         lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
         latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
-        delete bodyFaces.west;
-        delete lidFaces.west;
-        delete latchFaces.west;
       } else {
         // 右半箱 (x = 0..15)，外露侧面为 west (X=0 面)，删除内部缝隙面 east (X=15 面)
         bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
         lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
-        delete bodyFaces.east;
-        delete lidFaces.east;
-        delete latchFaces.east;
       }
 
       return {
@@ -913,7 +908,7 @@ async function buildRendererForRegion(regionName: string) {
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
 
-  // Force DoubleSide rendering on materials to prevent WebGL back-face culling from hiding side faces
+  // Enable DoubleSide rendering on opaque/transparent materials to prevent back-face culling on chest faces
   if ((renderer as any).opaqueMaterial) {
     (renderer as any).opaqueMaterial.side = THREE.DoubleSide;
   }
