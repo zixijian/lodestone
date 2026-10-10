@@ -390,21 +390,21 @@ async function init() {
       };
 
       if (isLeft) {
-        // 左半箱 (x = 1..16)，外露侧面为 west (X=1 面)，删除内部 east (X=16 面)
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
-        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
-        delete bodyFaces.east;
-        delete lidFaces.east;
-        delete latchFaces.east;
-      } else {
-        // 右半箱 (x = 0..15)，外露侧面为 east (X=15 面)，删除内部 west (X=0 面)
+        // 左半箱 (x = 1..16)，外露侧面为 east (X=16 面)，删除内部缝隙面 west (X=1 面)
         bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
         lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
         latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
         delete bodyFaces.west;
         delete lidFaces.west;
         delete latchFaces.west;
+      } else {
+        // 右半箱 (x = 0..15)，外露侧面为 west (X=0 面)，删除内部缝隙面 east (X=15 面)
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
+        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
+        delete bodyFaces.east;
+        delete lidFaces.east;
+        delete latchFaces.east;
       }
 
       return {
