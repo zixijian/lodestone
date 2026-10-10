@@ -385,9 +385,9 @@ async function init() {
       };
 
       if (isLeft) {
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
-      } else {
         bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+      } else {
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
       }
 
       const lidFaces: any = {
