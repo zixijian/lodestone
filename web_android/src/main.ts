@@ -384,9 +384,9 @@ async function init() {
         down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' }
       };
       if (isLeft) {
-        bodyFaces.west = { uv: [0, 33, 14, 43], rotation: 180, texture: '#0' };
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
       } else {
-        bodyFaces.east = { uv: [29, 33, 43, 43], rotation: 180, texture: '#0' };
+        bodyFaces.east = { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' };
       }
 
       const lidFaces: any = {
@@ -396,9 +396,9 @@ async function init() {
         down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' }
       };
       if (isLeft) {
-        lidFaces.west = { uv: [0, 15, 14, 19], rotation: 180, texture: '#0' };
+        lidFaces.west = { uv: [0, 3.5, 3.5, 4.75], rotation: 180, texture: '#0' };
       } else {
-        lidFaces.east = { uv: [29, 15, 43, 19], rotation: 180, texture: '#0' };
+        lidFaces.east = { uv: [7.25, 3.5, 10.75, 4.75], rotation: 180, texture: '#0' };
       }
 
       const latchFaces = {
