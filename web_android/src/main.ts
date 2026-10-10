@@ -400,14 +400,15 @@ async function init() {
 
       if (isLeft) {
         // 左半箱（X:1~16，位于右半边），外露侧面是 east（东面）
-        // 绝对不要加 rotation: 180，否则会被引擎背面剔除导致不显示
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
+        // cullface: 'east' 告诉渲染器这是朝向右侧的方块，只有右边有方块时才剔除它
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0', cullface: 'east' };
+        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0', cullface: 'east' };
         latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       } else {
         // 右半箱（X:0~15，位于左半边），外露侧面是 west（西面）
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
+        // cullface: 'west' 告诉渲染器这是朝向左侧的方块
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0', cullface: 'west' };
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0', cullface: 'west' };
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
       }
 
