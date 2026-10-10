@@ -106,14 +106,21 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Override SpecialRenderers.getBlockMesh for double chest halves so custom blockstate models render for left/right halves while preserving native tile entity rendering for single chests
+// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
     const name = block.getName().toString();
     if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-      const props = typeof block.getProperties === 'function' ? block.getProperties() : (block.properties || {});
-      const type = props.type;
+      let type = 'single';
+      if (typeof block.getProperty === 'function') {
+        type = block.getProperty('type') || 'single';
+      } else if (typeof block.getProperties === 'function') {
+        const props = block.getProperties();
+        if (props && props.type) type = props.type;
+      } else if (block.properties) {
+        type = block.properties.type || 'single';
+      }
       if (type === 'left' || type === 'right') {
         const emptyMesh = new (Lodestone as any).Mesh();
         if (typeof block.isWaterlogged === 'function' && block.isWaterlogged()) {
@@ -360,9 +367,9 @@ async function init() {
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
       // isLeft = type=left (Left half of double chest from viewer perspective):
-      // Spans x = 1..16, outer wall at x=16 (east), inner seam at x=1 (west). Latch at x=15..16.
-      // !isLeft = type=right (Right half of double chest from viewer perspective):
-      // Spans x = 0..15, outer wall at x=0 (west), inner seam at x=15 (east). Latch at x=0..1.
+      // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
+      // isRight = type=right (Right half of double chest from viewer perspective):
+      // Spans x = 0..15, outer wall at x=15 (east), inner seam at x=0 (west). Latch at x=0..1.
       const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
       const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
 
@@ -394,15 +401,15 @@ async function init() {
       };
 
       if (isLeft) {
-        // 连体箱子右侧面（即左半箱 isLeft 的 east）：显示外侧贴图，剔除内部缝隙面
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
-        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], texture: '#0' };
+        // 连体箱子右侧面（即左半箱 isLeft 的 east）：显示外侧贴图，剔除内部缝隙面 west
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
+        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       } else {
-        // 连体箱子左侧面（即右半箱 !isLeft 的 west）：显示外侧贴图，剔除内部缝隙面
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
-        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], texture: '#0' };
+        // 连体箱子左侧面（即右半箱 !isLeft 的 west）：显示外侧贴图，剔除内部缝隙面 east
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
       }
 
       return {
@@ -902,8 +909,6 @@ async function buildRendererForRegion(regionName: string) {
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
-
-
 
   if ((renderer as any).atlasTexture) {
     const texture = (renderer as any).atlasTexture;
