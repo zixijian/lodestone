@@ -398,18 +398,30 @@ async function init() {
         down: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' }
       };
 
+      // 预先声明，防止动态添加被渲染器忽略
+      bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+      bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+      lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
+      lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
+
       if (isLeft) {
         // 左半箱（X:1~16，位于右半边），外露侧面是 east（东面）
-        // cullface: 'east' 告诉渲染器这是朝向右侧的方块，只有右边有方块时才剔除它
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0', cullface: 'east' };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0', cullface: 'east' };
+        // 注意：直接修改上面预先声明的对象属性，同时删除内部西面 (west) 避免中间显示错乱面
+        bodyFaces.east.uv = [0, 8.25, 3.5, 10.75];
+        lidFaces.east.uv = [0, 3.75, 3.5, 4.75];
         latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
+        delete bodyFaces.west;
+        delete lidFaces.west;
+        delete latchFaces.west;
       } else {
         // 右半箱（X:0~15，位于左半边），外露侧面是 west（西面）
-        // cullface: 'west' 告诉渲染器这是朝向左侧的方块
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0', cullface: 'west' };
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0', cullface: 'west' };
+        // 注意：直接修改上面预先声明的对象属性，同时删除内部东面 (east) 避免中间显示错乱面
+        bodyFaces.west.uv = [0, 8.25, 3.5, 10.75];
+        lidFaces.west.uv = [0, 3.75, 3.5, 4.75];
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
+        delete bodyFaces.east;
+        delete lidFaces.east;
+        delete latchFaces.east;
       }
 
       return {
