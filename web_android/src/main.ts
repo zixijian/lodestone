@@ -106,27 +106,18 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
+// Fully override SpecialRenderers.getBlockMesh for chests to delegate all chest models to custom BlockModels
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
     const name = block.getName().toString();
     if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-      let type = 'single';
-      if (typeof block.getProperties === 'function') {
-        const props = block.getProperties();
-        if (props && props.type) type = props.type;
-      } else if (block.properties) {
-        type = block.properties.type || 'single';
+      const emptyMesh = new (Lodestone as any).Mesh();
+      if (block.isWaterlogged && block.isWaterlogged()) {
+        const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
+        if (waterMesh) emptyMesh.merge(waterMesh);
       }
-      if (type === 'left' || type === 'right') {
-        const emptyMesh = new (Lodestone as any).Mesh();
-        if (block.isWaterlogged && block.isWaterlogged()) {
-          const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
-          if (waterMesh) emptyMesh.merge(waterMesh);
-        }
-        return emptyMesh;
-      }
+      return emptyMesh;
     }
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
   };
@@ -378,17 +369,17 @@ async function init() {
       const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
 
       const bodyFaces: any = {
-        north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
-        south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
-        up: { uv: [11.0, 8.25, 7.25, 4.75], texture: '#0' },
-        down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' }
+        north: { uv: isLeft ? [10.75, 8.25, 14.5, 10.75] : [7.25, 8.25, 11.0, 10.75], rotation: 180, texture: '#0' },
+        south: { uv: isLeft ? [3.5, 8.25, 7.25, 10.75] : [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+        up: { uv: isLeft ? [11.0, 8.25, 7.25, 4.75] : [7.25, 8.25, 3.5, 4.75], texture: '#0' },
+        down: { uv: isLeft ? [7.25, 8.25, 3.5, 4.75] : [3.5, 8.25, 0, 4.75], texture: '#0' }
       };
 
       const lidFaces: any = {
-        north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
-        south: { uv: [3.5, 3.75, 7.25, 4.75], rotation: 180, texture: '#0' },
-        up: { uv: [11.0, 3.5, 7.25, 0], texture: '#0' },
-        down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' }
+        north: { uv: isLeft ? [10.75, 3.75, 14.5, 4.75] : [7.25, 3.75, 11.0, 4.75], rotation: 180, texture: '#0' },
+        south: { uv: isLeft ? [3.5, 3.75, 7.25, 4.75] : [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+        up: { uv: isLeft ? [11.0, 3.5, 7.25, 0] : [7.25, 3.5, 3.5, 0], texture: '#0' },
+        down: { uv: isLeft ? [7.25, 3.5, 3.5, 0] : [3.5, 3.5, 0, 0], texture: '#0' }
       };
 
       const latchFaces: any = {
@@ -398,30 +389,22 @@ async function init() {
         down: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' }
       };
 
-      // 预先声明，防止动态添加被渲染器忽略
-      bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
-      bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
-      lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
-      lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
-
       if (isLeft) {
-        // 左半箱（X:1~16，位于右半边），外露侧面是 east（东面）
-        // 注意：直接修改上面预先声明的对象属性，同时删除内部西面 (west) 避免中间显示错乱面
-        bodyFaces.east.uv = [0, 8.25, 3.5, 10.75];
-        lidFaces.east.uv = [0, 3.75, 3.5, 4.75];
-        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
-        delete bodyFaces.west;
-        delete lidFaces.west;
-        delete latchFaces.west;
-      } else {
-        // 右半箱（X:0~15，位于左半边），外露侧面是 west（西面）
-        // 注意：直接修改上面预先声明的对象属性，同时删除内部东面 (east) 避免中间显示错乱面
-        bodyFaces.west.uv = [0, 8.25, 3.5, 10.75];
-        lidFaces.west.uv = [0, 3.75, 3.5, 4.75];
+        // 左半箱 (x = 1..16)，外露侧面为 west (X=1 面)，删除内部 east (X=16 面)
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
         delete bodyFaces.east;
         delete lidFaces.east;
         delete latchFaces.east;
+      } else {
+        // 右半箱 (x = 0..15)，外露侧面为 east (X=15 面)，删除内部 west (X=0 面)
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
+        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
+        delete bodyFaces.west;
+        delete lidFaces.west;
+        delete latchFaces.west;
       }
 
       return {
