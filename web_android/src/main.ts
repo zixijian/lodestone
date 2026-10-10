@@ -400,13 +400,14 @@ async function init() {
 
       if (isLeft) {
         // 左半箱（X:1~16，位于右半边），外露侧面是 east（东面）
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+        // 绝对不要加 rotation: 180，否则会被引擎背面剔除导致不显示
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
         latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       } else {
         // 右半箱（X:0~15，位于左半边），外露侧面是 west（西面）
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
       }
 
