@@ -398,12 +398,12 @@ async function init() {
       };
 
       if (isLeft) {
-        // 连体箱子右侧面（即左半箱 isLeft 的 east）：外侧面为 east (X=16 面)，剔除内部缝隙面 west
+        // 连体箱子右侧面（即左半箱 isLeft 的 east）：外侧面为 east (X=16 面)，剔除内部缝隙面 west (X=1 面)
         bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
         lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
         latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       } else {
-        // 连体箱子左侧面（即右半箱 !isLeft 的 west）：外侧面为 west (X=0 面)，剔除内部缝隙面 east
+        // 连体箱子左侧面（即右半箱 !isLeft 的 west）：外侧面为 west (X=0 面)，剔除内部缝隙面 east (X=15 面)
         bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
         lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
