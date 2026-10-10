@@ -106,21 +106,29 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Fully override SpecialRenderers.getBlockMesh for chests to delegate all chest models to custom BlockModels
-if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
-  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
-  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
-    const name = block.getName().toString();
-    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
-      const emptyMesh = new (Lodestone as any).Mesh();
-      if (block.isWaterlogged && block.isWaterlogged()) {
-        const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
-        if (waterMesh) emptyMesh.merge(waterMesh);
-      }
-      return emptyMesh;
-    }
-    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+// Fully override SpecialRenderers.getBlockMesh and SpecialRenderers.chestRenderer to disable native single chest meshes
+if ((Lodestone as any).SpecialRenderers) {
+  (Lodestone as any).SpecialRenderers.chestRenderer = function () {
+    return function () {
+      return new (Lodestone as any).Mesh();
+    };
   };
+
+  if ((Lodestone as any).SpecialRenderers.getBlockMesh) {
+    const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
+    (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+      const name = block.getName().toString();
+      if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest' || name === 'minecraft:ender_chest') {
+        const emptyMesh = new (Lodestone as any).Mesh();
+        if (block.isWaterlogged && block.isWaterlogged()) {
+          const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
+          if (waterMesh) emptyMesh.merge(waterMesh);
+        }
+        return emptyMesh;
+      }
+      return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+    };
+  }
 }
 
 // Suppress parent model warning for builtin/entity
