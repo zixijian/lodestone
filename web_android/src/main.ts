@@ -339,18 +339,16 @@ async function init() {
     });
 
     // Create custom blockstates and models for double chests (left/right)
-    // Note: In Minecraft blockstates, when facing=north, type=left is the East (+X) block
-    // and type=right is the West (-X) block. Thus type=left maps to rightModel and type=right to leftModel.
     const createChestBlockState = (modelName: string, leftModel: string, rightModel: string) => ({
       variants: {
-        'type=left,facing=north': { model: rightModel, y: 0 },
-        'type=left,facing=south': { model: rightModel, y: 180 },
-        'type=left,facing=west': { model: rightModel, y: 270 },
-        'type=left,facing=east': { model: rightModel, y: 90 },
-        'type=right,facing=north': { model: leftModel, y: 0 },
-        'type=right,facing=south': { model: leftModel, y: 180 },
-        'type=right,facing=west': { model: leftModel, y: 270 },
-        'type=right,facing=east': { model: leftModel, y: 90 },
+        'type=left,facing=north': { model: leftModel, y: 0 },
+        'type=left,facing=south': { model: leftModel, y: 180 },
+        'type=left,facing=west': { model: leftModel, y: 270 },
+        'type=left,facing=east': { model: leftModel, y: 90 },
+        'type=right,facing=north': { model: rightModel, y: 0 },
+        'type=right,facing=south': { model: rightModel, y: 180 },
+        'type=right,facing=west': { model: rightModel, y: 270 },
+        'type=right,facing=east': { model: rightModel, y: 90 },
         'type=single,facing=north': { model: modelName, y: 0 },
         'type=single,facing=south': { model: modelName, y: 180 },
         'type=single,facing=west': { model: modelName, y: 270 },
@@ -366,9 +364,9 @@ async function init() {
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
-      // isLeft = Left half of double chest from viewer perspective looking at front:
+      // isLeft = Left half of double chest:
       // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
-      // !isLeft = Right half of double chest from viewer perspective looking at front:
+      // !isLeft = Right half of double chest:
       // Spans x = 0..15, outer wall at x=15 (east), inner seam at x=0 (west). Latch at x=0..1.
       const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
       const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
@@ -405,14 +403,18 @@ async function init() {
         lidFaces.east = { uv: [0, 3.5, 3.5, 4.75], rotation: 180, texture: '#0' };
       }
 
-      const latchFaces = {
+      const latchFaces: any = {
         north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
         south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: '#0' },
-        west: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
-        east: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
         up: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' },
         down: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' }
       };
+
+      if (isLeft) {
+        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
+      } else {
+        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
+      }
 
       return {
         textures: { '0': texPath },
