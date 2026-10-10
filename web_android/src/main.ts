@@ -106,29 +106,25 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Fully override SpecialRenderers.getBlockMesh and SpecialRenderers.chestRenderer to disable native single chest meshes
-if ((Lodestone as any).SpecialRenderers) {
-  (Lodestone as any).SpecialRenderers.chestRenderer = function () {
-    return function () {
-      return new (Lodestone as any).Mesh();
-    };
-  };
-
-  if ((Lodestone as any).SpecialRenderers.getBlockMesh) {
-    const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
-    (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
-      const name = block.getName().toString();
-      if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest' || name === 'minecraft:ender_chest') {
+// Override SpecialRenderers.getBlockMesh for double chest halves so custom blockstate models render for left/right halves while preserving native tile entity rendering for single chests
+if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
+  const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
+  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+    const name = block.getName().toString();
+    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+      const props = typeof block.getProperties === 'function' ? block.getProperties() : (block.properties || {});
+      const type = props.type;
+      if (type === 'left' || type === 'right') {
         const emptyMesh = new (Lodestone as any).Mesh();
-        if (block.isWaterlogged && block.isWaterlogged()) {
+        if (typeof block.isWaterlogged === 'function' && block.isWaterlogged()) {
           const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
           if (waterMesh) emptyMesh.merge(waterMesh);
         }
         return emptyMesh;
       }
-      return origGetBlockMesh.call(this, block, nbt, atlas, cull);
-    };
-  }
+    }
+    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+  };
 }
 
 // Suppress parent model warning for builtin/entity
@@ -398,15 +394,15 @@ async function init() {
       };
 
       if (isLeft) {
-        // 连体箱子外侧左侧面（isLeft 的 west，X=1 面）：显示外侧贴图，剔除内部缝隙面 east (X=16)
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
+        // 连体箱子右侧面（即左半箱 isLeft 的 east）：显示外侧贴图，剔除内部缝隙面
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
+        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], texture: '#0' };
       } else {
-        // 连体箱子外侧右侧面（!isLeft 的 east，X=15 面）：显示外侧贴图，剔除内部缝隙面 west (X=0)
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
+        // 连体箱子左侧面（即右半箱 !isLeft 的 west）：显示外侧贴图，剔除内部缝隙面
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], texture: '#0' };
+        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], texture: '#0' };
       }
 
       return {
@@ -907,12 +903,6 @@ async function buildRendererForRegion(regionName: string) {
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
 
-  if ((renderer as any).opaqueMaterial) {
-    (renderer as any).opaqueMaterial.side = THREE.DoubleSide;
-  }
-  if ((renderer as any).transparentMaterial) {
-    (renderer as any).transparentMaterial.side = THREE.DoubleSide;
-  }
 
 
   if ((renderer as any).atlasTexture) {
