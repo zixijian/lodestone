@@ -381,11 +381,14 @@ async function init() {
         north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
         south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
         up: { uv: [11.0, 8.25, 7.25, 4.75], texture: '#0' },
-        down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' },
-        ...(isLeft
-          ? { east: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' } }
-          : { west: { uv: [0, 8.25, 3.5, 10.75], texture: '#0' } })
+        down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' }
       };
+
+      if (isLeft) {
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+      } else {
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], texture: '#0' };
+      }
 
       const lidFaces: any = {
         north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
