@@ -539,6 +539,14 @@ async function init() {
       }
     });
 
+    // Ensure all hanging signs, signs, and item frames are explicitly in parsedTransparent
+    Object.keys(loaded.assets.blockstates || {}).forEach(id => {
+      const fullName = id.startsWith('minecraft:') ? id : 'minecraft:' + id;
+      if (fullName.includes('sign') || fullName.includes('frame')) {
+        parsedTransparent.add(fullName);
+      }
+    });
+
     const flags = {
       opaque: strictOpaque,
       transparent: parsedTransparent,
@@ -837,12 +845,22 @@ async function loadRegionAsync(
             }
 
             let facingStr = 'north';
-            if (typeof entityCompound.has === 'function' && entityCompound.has('Facing')) {
-              const facingVal = entityCompound.getNumber('Facing') ?? 2;
-              facingStr = facingByteMap[facingVal] ?? 'north';
-            } else if (typeof entityCompound.has === 'function' && entityCompound.has('FacingDirection')) {
-              const facingVal = entityCompound.getNumber('FacingDirection') ?? 2;
-              facingStr = facingByteMap[facingVal] ?? 'north';
+            const getFacingVal = (comp: any, key: string) => {
+              if (typeof comp.getNumber === 'function') {
+                const num = comp.getNumber(key);
+                if (num !== undefined && num !== null && !isNaN(num)) return num;
+              }
+              const tag = comp.get ? comp.get(key) : null;
+              if (tag && tag.value !== undefined && tag.value !== null) return Number(tag.value);
+              return null;
+            };
+
+            const rawFacing = getFacingVal(entityCompound, 'Facing') ?? getFacingVal(entityCompound, 'FacingDirection') ?? getFacingVal(entityCompound, 'Direction');
+            if (rawFacing !== null && facingByteMap[rawFacing] !== undefined) {
+              facingStr = facingByteMap[rawFacing];
+            } else if (typeof entityCompound.getString === 'function') {
+              const str = entityCompound.getString('Facing') || entityCompound.getString('FacingDirection') || '';
+              if (str) facingStr = str.toLowerCase();
             }
 
             // Bound coordinates within region size
