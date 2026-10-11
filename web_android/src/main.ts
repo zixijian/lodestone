@@ -816,6 +816,10 @@ async function loadRegionAsync(
     posNbt ? (posNbt.getNumber('z') ?? 0) : 0,
   ];
 
+  const originX = rawSize[0] < 0 ? regPos[0] + rawSize[0] + 1 : regPos[0];
+  const originY = rawSize[1] < 0 ? regPos[1] + rawSize[1] + 1 : regPos[1];
+  const originZ = rawSize[2] < 0 ? regPos[2] + rawSize[2] + 1 : regPos[2];
+
   const paletteList = regionCompound.getList('BlockStatePalette');
   const palette: BlockState[] = [];
   paletteList.forEach((entry: any) => {
@@ -1020,9 +1024,9 @@ async function loadRegionAsync(
         }
 
             // Convert world/absolute pos to region relative pos if coordinates exceed region size
-            let relX = px;
-            let relY = py;
-            let relZ = pz;
+            let relX = px >= 0 && px < width ? px : px - originX;
+            let relY = py >= 0 && py < height ? py : py - originY;
+            let relZ = pz >= 0 && pz < depth ? pz : pz - originZ;
             if (relX < 0 || relX >= width || relY < 0 || relY >= height || relZ < 0 || relZ >= depth) {
               relX = px - regPos[0];
               relY = py - regPos[1];
