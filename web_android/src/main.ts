@@ -460,7 +460,7 @@ async function init() {
     woodTypes.forEach(w => {
       loaded.assets.blockstates[`${w}_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
       loaded.assets.blockstates[`${w}_wall_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
-      loaded.assets.models[`block/${w}_hanging_sign`] = { textures: {}, elements: [] };
+      loaded.assets.models[`block/${w}_hanging_sign`] = createHangingSignModel(w);
     });
 
 
