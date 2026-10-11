@@ -407,11 +407,11 @@ async function init() {
         latchFaces.west = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       } else {
         // Right half (isLeft = false, type=right):
-        // Outer wall is East face (x=15), using normal_right.png [0, 3.5] outer side texture.
+        // Outer wall is East face (x=15), using normal_right.png [0, 3.5] with u-flipped UV [3.5, 8.25, 0, 10.75].
         // West face (x=0) is inner seam, omitted so no face renders inside seam.
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-        latchFaces.east = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
+        bodyFaces.east = { uv: [3.5, 8.25, 0, 10.75], rotation: 180, texture: '#0' };
+        lidFaces.east = { uv: [3.5, 3.75, 0, 4.75], rotation: 180, texture: '#0' };
+        latchFaces.east = { uv: [0.25, 0.25, 0, 1.25], rotation: 180, texture: '#0' };
       }
 
       return {
