@@ -689,6 +689,9 @@ async function loadRegionAsync(
         });
       }
     }
+    if (name.endsWith('_hanging_sign') && !name.includes('_wall_hanging_sign') && properties.facing && !properties.rotation) {
+      name = name.replace('_hanging_sign', '_wall_hanging_sign');
+    }
     palette.push(new BlockState(name, properties));
   });
 
@@ -795,96 +798,105 @@ async function loadRegionAsync(
     }
   }
 
-  // Parse Entities tag (e.g. Item Frames, Glow Item Frames) from Litematic region
-  if (regionCompound.has && regionCompound.has('Entities')) {
-    try {
-      const entitiesList = regionCompound.getList('Entities');
-      if (entitiesList) {
-        const facingByteMap: { [key: number]: string } = {
-          0: 'down',
-          1: 'up',
-          2: 'north',
-          3: 'south',
-          4: 'west',
-          5: 'east'
+  // Parse Entities and TileEntities tags (Item Frames, Glow Item Frames) from Litematic region
+  const parseEntityList = (entitiesList: any) => {
+    if (!entitiesList) return;
+    const facingByteMap: { [key: number]: string } = {
+      0: 'down',
+      1: 'up',
+      2: 'north',
+      3: 'south',
+      4: 'west',
+      5: 'east'
+    };
+
+    entitiesList.forEach((entityCompound: any) => {
+      if (!entityCompound) return;
+      let id = '';
+      if (typeof entityCompound.getString === 'function') {
+        id = entityCompound.getString('id') || entityCompound.getString('Id') || entityCompound.getString('Name') || '';
+      }
+      if (!id) return;
+      if (!id.startsWith('minecraft:')) id = 'minecraft:' + id;
+
+      if (id === 'minecraft:item_frame' || id === 'minecraft:glow_item_frame') {
+        let px = -1, py = -1, pz = -1;
+        if (typeof entityCompound.has === 'function' && entityCompound.has('TileX')) {
+          px = entityCompound.getNumber('TileX') ?? -1;
+          py = entityCompound.getNumber('TileY') ?? -1;
+          pz = entityCompound.getNumber('TileZ') ?? -1;
+        } else if (typeof entityCompound.has === 'function' && entityCompound.has('x')) {
+          px = entityCompound.getNumber('x') ?? -1;
+          py = entityCompound.getNumber('y') ?? -1;
+          pz = entityCompound.getNumber('z') ?? -1;
+        } else if (typeof entityCompound.has === 'function' && entityCompound.has('Pos')) {
+          const posList = entityCompound.getList('Pos');
+          if (posList) {
+            if (typeof posList.getItems === 'function') {
+              const items = posList.getItems();
+              px = Math.floor(items[0]?.value ?? items[0] ?? 0);
+              py = Math.floor(items[1]?.value ?? items[1] ?? 0);
+              pz = Math.floor(items[2]?.value ?? items[2] ?? 0);
+            } else if (Array.isArray(posList.value)) {
+              px = Math.floor(posList.value[0] ?? 0);
+              py = Math.floor(posList.value[1] ?? 0);
+              pz = Math.floor(posList.value[2] ?? 0);
+            }
+          }
+        }
+
+        let facingStr = 'north';
+        const getFacingVal = (comp: any, key: string) => {
+          if (typeof comp.getNumber === 'function') {
+            const num = comp.getNumber(key);
+            if (num !== undefined && num !== null && !isNaN(num)) return num;
+          }
+          const tag = comp.get ? comp.get(key) : null;
+          if (tag && tag.value !== undefined && tag.value !== null) return Number(tag.value);
+          return null;
         };
 
-        entitiesList.forEach((entityCompound: any) => {
-          if (!entityCompound) return;
-          let id = '';
-          if (typeof entityCompound.getString === 'function') {
-            id = entityCompound.getString('id') || entityCompound.getString('Id') || '';
+        const rawFacing = getFacingVal(entityCompound, 'Facing') ?? getFacingVal(entityCompound, 'FacingDirection') ?? getFacingVal(entityCompound, 'Direction');
+        if (rawFacing !== null && facingByteMap[rawFacing] !== undefined) {
+          facingStr = facingByteMap[rawFacing];
+        } else if (typeof entityCompound.getString === 'function') {
+          const str = entityCompound.getString('Facing') || entityCompound.getString('FacingDirection') || '';
+          if (str) facingStr = str.toLowerCase();
+        }
+
+        // Bound coordinates within region size
+        if (px >= 0 && px < width && py >= 0 && py < height && pz >= 0 && pz < depth) {
+          let stateIdx = palette.findIndex(
+            s => s.getName().toString() === id && s.getProperty('facing') === facingStr
+          );
+          if (stateIdx < 0) {
+            const newState = new BlockState(id, { facing: facingStr });
+            palette.push(newState);
+            stateIdx = palette.length - 1;
           }
-          if (!id) return;
-          if (!id.startsWith('minecraft:')) id = 'minecraft:' + id;
 
-          if (id === 'minecraft:item_frame' || id === 'minecraft:glow_item_frame') {
-            let px = 0, py = 0, pz = 0;
-            if (typeof entityCompound.has === 'function' && entityCompound.has('TileX')) {
-              px = entityCompound.getNumber('TileX') ?? 0;
-              py = entityCompound.getNumber('TileY') ?? 0;
-              pz = entityCompound.getNumber('TileZ') ?? 0;
-            } else if (typeof entityCompound.has === 'function' && entityCompound.has('Pos')) {
-              const posList = entityCompound.getList('Pos');
-              if (posList) {
-                if (typeof posList.getItems === 'function') {
-                  const items = posList.getItems();
-                  px = Math.floor(items[0]?.value ?? items[0] ?? 0);
-                  py = Math.floor(items[1]?.value ?? items[1] ?? 0);
-                  pz = Math.floor(items[2]?.value ?? items[2] ?? 0);
-                } else if (Array.isArray(posList.value)) {
-                  px = Math.floor(posList.value[0] ?? 0);
-                  py = Math.floor(posList.value[1] ?? 0);
-                  pz = Math.floor(posList.value[2] ?? 0);
-                }
-              }
-            }
+          storedBlocks.push({ pos: [px, py, pz], state: stateIdx });
 
-            let facingStr = 'north';
-            const getFacingVal = (comp: any, key: string) => {
-              if (typeof comp.getNumber === 'function') {
-                const num = comp.getNumber(key);
-                if (num !== undefined && num !== null && !isNaN(num)) return num;
-              }
-              const tag = comp.get ? comp.get(key) : null;
-              if (tag && tag.value !== undefined && tag.value !== null) return Number(tag.value);
-              return null;
-            };
-
-            const rawFacing = getFacingVal(entityCompound, 'Facing') ?? getFacingVal(entityCompound, 'FacingDirection') ?? getFacingVal(entityCompound, 'Direction');
-            if (rawFacing !== null && facingByteMap[rawFacing] !== undefined) {
-              facingStr = facingByteMap[rawFacing];
-            } else if (typeof entityCompound.getString === 'function') {
-              const str = entityCompound.getString('Facing') || entityCompound.getString('FacingDirection') || '';
-              if (str) facingStr = str.toLowerCase();
-            }
-
-            // Bound coordinates within region size
-            if (px >= 0 && px < width && py >= 0 && py < height && pz >= 0 && pz < depth) {
-              let stateIdx = palette.findIndex(
-                s => s.getName().toString() === id && s.getProperty('facing') === facingStr
-              );
-              if (stateIdx < 0) {
-                const newState = new BlockState(id, { facing: facingStr });
-                palette.push(newState);
-                stateIdx = palette.length - 1;
-              }
-
-              storedBlocks.push({ pos: [px, py, pz], state: stateIdx });
-
-              if (px < minX) minX = px;
-              if (py < minY) minY = py;
-              if (pz < minZ) minZ = pz;
-              if (px > maxX) maxX = px;
-              if (py > maxY) maxY = py;
-              if (pz > maxZ) maxZ = pz;
-              hasPlaced = true;
-            }
-          }
-        });
+          if (px < minX) minX = px;
+          if (py < minY) minY = py;
+          if (pz < minZ) minZ = pz;
+          if (px > maxX) maxX = px;
+          if (py > maxY) maxY = py;
+          if (pz > maxZ) maxZ = pz;
+          hasPlaced = true;
+        }
       }
+    });
+  };
+
+  if (regionCompound.has) {
+    try {
+      if (regionCompound.has('Entities')) parseEntityList(regionCompound.getList('Entities'));
+      if (regionCompound.has('PendingBlockEntities')) parseEntityList(regionCompound.getList('PendingBlockEntities'));
+      if (regionCompound.has('TileEntities')) parseEntityList(regionCompound.getList('TileEntities'));
+      if (regionCompound.has('BlockEntities')) parseEntityList(regionCompound.getList('BlockEntities'));
     } catch (e) {
-      console.error('Error parsing Entities in loadRegionAsync:', e);
+      console.error('Error parsing entities in loadRegionAsync:', e);
     }
   }
 
