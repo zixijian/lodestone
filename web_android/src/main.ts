@@ -687,14 +687,6 @@ async function init() {
       }
     });
 
-    // Ensure all hanging signs, signs, and item frames are explicitly in parsedTransparent
-    Object.keys(loaded.assets.blockstates || {}).forEach(id => {
-      const fullName = id.startsWith('minecraft:') ? id : 'minecraft:' + id;
-      if (fullName.includes('sign') || fullName.includes('frame')) {
-        parsedTransparent.add(fullName);
-      }
-    });
-
     const flags = {
       opaque: strictOpaque,
       transparent: parsedTransparent,
@@ -815,6 +807,13 @@ async function loadRegionAsync(
     Math.abs(rawSize[0]),
     Math.abs(rawSize[1]),
     Math.abs(rawSize[2]),
+  ];
+
+  const posNbt = regionCompound.has && regionCompound.has('Position') ? regionCompound.getCompound('Position') : null;
+  const regPos = [
+    posNbt ? (posNbt.getNumber('x') ?? 0) : 0,
+    posNbt ? (posNbt.getNumber('y') ?? 0) : 0,
+    posNbt ? (posNbt.getNumber('z') ?? 0) : 0,
   ];
 
   const paletteList = regionCompound.getList('BlockStatePalette');
@@ -1020,8 +1019,18 @@ async function loadRegionAsync(
           if (str) facingStr = str.toLowerCase();
         }
 
+            // Convert world/absolute pos to region relative pos if coordinates exceed region size
+            let relX = px;
+            let relY = py;
+            let relZ = pz;
+            if (relX < 0 || relX >= width || relY < 0 || relY >= height || relZ < 0 || relZ >= depth) {
+              relX = px - regPos[0];
+              relY = py - regPos[1];
+              relZ = pz - regPos[2];
+            }
+
         // Bound coordinates within region size
-        if (px >= 0 && px < width && py >= 0 && py < height && pz >= 0 && pz < depth) {
+            if (relX >= 0 && relX < width && relY >= 0 && relY < height && relZ >= 0 && relZ < depth) {
           let stateIdx = palette.findIndex(
             s => s.getName().toString() === id && s.getProperty('facing') === facingStr
           );
@@ -1031,14 +1040,14 @@ async function loadRegionAsync(
             stateIdx = palette.length - 1;
           }
 
-          storedBlocks.push({ pos: [px, py, pz], state: stateIdx });
+              storedBlocks.push({ pos: [relX, relY, relZ], state: stateIdx });
 
-          if (px < minX) minX = px;
-          if (py < minY) minY = py;
-          if (pz < minZ) minZ = pz;
-          if (px > maxX) maxX = px;
-          if (py > maxY) maxY = py;
-          if (pz > maxZ) maxZ = pz;
+              if (relX < minX) minX = relX;
+              if (relY < minY) minY = relY;
+              if (relZ < minZ) minZ = relZ;
+              if (relX > maxX) maxX = relX;
+              if (relY > maxY) maxY = relY;
+              if (relZ > maxZ) maxZ = relZ;
           hasPlaced = true;
         }
       }
