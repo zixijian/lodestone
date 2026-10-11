@@ -327,12 +327,12 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas if missing
+    // Ensure hanging sign textures map correctly in atlas
     const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
     woodTypes.forEach(w => {
       const signKey = `entity/signs/${w}`;
       const hangingKey = `entity/signs/hanging/${w}`;
-      if (!loaded.assets.textures[hangingKey] && loaded.assets.textures[signKey]) {
+      if (loaded.assets.textures[signKey]) {
         loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
       }
     });
