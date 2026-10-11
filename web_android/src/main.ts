@@ -399,14 +399,14 @@ async function init() {
       };
 
       if (isLeft) {
-        bodyFaces.west = { uv: [0.1, 8.35, 3.4, 10.65], rotation: 180, texture: '#0' };
-        lidFaces.west = { uv: [0.1, 3.85, 3.4, 4.65], rotation: 180, texture: '#0' };
-        latchFaces.west = { uv: [0.01, 0.26, 0.24, 1.24], rotation: 180, texture: '#0' };
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
       } else {
-        // Inset UVs slightly by 0.1 to avoid atlas pixel edge bleeding into transparent padding
-        bodyFaces.east = { uv: [0.1, 8.35, 3.4, 10.65], rotation: 180, texture: '#0' };
-        lidFaces.east = { uv: [0.1, 3.85, 3.4, 4.65], rotation: 180, texture: '#0' };
-        latchFaces.east = { uv: [0.51, 0.26, 0.74, 1.24], rotation: 180, texture: '#0' };
+        // Force Step 1 Debug Test: Pure red tintindex + DoubleSide material override
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0', tintindex: 999 };
+        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0', tintindex: 999 };
+        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0', tintindex: 999 };
       }
 
       return {
@@ -906,6 +906,39 @@ async function buildRendererForRegion(regionName: string) {
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
+
+  // Intercept chunk mesh quads to force tintindex 999 to pure red [1, 0, 0, 1] and force THREE.DoubleSide
+  if ((renderer as any).opaqueMaterial) {
+    (renderer as any).opaqueMaterial.side = THREE.DoubleSide;
+    (renderer as any).opaqueMaterial.transparent = false;
+    (renderer as any).opaqueMaterial.needsUpdate = true;
+  }
+  if ((renderer as any).transparentMaterial) {
+    (renderer as any).transparentMaterial.side = THREE.DoubleSide;
+    (renderer as any).transparentMaterial.needsUpdate = true;
+  }
+
+  // Inject tintindex handler into currentResources to return pure solid red [1, 0, 0, 1] for tintindex 999
+  if (currentResources) {
+    const origGetBlockModel = currentResources.getBlockModel;
+    if (origGetBlockModel) {
+      currentResources.getBlockModel = function (name: any) {
+        const model = origGetBlockModel.call(this, name);
+        if (model && !model.__redPatched) {
+          model.__redPatched = true;
+          const origGetElementMesh = model.getElementMesh;
+          model.getElementMesh = function (e: any, atlas: any, cull: any, getTint: any) {
+            const customGetTint = (tintindex: number) => {
+              if (tintindex === 999) return [1, 0, 0, 1]; // Solid Red
+              return getTint ? getTint(tintindex) : [1, 1, 1, 1];
+            };
+            return origGetElementMesh.call(this, e, atlas, cull, customGetTint);
+          };
+        }
+        return model;
+      };
+    }
+  }
 
   if ((renderer as any).atlasTexture) {
     const texture = (renderer as any).atlasTexture;
