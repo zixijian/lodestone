@@ -403,8 +403,8 @@ async function init() {
         lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
       } else {
-        bodyFaces.east = { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.east = { uv: [7.25, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' };
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
+        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
         latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       }
 
