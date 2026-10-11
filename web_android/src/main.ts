@@ -377,43 +377,35 @@ async function init() {
       const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
       const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
 
-      let bodyFaces: any = {};
-      let lidFaces: any = {};
-      let latchFaces: any = {};
+      const bodyFaces: any = {
+        north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
+        south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
+        up: { uv: [11.0, 8.25, 7.25, 4.75], texture: '#0' },
+        down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' }
+      };
+
+      const lidFaces: any = {
+        north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
+        south: { uv: [3.5, 3.75, 7.25, 4.75], rotation: 180, texture: '#0' },
+        up: { uv: [11.0, 3.5, 7.25, 0], texture: '#0' },
+        down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' }
+      };
+
+      const latchFaces: any = {
+        north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
+        south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: '#0' },
+        up: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' },
+        down: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' }
+      };
 
       if (isLeft) {
-        bodyFaces = {
-          north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
-          south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
-          up: { uv: [11.0, 8.25, 7.25, 4.75], texture: '#0' },
-          down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' },
-          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' }
-        };
-        lidFaces = {
-          north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
-          south: { uv: [3.5, 3.75, 7.25, 4.75], rotation: 180, texture: '#0' },
-          up: { uv: [11.0, 3.5, 7.25, 0], texture: '#0' },
-          down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' },
-          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' }
-        };
-        latchFaces = {
-          north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
-          south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: '#0' },
-          up: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' },
-          down: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
-          west: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' }
-        };
+        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
+        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
       } else {
-        // Subtractive test for right chest (isLeft = false): ONLY keep east face!
-        bodyFaces = {
-          east: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' }
-        };
-        lidFaces = {
-          east: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' }
-        };
-        latchFaces = {
-          east: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' }
-        };
+        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
+        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
+        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       }
 
       return {
