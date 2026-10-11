@@ -415,12 +415,17 @@ async function init() {
       }
     });
 
-    const createHangingSignModel = (wood: string) => ({
-      textures: {
-        board: `block/stripped_${wood}_log`,
-        planks: `block/${wood}_planks`,
-        particle: `block/${wood}_planks`
-      },
+    const createHangingSignModel = (wood: string) => {
+      const boardTex = wood === 'bamboo'
+        ? 'block/bamboo_block'
+        : (wood === 'crimson' || wood === 'warped' ? `block/stripped_${wood}_stem` : `block/stripped_${wood}_log`);
+      const plankTex = `block/${wood}_planks`;
+      return {
+        textures: {
+          board: boardTex,
+          planks: plankTex,
+          particle: plankTex
+        },
       elements: [
         {
           from: [1, 0, 7],
@@ -455,7 +460,8 @@ async function init() {
           }
         }
       ]
-    });
+    };
+  };
 
     woodTypes.forEach(w => {
       loaded.assets.blockstates[`${w}_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
