@@ -332,6 +332,81 @@ async function init() {
       }
     });
 
+    // Create custom blockstates and models for hanging signs across all wood types
+    const createHangingSignBlockState = (modelName: string) => ({
+      variants: {
+        'facing=north': { model: modelName },
+        'facing=south': { model: modelName, y: 180 },
+        'facing=west': { model: modelName, y: 270 },
+        'facing=east': { model: modelName, y: 90 },
+        'rotation=0': { model: modelName, y: 0 },
+        'rotation=1': { model: modelName, y: 22.5 },
+        'rotation=2': { model: modelName, y: 45 },
+        'rotation=3': { model: modelName, y: 67.5 },
+        'rotation=4': { model: modelName, y: 90 },
+        'rotation=5': { model: modelName, y: 112.5 },
+        'rotation=6': { model: modelName, y: 135 },
+        'rotation=7': { model: modelName, y: 157.5 },
+        'rotation=8': { model: modelName, y: 180 },
+        'rotation=9': { model: modelName, y: 202.5 },
+        'rotation=10': { model: modelName, y: 225 },
+        'rotation=11': { model: modelName, y: 247.5 },
+        'rotation=12': { model: modelName, y: 270 },
+        'rotation=13': { model: modelName, y: 292.5 },
+        'rotation=14': { model: modelName, y: 315 },
+        'rotation=15': { model: modelName, y: 337.5 },
+        '': { model: modelName }
+      }
+    });
+
+    const createHangingSignModel = (wood: string) => ({
+      textures: {
+        board: `block/stripped_${wood}_log`,
+        planks: `block/${wood}_planks`,
+        particle: `block/${wood}_planks`
+      },
+      elements: [
+        {
+          from: [1, 0, 7],
+          to: [15, 10, 9],
+          faces: {
+            north: { uv: [1, 6, 15, 16], texture: '#board' },
+            south: { uv: [1, 6, 15, 16], texture: '#board' },
+            east: { uv: [7, 6, 9, 16], texture: '#board' },
+            west: { uv: [7, 6, 9, 16], texture: '#board' },
+            up: { uv: [1, 7, 15, 9], texture: '#board' },
+            down: { uv: [1, 7, 15, 9], texture: '#board' }
+          }
+        },
+        {
+          from: [3, 10, 7.5],
+          to: [5, 16, 8.5],
+          faces: {
+            north: { uv: [3, 0, 5, 6], texture: '#planks' },
+            south: { uv: [3, 0, 5, 6], texture: '#planks' },
+            east: { uv: [7, 0, 8, 6], texture: '#planks' },
+            west: { uv: [7, 0, 8, 6], texture: '#planks' }
+          }
+        },
+        {
+          from: [11, 10, 7.5],
+          to: [13, 16, 8.5],
+          faces: {
+            north: { uv: [11, 0, 13, 6], texture: '#planks' },
+            south: { uv: [11, 0, 13, 6], texture: '#planks' },
+            east: { uv: [7, 0, 8, 6], texture: '#planks' },
+            west: { uv: [7, 0, 8, 6], texture: '#planks' }
+          }
+        }
+      ]
+    });
+
+    woodTypes.forEach(w => {
+      loaded.assets.blockstates[`${w}_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
+      loaded.assets.blockstates[`${w}_wall_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
+      loaded.assets.models[`block/${w}_hanging_sign`] = createHangingSignModel(w);
+    });
+
 
     // Create custom blockstates and models for double chests (left/right)
     const createChestBlockState = (modelName: string, leftModel: string, rightModel: string) => ({
