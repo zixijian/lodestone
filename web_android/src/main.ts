@@ -337,6 +337,7 @@ async function init() {
       }
     });
 
+
     // Create custom blockstates and models for double chests (left/right)
     const createChestBlockState = (modelName: string, leftModel: string, rightModel: string) => ({
       variants: {
