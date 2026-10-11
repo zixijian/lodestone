@@ -205,6 +205,62 @@ if (Lodestone.ChunkBuilder) {
     }
     return true;
   };
+
+  Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
+    const blockName = block.state.getName();
+    const blockProps = this.getBlockProps(block.state);
+    if (this.isFullyOccluded(block)) {
+      return;
+    }
+    const chunkPos = [
+      Math.floor(block.pos[0] / this.chunkSize[0]),
+      Math.floor(block.pos[1] / this.chunkSize[1]),
+      Math.floor(block.pos[2] / this.chunkSize[2]),
+    ];
+    const chunkKey = this.chunkKey(chunkPos);
+    if (chunkFilter && !chunkFilter.has(chunkKey)) return;
+    const chunk = this.getChunk(chunkPos);
+
+    const cull = {
+      up: this.needsCull(block, Lodestone.Direction.UP),
+      down: this.needsCull(block, Lodestone.Direction.DOWN),
+      west: this.needsCull(block, Lodestone.Direction.WEST),
+      east: this.needsCull(block, Lodestone.Direction.EAST),
+      north: this.needsCull(block, Lodestone.Direction.NORTH),
+      south: this.needsCull(block, Lodestone.Direction.SOUTH),
+    };
+    const mesh = new (Lodestone as any).Mesh();
+
+    try {
+      const blockDefinition = this.resources.getBlockDefinition(blockName);
+      if (blockDefinition) {
+        const defMesh = blockDefinition.getMesh(blockName, blockProps, this.resources, this.resources, cull);
+        if (defMesh && !defMesh.isEmpty()) {
+          mesh.merge(defMesh);
+        }
+      }
+    } catch (err) {
+      console.warn(`BlockDefinition.getMesh failed for ${blockName.toString()}:`, err);
+    }
+
+    try {
+      const specialMesh = Lodestone.SpecialRenderers.getBlockMesh(block.state, block.nbt, this.resources, cull);
+      if (specialMesh && !specialMesh.isEmpty()) {
+        mesh.merge(specialMesh);
+      }
+    } catch (err) {
+      console.warn(`SpecialRenderers.getBlockMesh failed for ${blockName.toString()}:`, err);
+    }
+
+    if (!mesh.isEmpty()) {
+      this.finishChunkMesh(mesh, block.pos, blockName, blockProps, chunkKey);
+      if (this.resources.getBlockFlags(block.state.getName())?.semi_transparent) {
+        chunk.transparentMesh.merge(mesh);
+      } else {
+        chunk.mesh.merge(mesh);
+      }
+    }
+  };
 }
 
 // Infinite View: override applyDrawDistance so chunks are never culled when zooming out
@@ -404,7 +460,7 @@ async function init() {
     woodTypes.forEach(w => {
       loaded.assets.blockstates[`${w}_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
       loaded.assets.blockstates[`${w}_wall_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
-      loaded.assets.models[`block/${w}_hanging_sign`] = createHangingSignModel(w);
+      loaded.assets.models[`block/${w}_hanging_sign`] = { textures: {}, elements: [] };
     });
 
 
@@ -499,7 +555,7 @@ async function init() {
     loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
 
-    // Custom blockstate for item frames across orientations
+    // Custom blockstate for item frames across orientations and properties
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
         'facing=north': { model: modelName },
@@ -508,6 +564,18 @@ async function init() {
         'facing=east': { model: modelName, y: 90 },
         'facing=up': { model: modelName, x: 270 },
         'facing=down': { model: modelName, x: 90 },
+        'fixed=false,facing=north': { model: modelName },
+        'fixed=false,facing=south': { model: modelName, y: 180 },
+        'fixed=false,facing=west': { model: modelName, y: 270 },
+        'fixed=false,facing=east': { model: modelName, y: 90 },
+        'fixed=false,facing=up': { model: modelName, x: 270 },
+        'fixed=false,facing=down': { model: modelName, x: 90 },
+        'fixed=true,facing=north': { model: modelName },
+        'fixed=true,facing=south': { model: modelName, y: 180 },
+        'fixed=true,facing=west': { model: modelName, y: 270 },
+        'fixed=true,facing=east': { model: modelName, y: 90 },
+        'fixed=true,facing=up': { model: modelName, x: 270 },
+        'fixed=true,facing=down': { model: modelName, x: 90 },
         'map=false,facing=north': { model: modelName },
         'map=false,facing=south': { model: modelName, y: 180 },
         'map=false,facing=west': { model: modelName, y: 270 },
@@ -527,12 +595,14 @@ async function init() {
     loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
     loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
 
-    const createItemFrameModel = (backTex = 'block/item_frame') => ({
-      textures: {
-        wood: 'block/birch_planks',
-        back: backTex,
-        particle: 'block/birch_planks'
-      },
+    const createItemFrameModel = (backTex = 'block/item_frame') => {
+      const woodTex = loaded.assets.textures['block/birch_planks'] ? 'block/birch_planks' : (loaded.assets.textures['block/oak_planks'] ? 'block/oak_planks' : 'block/item_frame');
+      return {
+        textures: {
+          wood: woodTex,
+          back: backTex,
+          particle: woodTex
+        },
       elements: [
         {
           from: [3, 3, 15.5],
@@ -587,7 +657,8 @@ async function init() {
           }
         }
       ]
-    });
+    };
+  };
 
     loaded.assets.models['block/item_frame'] = createItemFrameModel('block/item_frame');
     loaded.assets.models['block/glow_item_frame'] = createItemFrameModel('block/glow_item_frame');
@@ -630,6 +701,10 @@ async function init() {
       atlas: loaded.atlas,
       flags
     });
+
+    console.log('[Verify] loaded.assets.blockstates[\'oak_hanging_sign\']:', loaded.assets.blockstates['oak_hanging_sign']);
+    console.log('[Verify] loaded.assets.models[\'block/item_frame\']:', loaded.assets.models['block/item_frame']);
+    console.log('[Verify] loaded.assets.textures[\'entity/signs/hanging/oak\']:', loaded.assets.textures['entity/signs/hanging/oak']);
 
     // Alias all texture keys in atlas to include minecraft: namespace prefix for BlockModel lookup compatibility
     if (currentResources && currentResources.textures) {
