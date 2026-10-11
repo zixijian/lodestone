@@ -399,13 +399,14 @@ async function init() {
       };
 
       if (isLeft) {
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
+        bodyFaces.west = { uv: [0.1, 8.35, 3.4, 10.65], rotation: 180, texture: '#0' };
+        lidFaces.west = { uv: [0.1, 3.85, 3.4, 4.65], rotation: 180, texture: '#0' };
+        latchFaces.west = { uv: [0.01, 0.26, 0.24, 1.24], rotation: 180, texture: '#0' };
       } else {
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
+        // Inset UVs slightly by 0.1 to avoid atlas pixel edge bleeding into transparent padding
+        bodyFaces.east = { uv: [0.1, 8.35, 3.4, 10.65], rotation: 180, texture: '#0' };
+        lidFaces.east = { uv: [0.1, 3.85, 3.4, 4.65], rotation: 180, texture: '#0' };
+        latchFaces.east = { uv: [0.51, 0.26, 0.74, 1.24], rotation: 180, texture: '#0' };
       }
 
       return {
