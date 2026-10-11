@@ -328,12 +328,12 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas
+    // Ensure hanging sign textures map correctly in atlas if missing
     const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
     woodTypes.forEach(w => {
       const signKey = `entity/signs/${w}`;
       const hangingKey = `entity/signs/hanging/${w}`;
-      if (loaded.assets.textures[signKey]) {
+      if (!loaded.assets.textures[hangingKey] && loaded.assets.textures[signKey]) {
         loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
       }
     });
@@ -449,75 +449,78 @@ async function init() {
         'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
         'map=true,facing=up': { model: modelName, x: 270 },
-        'map=true,facing=down': { model: modelName, x: 90 }
+        'map=true,facing=down': { model: modelName, x: 90 },
+        '': { model: modelName }
       }
     });
 
     loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
     loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
 
-    const createItemFrameModel = () => ({
+    const createItemFrameModel = (backTex = 'block/item_frame') => ({
       textures: {
-        wood: 'block/birch_planks'
+        wood: 'block/birch_planks',
+        back: backTex,
+        particle: 'block/birch_planks'
       },
       elements: [
         {
-          from: [3, 3, 15],
+          from: [3, 3, 15.5],
           to: [13, 13, 16],
           faces: {
-            north: { uv: [3, 3, 13, 13], texture: '#wood' },
-            south: { uv: [3, 3, 13, 13], texture: '#wood' }
+            north: { uv: [3, 3, 13, 13], texture: '#back' },
+            south: { uv: [3, 3, 13, 13], texture: '#back' }
           }
         },
         {
-          from: [2, 2, 14],
+          from: [2, 2, 15],
           to: [14, 3, 16],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
-            up: { uv: [2, 14, 14, 16], texture: '#wood' },
-            down: { uv: [2, 0, 14, 2], texture: '#wood' },
-            east: { uv: [0, 13, 2, 14], texture: '#wood' },
-            west: { uv: [14, 13, 16, 14], texture: '#wood' }
+            up: { uv: [2, 15, 14, 16], texture: '#wood' },
+            down: { uv: [2, 0, 14, 1], texture: '#wood' },
+            east: { uv: [0, 13, 1, 14], texture: '#wood' },
+            west: { uv: [15, 13, 16, 14], texture: '#wood' }
           }
         },
         {
-          from: [2, 13, 14],
+          from: [2, 13, 15],
           to: [14, 14, 16],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
-            up: { uv: [2, 14, 14, 16], texture: '#wood' },
-            down: { uv: [2, 0, 14, 2], texture: '#wood' },
-            east: { uv: [0, 2, 2, 3], texture: '#wood' },
-            west: { uv: [14, 2, 16, 3], texture: '#wood' }
+            up: { uv: [2, 15, 14, 16], texture: '#wood' },
+            down: { uv: [2, 0, 14, 1], texture: '#wood' },
+            east: { uv: [0, 2, 1, 3], texture: '#wood' },
+            west: { uv: [15, 2, 1, 3], texture: '#wood' }
           }
         },
         {
-          from: [2, 3, 14],
+          from: [2, 3, 15],
           to: [3, 13, 16],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
-            east: { uv: [0, 3, 2, 13], texture: '#wood' },
-            west: { uv: [14, 3, 16, 13], texture: '#wood' }
+            east: { uv: [0, 3, 1, 13], texture: '#wood' },
+            west: { uv: [15, 3, 16, 13], texture: '#wood' }
           }
         },
         {
-          from: [13, 3, 14],
+          from: [13, 3, 15],
           to: [14, 13, 16],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
-            east: { uv: [0, 3, 2, 13], texture: '#wood' },
-            west: { uv: [14, 3, 16, 13], texture: '#wood' }
+            east: { uv: [0, 3, 1, 13], texture: '#wood' },
+            west: { uv: [15, 3, 16, 13], texture: '#wood' }
           }
         }
       ]
     });
 
-    loaded.assets.models['block/item_frame'] = createItemFrameModel();
-    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
+    loaded.assets.models['block/item_frame'] = createItemFrameModel('block/item_frame');
+    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel('block/glow_item_frame');
 
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
