@@ -399,13 +399,19 @@ async function init() {
       };
 
       if (isLeft) {
+        // Left half (isLeft = true, type=left):
+        // x=16 is East face (outer wall), using normal_left.png [7.25, 10.75] outer side texture.
+        // x=1 is West face (inner seam), omitted so no face renders inside seam.
+        bodyFaces.east = { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' };
+        lidFaces.east = { uv: [7.25, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' };
+        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
+      } else {
+        // Right half (isLeft = false, type=right):
+        // x=0 is West face (outer wall), using normal_right.png [0, 3.5] outer side texture.
+        // x=15 is East face (inner seam), omitted so no face renders inside seam.
         bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
         lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
         latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
-      } else {
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       }
 
       return {
