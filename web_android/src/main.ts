@@ -377,36 +377,43 @@ async function init() {
       const latchFrom: [number, number, number] = isLeft ? [15, 7, 0] : [0, 7, 0];
       const latchTo: [number, number, number] = isLeft ? [16, 11, 2] : [1, 11, 2];
 
-      const bodyFaces: any = {
-        north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
-        south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
-        up: { uv: [11.0, 8.25, 7.25, 4.75], texture: '#0' },
-        down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' }
-      };
-
-      const lidFaces: any = {
-        north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
-        south: { uv: [3.5, 3.75, 7.25, 4.75], rotation: 180, texture: '#0' },
-        up: { uv: [11.0, 3.5, 7.25, 0], texture: '#0' },
-        down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' }
-      };
-
-      const latchFaces: any = {
-        north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
-        south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: '#0' },
-        up: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' },
-        down: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' }
-      };
+      let bodyFaces: any = {};
+      let lidFaces: any = {};
+      let latchFaces: any = {};
 
       if (isLeft) {
-        bodyFaces.west = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' };
-        lidFaces.west = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' };
-        latchFaces.west = { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' };
+        bodyFaces = {
+          north: { uv: [10.75, 8.25, 14.5, 10.75], rotation: 180, texture: '#0' },
+          south: { uv: [3.5, 8.25, 7.25, 10.75], rotation: 180, texture: '#0' },
+          up: { uv: [11.0, 8.25, 7.25, 4.75], texture: '#0' },
+          down: { uv: [7.25, 8.25, 3.5, 4.75], texture: '#0' },
+          west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' }
+        };
+        lidFaces = {
+          north: { uv: [10.75, 3.75, 14.5, 4.75], rotation: 180, texture: '#0' },
+          south: { uv: [3.5, 3.75, 7.25, 4.75], rotation: 180, texture: '#0' },
+          up: { uv: [11.0, 3.5, 7.25, 0], texture: '#0' },
+          down: { uv: [7.25, 3.5, 3.5, 0], texture: '#0' },
+          west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' }
+        };
+        latchFaces = {
+          north: { uv: [0.25, 0.25, 0.5, 1.25], rotation: 180, texture: '#0' },
+          south: { uv: [0.75, 0.25, 1.0, 1.25], rotation: 180, texture: '#0' },
+          up: { uv: [0.5, 0, 0.75, 0.25], texture: '#0' },
+          down: { uv: [0.25, 0, 0.5, 0.25], texture: '#0' },
+          west: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' }
+        };
       } else {
-        // Force Step 1 Debug Test: Pure red tintindex + DoubleSide material override
-        bodyFaces.east = { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0', tintindex: 999 };
-        lidFaces.east = { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0', tintindex: 999 };
-        latchFaces.east = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0', tintindex: 999 };
+        // Subtractive test for right chest (isLeft = false): ONLY keep east face!
+        bodyFaces = {
+          east: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' }
+        };
+        lidFaces = {
+          east: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' }
+        };
+        latchFaces = {
+          east: { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' }
+        };
       }
 
       return {
@@ -906,39 +913,6 @@ async function buildRendererForRegion(regionName: string) {
 
   renderer = new ThreeStructureRenderer(canvasElement, currentStructure, currentResources, rendererOptions);
   (renderer as any).drawDistance = 100000;
-
-  // Intercept chunk mesh quads to force tintindex 999 to pure red [1, 0, 0, 1] and force THREE.DoubleSide
-  if ((renderer as any).opaqueMaterial) {
-    (renderer as any).opaqueMaterial.side = THREE.DoubleSide;
-    (renderer as any).opaqueMaterial.transparent = false;
-    (renderer as any).opaqueMaterial.needsUpdate = true;
-  }
-  if ((renderer as any).transparentMaterial) {
-    (renderer as any).transparentMaterial.side = THREE.DoubleSide;
-    (renderer as any).transparentMaterial.needsUpdate = true;
-  }
-
-  // Inject tintindex handler into currentResources to return pure solid red [1, 0, 0, 1] for tintindex 999
-  if (currentResources) {
-    const origGetBlockModel = currentResources.getBlockModel;
-    if (origGetBlockModel) {
-      currentResources.getBlockModel = function (name: any) {
-        const model = origGetBlockModel.call(this, name);
-        if (model && !model.__redPatched) {
-          model.__redPatched = true;
-          const origGetElementMesh = model.getElementMesh;
-          model.getElementMesh = function (e: any, atlas: any, cull: any, getTint: any) {
-            const customGetTint = (tintindex: number) => {
-              if (tintindex === 999) return [1, 0, 0, 1]; // Solid Red
-              return getTint ? getTint(tintindex) : [1, 1, 1, 1];
-            };
-            return origGetElementMesh.call(this, e, atlas, cull, customGetTint);
-          };
-        }
-        return model;
-      };
-    }
-  }
 
   if ((renderer as any).atlasTexture) {
     const texture = (renderer as any).atlasTexture;
