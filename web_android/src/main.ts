@@ -383,7 +383,7 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas and delete default blockstates/models so SpecialRenderers handles hanging signs
+    // Ensure standing and hanging sign textures map correctly in atlas and delete default blockstates/models so SpecialRenderers handles hanging signs
     const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped', 'pale_oak'];
     woodTypes.forEach(w => {
       delete loaded.assets.blockstates[`${w}_hanging_sign`];
@@ -391,9 +391,16 @@ async function init() {
       delete loaded.assets.models[`block/${w}_hanging_sign`];
       delete loaded.assets.models[`block/${w}_wall_hanging_sign`];
 
+      const signKey = `entity/signs/${w}`;
+      if (!loaded.assets.textures[signKey]) {
+        const fallback = loaded.assets.textures['entity/signs/oak'];
+        if (fallback) {
+          loaded.assets.textures[signKey] = fallback;
+        }
+      }
+
       const hangingKey = `entity/signs/hanging/${w}`;
       if (!loaded.assets.textures[hangingKey]) {
-        // Fall back directly to oak hanging sign texture (64x32) for missing wood types like pale_oak
         const fallback = loaded.assets.textures['entity/signs/hanging/oak'];
         if (fallback) {
           loaded.assets.textures[hangingKey] = fallback;
