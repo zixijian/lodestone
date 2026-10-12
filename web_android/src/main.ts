@@ -123,17 +123,21 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         return emptyMesh;
       }
     }
-    if (name.includes('pale_oak')) {
+    if (name.includes('hanging_sign') || name.includes('sign')) {
+      const woodType = name.replace('minecraft:', '').replace('_wall_hanging_sign', '').replace('_hanging_sign', '').replace('_wall_sign', '').replace('_sign', '');
       const getStr = (b: any, k: string, defVal: string) => (b.getProperty ? b.getProperty(k) : b.properties?.[k]) ?? defVal;
       const getInt = (b: any, k: string) => parseInt(getStr(b, k, '0') || '0', 10);
       const SR = (Lodestone as any).SpecialRenderers;
+      const Id = (Lodestone as any).Identifier;
+      const idObj = Id?.create ? Id.create(woodType) : woodType;
+
       if (name.endsWith('wall_hanging_sign')) {
         const facing = getStr(block, 'facing', 'south');
         const t = mat4.create();
         mat4.translate(t, t, [8, 8, 8]);
         mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
         mat4.translate(t, t, [-8, -8, -8]);
-        const r = SR.wallHangingSignRenderer?.('pale_oak');
+        const r = SR.wallHangingSignRenderer?.(woodType);
         if (r) return r(atlas).transform(t);
       } else if (name.endsWith('hanging_sign')) {
         const attached = getStr(block, 'attached', 'false') === 'true';
@@ -141,10 +145,8 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         const t = mat4.create();
         mat4.translate(t, t, [8, 8, 8]);
         mat4.rotateY(t, t, rotation);
-        mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
         mat4.translate(t, t, [-8, -8, -8]);
-        const id = (Lodestone as any).Identifier?.create ? (Lodestone as any).Identifier.create('pale_oak') : 'pale_oak';
-        const r = SR.hangingSignRenderer?.(id);
+        const r = SR.hangingSignRenderer?.(idObj);
         if (r) return r(attached, atlas).transform(t);
       } else if (name.endsWith('wall_sign')) {
         const facing = getStr(block, 'facing', 'south');
@@ -153,8 +155,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
         mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
         mat4.translate(t, t, [-8, -8, -8]);
-        const id = (Lodestone as any).Identifier?.create ? (Lodestone as any).Identifier.create('pale_oak') : 'pale_oak';
-        const r = SR.wallSignRenderer?.(id);
+        const r = SR.wallSignRenderer?.(idObj);
         if (r) return r(atlas).transform(t);
       } else if (name.endsWith('sign')) {
         const rotation = getInt(block, 'rotation') / 16 * Math.PI * 2;
@@ -163,8 +164,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         mat4.rotateY(t, t, rotation);
         mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
         mat4.translate(t, t, [-8, -8, -8]);
-        const id = (Lodestone as any).Identifier?.create ? (Lodestone as any).Identifier.create('pale_oak') : 'pale_oak';
-        const r = SR.signRenderer?.(id);
+        const r = SR.signRenderer?.(idObj);
         if (r) return r(atlas).transform(t);
       }
     }
@@ -434,9 +434,6 @@ async function init() {
       if (!loaded.assets.textures[hangingKey]) {
         loaded.assets.textures[hangingKey] = loaded.assets.textures['entity/signs/hanging/birch'] || loaded.assets.textures['entity/signs/hanging/oak'];
       }
-      delete loaded.assets.blockstates[`${w}_hanging_sign`];
-      delete loaded.assets.blockstates[`${w}_wall_hanging_sign`];
-      delete loaded.assets.models[`block/${w}_hanging_sign`];
     });
 
     // Alias all texture keys in loaded.assets.textures to include minecraft: namespace prefix for BlockModel lookup compatibility
@@ -540,35 +537,43 @@ async function init() {
     loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
 
-    // Custom blockstate for item frames across orientations and properties
+    // Custom blockstate for item frames across orientations and properties.
+    // Base unrotated model sits on SOUTH face (z: 15..16).
+    // Rotation mappings around origin [8,8,8]:
+    // - facing=south: 0° Y (z = 15..16)
+    // - facing=north: 180° Y (z = 0..1)
+    // - facing=west: 270° Y (x = 0..1)
+    // - facing=east: 90° Y (x = 15..16)
+    // - facing=up: 270° X (y = 15..16)
+    // - facing=down: 90° X (y = 0..1)
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
-        'facing=north': { model: modelName },
-        'facing=south': { model: modelName, y: 180 },
+        'facing=south': { model: modelName },
+        'facing=north': { model: modelName, y: 180 },
         'facing=west': { model: modelName, y: 270 },
         'facing=east': { model: modelName, y: 90 },
         'facing=up': { model: modelName, x: 270 },
         'facing=down': { model: modelName, x: 90 },
-        'fixed=false,facing=north': { model: modelName },
-        'fixed=false,facing=south': { model: modelName, y: 180 },
+        'fixed=false,facing=south': { model: modelName },
+        'fixed=false,facing=north': { model: modelName, y: 180 },
         'fixed=false,facing=west': { model: modelName, y: 270 },
         'fixed=false,facing=east': { model: modelName, y: 90 },
         'fixed=false,facing=up': { model: modelName, x: 270 },
         'fixed=false,facing=down': { model: modelName, x: 90 },
-        'fixed=true,facing=north': { model: modelName },
-        'fixed=true,facing=south': { model: modelName, y: 180 },
+        'fixed=true,facing=south': { model: modelName },
+        'fixed=true,facing=north': { model: modelName, y: 180 },
         'fixed=true,facing=west': { model: modelName, y: 270 },
         'fixed=true,facing=east': { model: modelName, y: 90 },
         'fixed=true,facing=up': { model: modelName, x: 270 },
         'fixed=true,facing=down': { model: modelName, x: 90 },
-        'map=false,facing=north': { model: modelName },
-        'map=false,facing=south': { model: modelName, y: 180 },
+        'map=false,facing=south': { model: modelName },
+        'map=false,facing=north': { model: modelName, y: 180 },
         'map=false,facing=west': { model: modelName, y: 270 },
         'map=false,facing=east': { model: modelName, y: 90 },
         'map=false,facing=up': { model: modelName, x: 270 },
         'map=false,facing=down': { model: modelName, x: 90 },
-        'map=true,facing=north': { model: modelName },
-        'map=true,facing=south': { model: modelName, y: 180 },
+        'map=true,facing=south': { model: modelName },
+        'map=true,facing=north': { model: modelName, y: 180 },
         'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
         'map=true,facing=up': { model: modelName, x: 270 },
