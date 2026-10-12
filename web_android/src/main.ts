@@ -106,7 +106,7 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
+// Override SpecialRenderers.getBlockMesh to handle custom special renderers (e.g. pale_oak hanging signs, double chests)
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -127,6 +127,53 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         }
         return emptyMesh;
       }
+    } else if (name.endsWith('_hanging_sign') || name.endsWith('_wall_hanging_sign')) {
+      const isWall = name.endsWith('_wall_hanging_sign');
+      const woodType = name.replace('minecraft:', '').replace('_wall_hanging_sign', '').replace('_hanging_sign', '');
+      const mesh = new (Lodestone as any).Mesh();
+      if (isWall) {
+        const renderer = (Lodestone as any).SpecialRenderers.wallHangingSignRenderer?.(woodType);
+        if (renderer) {
+          let facing = 'south';
+          if (typeof block.getProperties === 'function') {
+            facing = block.getProperties()?.facing || 'south';
+          } else if (block.properties) {
+            facing = block.properties.facing || 'south';
+          }
+          const t = mat4.create();
+          mat4.translate(t, t, [8, 8, 8]);
+          mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
+          mat4.translate(t, t, [-8, -8, -8]);
+          mesh.merge(renderer(atlas).transform(t));
+        }
+      } else {
+        const renderer = (Lodestone as any).SpecialRenderers.hangingSignRenderer?.((Lodestone as any).Identifier.create(woodType));
+        if (renderer) {
+          let attached = false;
+          let rotation = 0;
+          if (typeof block.getProperties === 'function') {
+            const props = block.getProperties();
+            attached = props?.attached === 'true';
+            rotation = parseInt(props?.rotation || '0', 10) / 16 * Math.PI * 2;
+          } else if (block.properties) {
+            attached = block.properties.attached === 'true';
+            rotation = parseInt(block.properties.rotation || '0', 10) / 16 * Math.PI * 2;
+          }
+          const t = mat4.create();
+          mat4.translate(t, t, [8, 8, 8]);
+          mat4.rotateY(t, t, rotation);
+          mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
+          mat4.translate(t, t, [-8, -8, -8]);
+          mesh.merge(renderer(attached, atlas).transform(t));
+        }
+      }
+      if (block.isWaterlogged && block.isWaterlogged()) {
+        const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
+        if (waterMesh) mesh.merge(waterMesh);
+      }
+      const t = mat4.create();
+      mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
+      return mesh.transform(t);
     }
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
   };
@@ -328,12 +375,19 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas
-    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+    // Ensure hanging sign textures map correctly in atlas and delete blockstates/models so SpecialRenderers handles hanging signs
+    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped', 'pale_oak'];
     woodTypes.forEach(w => {
+      delete loaded.assets.blockstates[`${w}_hanging_sign`];
+      delete loaded.assets.blockstates[`${w}_wall_hanging_sign`];
+      delete loaded.assets.models[`block/${w}_hanging_sign`];
+      delete loaded.assets.models[`block/${w}_wall_hanging_sign`];
+
       const signKey = `entity/signs/${w}`;
       const hangingKey = `entity/signs/hanging/${w}`;
-      if (loaded.assets.textures[signKey]) {
+      if (loaded.assets.textures[hangingKey]) {
+        // Keep original hanging sign texture if present
+      } else if (loaded.assets.textures[signKey]) {
         loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
       }
     });
@@ -429,7 +483,7 @@ async function init() {
     loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
 
-    // Custom blockstate for item frames across orientations
+    // Custom blockstate for item frames across orientations with fallback
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
         'facing=north': { model: modelName },
@@ -449,7 +503,8 @@ async function init() {
         'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
         'map=true,facing=up': { model: modelName, x: 270 },
-        'map=true,facing=down': { model: modelName, x: 90 }
+        'map=true,facing=down': { model: modelName, x: 90 },
+        '': { model: modelName }
       }
     });
 
@@ -784,6 +839,126 @@ async function loadRegionAsync(
         lastYield = performance.now();
       }
     }
+  }
+
+  // Parse entities (Entities, PendingBlockEntities, TileEntities, BlockEntities) for item frames
+  const entityLists = ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'];
+  const facingMap: { [key: number]: string } = {
+    0: 'down', 1: 'up', 2: 'north', 3: 'south', 4: 'west', 5: 'east'
+  };
+
+  const regPosNbt = regionCompound.getCompound('Position');
+  const regPos = [
+    regPosNbt ? (regPosNbt.getNumber('x') ?? 0) : 0,
+    regPosNbt ? (regPosNbt.getNumber('y') ?? 0) : 0,
+    regPosNbt ? (regPosNbt.getNumber('z') ?? 0) : 0
+  ];
+  const originX = rawSize[0] < 0 ? regPos[0] + rawSize[0] + 1 : regPos[0];
+  const originY = rawSize[1] < 0 ? regPos[1] + rawSize[1] + 1 : regPos[1];
+  const originZ = rawSize[2] < 0 ? regPos[2] + rawSize[2] + 1 : regPos[2];
+
+  for (const listKey of entityLists) {
+    if (!regionCompound.has(listKey)) continue;
+    const list = regionCompound.getList(listKey);
+    if (!list) continue;
+
+    list.forEach((entityCompound: any) => {
+      if (!entityCompound || typeof entityCompound.getString !== 'function') return;
+      const id = entityCompound.getString('id') ?? entityCompound.getString('Id') ?? '';
+      if (id !== 'minecraft:item_frame' && id !== 'minecraft:glow_item_frame' && id !== 'item_frame' && id !== 'glow_item_frame') return;
+
+      const normId = id.startsWith('minecraft:') ? id : 'minecraft:' + id;
+
+      let facing = 'south';
+
+      // Parse facing attribute from NBT tag
+      let facingNum: number | null = null;
+
+      const checkTag = (tagName: string) => {
+        if (facingNum !== null) return;
+        if (entityCompound.has(tagName)) {
+          const val = entityCompound.get(tagName);
+          if (val && typeof val.getNumber === 'function') {
+            facingNum = val.getNumber();
+          } else if (val && val.value !== undefined) {
+            facingNum = Number(val.value);
+          }
+        }
+      };
+
+      checkTag('Facing');
+      checkTag('FacingDirection');
+      checkTag('Direction');
+
+      if (facingNum !== null && facingMap[facingNum] !== undefined) {
+        facing = facingMap[facingNum];
+      }
+
+      // Compute relative block position
+      let x = -1, y = -1, z = -1;
+
+      if (entityCompound.has('Pos')) {
+        const posList = entityCompound.getList('Pos');
+        if (posList && posList.length >= 3) {
+          const px = posList.get(0)?.getNumber() ?? posList.get(0)?.value ?? 0;
+          const py = posList.get(1)?.getNumber() ?? posList.get(1)?.value ?? 0;
+          const pz = posList.get(2)?.getNumber() ?? posList.get(2)?.value ?? 0;
+          x = Math.floor(px - originX);
+          y = Math.floor(py - originY);
+          z = Math.floor(pz - originZ);
+        }
+      }
+
+      if (x < 0 || y < 0 || z < 0 || x >= width || y >= height || z >= depth) {
+        if (entityCompound.has('TileX') && entityCompound.has('TileY') && entityCompound.has('TileZ')) {
+          const tx = entityCompound.getNumber('TileX') ?? 0;
+          const ty = entityCompound.getNumber('TileY') ?? 0;
+          const tz = entityCompound.getNumber('TileZ') ?? 0;
+          x = Math.floor(tx - originX);
+          y = Math.floor(ty - originY);
+          z = Math.floor(tz - originZ);
+        } else if (entityCompound.has('x') && entityCompound.has('y') && entityCompound.has('z')) {
+          const tx = entityCompound.getNumber('x') ?? 0;
+          const ty = entityCompound.getNumber('y') ?? 0;
+          const tz = entityCompound.getNumber('z') ?? 0;
+          x = Math.floor(tx - originX);
+          y = Math.floor(ty - originY);
+          z = Math.floor(tz - originZ);
+        }
+      }
+
+      // If coordinates are relative within bounds
+      if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
+        // Fall back to wrapping within bounds if coordinates were relative (0..size)
+        const relX = Math.floor(x + originX);
+        const relY = Math.floor(y + originY);
+        const relZ = Math.floor(z + originZ);
+        if (relX >= 0 && relX < width && relY >= 0 && relY < height && relZ >= 0 && relZ < depth) {
+          x = relX; y = relY; z = relZ;
+        } else {
+          return;
+        }
+      }
+
+      let paletteIdx = palette.findIndex(
+        st => st.getName().toString() === normId && st.getProperties()?.facing === facing
+      );
+
+      if (paletteIdx === -1) {
+        palette.push(new BlockState(normId, { facing }));
+        paletteIdx = palette.length - 1;
+      }
+
+      storedBlocks.push({ pos: [x, y, z], state: paletteIdx });
+
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+      if (z > maxZ) maxZ = z;
+      hasPlaced = true;
+    });
   }
 
   if (hasPlaced) {
