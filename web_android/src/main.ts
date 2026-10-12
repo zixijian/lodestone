@@ -91,17 +91,9 @@ let animFrameId: number | null = null;
     return this.placedBlocksCache;
   }
   this.placedBlocksCache = [];
-  const w = this.size[0], h = this.size[1], d = this.size[2];
-  const hd = h * d;
   for (let i = 0; i < this.blocks.length; i++) {
     const b = this.blocks[i];
-    const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
-    let placed = this.placedBlockObjectMap.get(idx);
-    if (!placed) {
-      placed = { pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt };
-      this.placedBlockObjectMap.set(idx, placed);
-    }
-    this.placedBlocksCache.push(placed);
+    this.placedBlocksCache.push({ pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt });
   }
   return this.placedBlocksCache;
 };
@@ -389,6 +381,9 @@ async function init() {
         // Keep original hanging sign texture if present
       } else if (loaded.assets.textures[signKey]) {
         loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
+      } else {
+        // Fallback for pale_oak or any missing wood type: use oak hanging sign texture
+        loaded.assets.textures[hangingKey] = loaded.assets.textures['entity/signs/hanging/oak'];
       }
     });
 
@@ -486,20 +481,20 @@ async function init() {
     // Custom blockstate for item frames across orientations with fallback
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
-        'facing=north': { model: modelName },
-        'facing=south': { model: modelName, y: 180 },
+        'facing=south': { model: modelName, y: 0 },
+        'facing=north': { model: modelName, y: 180 },
         'facing=west': { model: modelName, y: 270 },
         'facing=east': { model: modelName, y: 90 },
         'facing=up': { model: modelName, x: 270 },
         'facing=down': { model: modelName, x: 90 },
-        'map=false,facing=north': { model: modelName },
-        'map=false,facing=south': { model: modelName, y: 180 },
+        'map=false,facing=south': { model: modelName, y: 0 },
+        'map=false,facing=north': { model: modelName, y: 180 },
         'map=false,facing=west': { model: modelName, y: 270 },
         'map=false,facing=east': { model: modelName, y: 90 },
         'map=false,facing=up': { model: modelName, x: 270 },
         'map=false,facing=down': { model: modelName, x: 90 },
-        'map=true,facing=north': { model: modelName },
-        'map=true,facing=south': { model: modelName, y: 180 },
+        'map=true,facing=south': { model: modelName, y: 0 },
+        'map=true,facing=north': { model: modelName, y: 180 },
         'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
         'map=true,facing=up': { model: modelName, x: 270 },
