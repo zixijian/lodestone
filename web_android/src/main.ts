@@ -841,6 +841,22 @@ async function loadRegionAsync(
     }
   }
 
+  // Safe helper to extract primitive number from NBT tag or compound
+  const getNumVal = (tag: any, key?: string): number => {
+    if (!tag) return 0;
+    if (key !== undefined) {
+      if (typeof tag.getNumber === 'function') return tag.getNumber(key) ?? 0;
+      const child = typeof tag.get === 'function' ? tag.get(key) : tag[key];
+      return getNumVal(child);
+    }
+    if (typeof tag === 'number') return tag;
+    if (typeof tag.value === 'number') return tag.value;
+    if (typeof tag.value === 'bigint') return Number(tag.value);
+    if (typeof tag.getNumber === 'function') return tag.getNumber() ?? 0;
+    if (typeof tag.getAsString === 'function') return parseFloat(tag.getAsString()) || 0;
+    return 0;
+  };
+
   // Parse entities (Entities, PendingBlockEntities, TileEntities, BlockEntities) for item frames
   const entityLists = ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'];
   const facingMap: { [key: number]: string } = {
@@ -849,9 +865,9 @@ async function loadRegionAsync(
 
   const regPosNbt = regionCompound.getCompound('Position');
   const regPos = [
-    regPosNbt ? (regPosNbt.getNumber('x') ?? 0) : 0,
-    regPosNbt ? (regPosNbt.getNumber('y') ?? 0) : 0,
-    regPosNbt ? (regPosNbt.getNumber('z') ?? 0) : 0
+    getNumVal(regPosNbt, 'x'),
+    getNumVal(regPosNbt, 'y'),
+    getNumVal(regPosNbt, 'z')
   ];
   const originX = rawSize[0] < 0 ? regPos[0] + rawSize[0] + 1 : regPos[0];
   const originY = rawSize[1] < 0 ? regPos[1] + rawSize[1] + 1 : regPos[1];
@@ -878,10 +894,8 @@ async function loadRegionAsync(
         if (facingNum !== null) return;
         if (entityCompound.has(tagName)) {
           const val = entityCompound.get(tagName);
-          if (val && typeof val.getNumber === 'function') {
-            facingNum = val.getNumber();
-          } else if (val && val.value !== undefined) {
-            facingNum = Number(val.value);
+          if (val) {
+            facingNum = getNumVal(val);
           }
         }
       };
@@ -900,9 +914,9 @@ async function loadRegionAsync(
       if (entityCompound.has('Pos')) {
         const posList = entityCompound.getList('Pos');
         if (posList && posList.length >= 3) {
-          const px = posList.get(0)?.getNumber() ?? posList.get(0)?.value ?? 0;
-          const py = posList.get(1)?.getNumber() ?? posList.get(1)?.value ?? 0;
-          const pz = posList.get(2)?.getNumber() ?? posList.get(2)?.value ?? 0;
+          const px = getNumVal(posList.get(0));
+          const py = getNumVal(posList.get(1));
+          const pz = getNumVal(posList.get(2));
           x = Math.floor(px - originX);
           y = Math.floor(py - originY);
           z = Math.floor(pz - originZ);
@@ -911,16 +925,16 @@ async function loadRegionAsync(
 
       if (x < 0 || y < 0 || z < 0 || x >= width || y >= height || z >= depth) {
         if (entityCompound.has('TileX') && entityCompound.has('TileY') && entityCompound.has('TileZ')) {
-          const tx = entityCompound.getNumber('TileX') ?? 0;
-          const ty = entityCompound.getNumber('TileY') ?? 0;
-          const tz = entityCompound.getNumber('TileZ') ?? 0;
+          const tx = getNumVal(entityCompound, 'TileX');
+          const ty = getNumVal(entityCompound, 'TileY');
+          const tz = getNumVal(entityCompound, 'TileZ');
           x = Math.floor(tx - originX);
           y = Math.floor(ty - originY);
           z = Math.floor(tz - originZ);
         } else if (entityCompound.has('x') && entityCompound.has('y') && entityCompound.has('z')) {
-          const tx = entityCompound.getNumber('x') ?? 0;
-          const ty = entityCompound.getNumber('y') ?? 0;
-          const tz = entityCompound.getNumber('z') ?? 0;
+          const tx = getNumVal(entityCompound, 'x');
+          const ty = getNumVal(entityCompound, 'y');
+          const tz = getNumVal(entityCompound, 'z');
           x = Math.floor(tx - originX);
           y = Math.floor(ty - originY);
           z = Math.floor(tz - originZ);
