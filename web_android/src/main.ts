@@ -47,6 +47,22 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
 
+// Safe helper to extract primitive number from NBT tag or compound
+function getNumVal(tag: any, key?: string): number {
+  if (!tag) return 0;
+  if (key !== undefined) {
+    if (typeof tag.getNumber === 'function') return tag.getNumber(key) ?? 0;
+    const child = typeof tag.get === 'function' ? tag.get(key) : tag[key];
+    return getNumVal(child, undefined);
+  }
+  if (typeof tag === 'number') return tag;
+  if (typeof tag.value === 'number') return tag.value;
+  if (typeof tag.value === 'bigint') return Number(tag.value);
+  if (typeof tag.getNumber === 'function') return tag.getNumber() ?? 0;
+  if (typeof tag.getAsString === 'function') return parseFloat(tag.getAsString()) || 0;
+  return 0;
+}
+
 // High-performance, zero-GC Uint16Array flat block grid storage with on-demand lazy block object creation
 (Structure.prototype as any).ensurePlacedCaches = function () {
   if (this.placedBlocksGrid) return;
@@ -360,10 +376,10 @@ async function init() {
     };
 
     const [loaded, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
-      loadDefaultPackResources({ baseUrl: packBaseUrl + `?cb=${cb}` }),
+      loadDefaultPackResources({ baseUrl: packBaseUrl }),
       fetch(packBaseUrl + `block-flags/opaque.txt?cb=${cb}`).catch(() => null),
       fetch(packBaseUrl + `block-flags/transparent.txt?cb=${cb}`).catch(() => null),
-      fetch(packBaseUrl + `block-flags/non-self-culling.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/non_self_culling.txt?cb=${cb}`).catch(() => null),
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
@@ -466,20 +482,20 @@ async function init() {
     // Custom blockstate for item frames across orientations with fallback
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
-        'facing=south': { model: modelName, y: 0 },
-        'facing=north': { model: modelName, y: 180 },
+        'facing=north': { model: modelName, y: 0 },
+        'facing=south': { model: modelName, y: 180 },
         'facing=west': { model: modelName, y: 270 },
         'facing=east': { model: modelName, y: 90 },
         'facing=up': { model: modelName, x: 270 },
         'facing=down': { model: modelName, x: 90 },
-        'map=false,facing=south': { model: modelName, y: 0 },
-        'map=false,facing=north': { model: modelName, y: 180 },
+        'map=false,facing=north': { model: modelName, y: 0 },
+        'map=false,facing=south': { model: modelName, y: 180 },
         'map=false,facing=west': { model: modelName, y: 270 },
         'map=false,facing=east': { model: modelName, y: 90 },
         'map=false,facing=up': { model: modelName, x: 270 },
         'map=false,facing=down': { model: modelName, x: 90 },
-        'map=true,facing=south': { model: modelName, y: 0 },
-        'map=true,facing=north': { model: modelName, y: 180 },
+        'map=true,facing=north': { model: modelName, y: 0 },
+        'map=true,facing=south': { model: modelName, y: 180 },
         'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
         'map=true,facing=up': { model: modelName, x: 270 },
@@ -497,16 +513,16 @@ async function init() {
       },
       elements: [
         {
-          from: [3, 3, 15],
-          to: [13, 13, 16],
+          from: [3, 3, 0],
+          to: [13, 13, 1],
           faces: {
             north: { uv: [3, 3, 13, 13], texture: '#wood' },
             south: { uv: [3, 3, 13, 13], texture: '#wood' }
           }
         },
         {
-          from: [2, 2, 14],
-          to: [14, 3, 16],
+          from: [2, 2, 0],
+          to: [14, 3, 2],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
@@ -517,8 +533,8 @@ async function init() {
           }
         },
         {
-          from: [2, 13, 14],
-          to: [14, 14, 16],
+          from: [2, 13, 0],
+          to: [14, 14, 2],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
@@ -529,8 +545,8 @@ async function init() {
           }
         },
         {
-          from: [2, 3, 14],
-          to: [3, 13, 16],
+          from: [2, 3, 0],
+          to: [3, 13, 2],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
@@ -539,8 +555,8 @@ async function init() {
           }
         },
         {
-          from: [13, 3, 14],
-          to: [14, 13, 16],
+          from: [13, 3, 0],
+          to: [14, 13, 2],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
@@ -821,21 +837,6 @@ async function loadRegionAsync(
     }
   }
 
-  // Safe helper to extract primitive number from NBT tag or compound
-  const getNumVal = (tag: any, key?: string): number => {
-    if (!tag) return 0;
-    if (key !== undefined) {
-      if (typeof tag.getNumber === 'function') return tag.getNumber(key) ?? 0;
-      const child = typeof tag.get === 'function' ? tag.get(key) : tag[key];
-      return getNumVal(child);
-    }
-    if (typeof tag === 'number') return tag;
-    if (typeof tag.value === 'number') return tag.value;
-    if (typeof tag.value === 'bigint') return Number(tag.value);
-    if (typeof tag.getNumber === 'function') return tag.getNumber() ?? 0;
-    if (typeof tag.getAsString === 'function') return parseFloat(tag.getAsString()) || 0;
-    return 0;
-  };
 
   // Parse entities (Entities, PendingBlockEntities, TileEntities, BlockEntities) for item frames
   const entityLists = ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'];
