@@ -101,7 +101,7 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition and handle pale_oak
+// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition and handle pale_oak & hanging sign chains
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -165,7 +165,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         mat4.translate(t, t, [-8, -8, -8]);
         const id = (Lodestone as any).Identifier?.create ? (Lodestone as any).Identifier.create('pale_oak') : 'pale_oak';
         const r = SR.signRenderer?.(id);
-        if (r) return r(attached, atlas).transform(t);
+        if (r) return r(atlas).transform(t);
       }
     }
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
@@ -1373,14 +1373,8 @@ window.toggleDayNight = function () {
         if (sun.ambient) sun.ambient.intensity = 0.65;
       }
     }
-    if ((renderer as any).opaqueMaterial) {
-      (renderer as any).opaqueMaterial.side = THREE.DoubleSide;
-      (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
-    }
-    if ((renderer as any).transparentMaterial) {
-      (renderer as any).transparentMaterial.side = THREE.DoubleSide;
-      (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
-    }
+    if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
+    if ((renderer as any).transparentMaterial) (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
   }
   return isNightMode;
 };
