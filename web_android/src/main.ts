@@ -101,7 +101,7 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
+// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition and handle pale_oak
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -121,6 +121,51 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
           if (waterMesh) emptyMesh.merge(waterMesh);
         }
         return emptyMesh;
+      }
+    }
+    if (name.includes('pale_oak')) {
+      const getStr = (b: any, k: string, defVal: string) => (b.getProperty ? b.getProperty(k) : b.properties?.[k]) ?? defVal;
+      const getInt = (b: any, k: string) => parseInt(getStr(b, k, '0') || '0', 10);
+      const SR = (Lodestone as any).SpecialRenderers;
+      if (name.endsWith('wall_hanging_sign')) {
+        const facing = getStr(block, 'facing', 'south');
+        const t = mat4.create();
+        mat4.translate(t, t, [8, 8, 8]);
+        mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
+        mat4.translate(t, t, [-8, -8, -8]);
+        const r = SR.wallHangingSignRenderer?.('pale_oak');
+        if (r) return r(atlas).transform(t);
+      } else if (name.endsWith('hanging_sign')) {
+        const attached = getStr(block, 'attached', 'false') === 'true';
+        const rotation = getInt(block, 'rotation') / 16 * Math.PI * 2;
+        const t = mat4.create();
+        mat4.translate(t, t, [8, 8, 8]);
+        mat4.rotateY(t, t, rotation);
+        mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
+        mat4.translate(t, t, [-8, -8, -8]);
+        const id = (Lodestone as any).Identifier?.create ? (Lodestone as any).Identifier.create('pale_oak') : 'pale_oak';
+        const r = SR.hangingSignRenderer?.(id);
+        if (r) return r(attached, atlas).transform(t);
+      } else if (name.endsWith('wall_sign')) {
+        const facing = getStr(block, 'facing', 'south');
+        const t = mat4.create();
+        mat4.translate(t, t, [8, 8, 8]);
+        mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
+        mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
+        mat4.translate(t, t, [-8, -8, -8]);
+        const id = (Lodestone as any).Identifier?.create ? (Lodestone as any).Identifier.create('pale_oak') : 'pale_oak';
+        const r = SR.wallSignRenderer?.(id);
+        if (r) return r(atlas).transform(t);
+      } else if (name.endsWith('sign')) {
+        const rotation = getInt(block, 'rotation') / 16 * Math.PI * 2;
+        const t = mat4.create();
+        mat4.translate(t, t, [8, 8, 8]);
+        mat4.rotateY(t, t, rotation);
+        mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
+        mat4.translate(t, t, [-8, -8, -8]);
+        const id = (Lodestone as any).Identifier?.create ? (Lodestone as any).Identifier.create('pale_oak') : 'pale_oak';
+        const r = SR.signRenderer?.(id);
+        if (r) return r(attached, atlas).transform(t);
       }
     }
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
@@ -378,9 +423,17 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Delete blockstates and models for hanging signs so Lodestone uses native SpecialRenderers for hanging signs (same as standing/wall signs)
-    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+    // Ensure woodTypes includes pale_oak and handle fallback textures
+    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'pale_oak', 'spruce', 'warped'];
     woodTypes.forEach(w => {
+      const signKey = `entity/signs/${w}`;
+      const hangingKey = `entity/signs/hanging/${w}`;
+      if (!loaded.assets.textures[signKey]) {
+        loaded.assets.textures[signKey] = loaded.assets.textures['entity/signs/birch'] || loaded.assets.textures['entity/signs/oak'];
+      }
+      if (!loaded.assets.textures[hangingKey]) {
+        loaded.assets.textures[hangingKey] = loaded.assets.textures['entity/signs/hanging/birch'] || loaded.assets.textures['entity/signs/hanging/oak'];
+      }
       delete loaded.assets.blockstates[`${w}_hanging_sign`];
       delete loaded.assets.blockstates[`${w}_wall_hanging_sign`];
       delete loaded.assets.models[`block/${w}_hanging_sign`];
@@ -1320,8 +1373,14 @@ window.toggleDayNight = function () {
         if (sun.ambient) sun.ambient.intensity = 0.65;
       }
     }
-    if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
-    if ((renderer as any).transparentMaterial) (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
+    if ((renderer as any).opaqueMaterial) {
+      (renderer as any).opaqueMaterial.side = THREE.DoubleSide;
+      (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
+    }
+    if ((renderer as any).transparentMaterial) {
+      (renderer as any).transparentMaterial.side = THREE.DoubleSide;
+      (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
+    }
   }
   return isNightMode;
 };
