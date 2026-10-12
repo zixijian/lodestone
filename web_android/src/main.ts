@@ -98,7 +98,7 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-// Override SpecialRenderers.getBlockMesh to handle custom special renderers (e.g. pale_oak hanging signs, double chests)
+// Override SpecialRenderers.getBlockMesh to handle custom special renderers (e.g. hanging signs, double chests)
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -154,7 +154,6 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
           const t = mat4.create();
           mat4.translate(t, t, [8, 8, 8]);
           mat4.rotateY(t, t, rotation);
-          mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
           mat4.translate(t, t, [-8, -8, -8]);
           mesh.merge(renderer(attached, atlas).transform(t));
         }
@@ -229,8 +228,8 @@ if (Lodestone.ChunkBuilder) {
       blockName === 'minecraft:chest' ||
       blockName === 'minecraft:trapped_chest' ||
       blockName.includes('hanging_sign') ||
-      blockName === 'minecraft:item_frame' ||
-      blockName === 'minecraft:glow_item_frame'
+      blockName.includes('sign') ||
+      blockName.includes('frame')
     ) {
       return false;
     }
@@ -367,7 +366,7 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas and delete blockstates/models so SpecialRenderers handles hanging signs
+    // Ensure hanging sign textures map correctly in atlas and delete default blockstates/models so SpecialRenderers handles hanging signs
     const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped', 'pale_oak'];
     woodTypes.forEach(w => {
       delete loaded.assets.blockstates[`${w}_hanging_sign`];
@@ -378,11 +377,11 @@ async function init() {
       const signKey = `entity/signs/${w}`;
       const hangingKey = `entity/signs/hanging/${w}`;
       if (loaded.assets.textures[hangingKey]) {
-        // Keep original hanging sign texture if present
+        // Texture is present
       } else if (loaded.assets.textures[signKey]) {
         loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
       } else {
-        // Fallback for pale_oak or any missing wood type: use oak hanging sign texture
+        // Fallback for pale_oak or missing wood types: use oak hanging sign texture
         loaded.assets.textures[hangingKey] = loaded.assets.textures['entity/signs/hanging/oak'];
       }
     });
@@ -413,10 +412,6 @@ async function init() {
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
-      // isLeft = type=left (Left half of double chest from viewer perspective):
-      // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
-      // isRight = type=right (Right half of double chest from viewer perspective):
-      // Spans x = 0..15, outer wall at x=15 (east), inner seam at x=0 (west). Latch at x=0..1.
       const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
       const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
 
@@ -448,16 +443,10 @@ async function init() {
       };
 
       if (isLeft) {
-        // Left half (isLeft = true, type=left):
-        // Outer wall is West face (x=1), using normal_left.png [7.25, 10.75] outer side texture.
-        // East face (x=16) is inner seam, omitted so no face renders inside seam.
         bodyFaces.west = { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' };
         lidFaces.west = { uv: [7.25, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' };
         latchFaces.west = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       } else {
-        // Right half (isLeft = false, type=right):
-        // Outer wall is East face (x=15), using normal_right.png [0, 3.5] with u-flipped UV [3.5, 8.25, 0, 10.75].
-        // West face (x=0) is inner seam, omitted so no face renders inside seam.
         bodyFaces.east = { uv: [3.5, 8.25, 0, 10.75], rotation: 180, texture: '#0' };
         lidFaces.east = { uv: [3.5, 3.75, 0, 4.75], rotation: 180, texture: '#0' };
         latchFaces.east = { uv: [0.25, 0.25, 0, 1.25], rotation: 180, texture: '#0' };
@@ -881,8 +870,6 @@ async function loadRegionAsync(
       const normId = id.startsWith('minecraft:') ? id : 'minecraft:' + id;
 
       let facing = 'south';
-
-      // Parse facing attribute from NBT tag
       let facingNum: number | null = null;
 
       const checkTag = (tagName: string) => {
@@ -890,7 +877,15 @@ async function loadRegionAsync(
         if (entityCompound.has(tagName)) {
           const val = entityCompound.get(tagName);
           if (val) {
-            facingNum = getNumVal(val);
+            if (typeof val === 'string') {
+              facing = val.toLowerCase();
+            } else {
+              const num = getNumVal(val);
+              if (facingMap[num] !== undefined) {
+                facing = facingMap[num];
+                facingNum = num;
+              }
+            }
           }
         }
       };
@@ -899,11 +894,7 @@ async function loadRegionAsync(
       checkTag('FacingDirection');
       checkTag('Direction');
 
-      if (facingNum !== null && facingMap[facingNum] !== undefined) {
-        facing = facingMap[facingNum];
-      }
-
-      // Compute relative block position
+      // Compute block position (support both relative coordinates AND absolute world coordinates)
       let x = -1, y = -1, z = -1;
 
       if (entityCompound.has('Pos')) {
@@ -912,9 +903,20 @@ async function loadRegionAsync(
           const px = getNumVal(posList.get(0));
           const py = getNumVal(posList.get(1));
           const pz = getNumVal(posList.get(2));
-          x = Math.floor(px - originX);
-          y = Math.floor(py - originY);
-          z = Math.floor(pz - originZ);
+
+          const directX = Math.floor(px);
+          const directY = Math.floor(py);
+          const directZ = Math.floor(pz);
+
+          if (directX >= 0 && directX < width && directY >= 0 && directY < height && directZ >= 0 && directZ < depth) {
+            x = directX;
+            y = directY;
+            z = directZ;
+          } else {
+            x = Math.floor(px - originX);
+            y = Math.floor(py - originY);
+            z = Math.floor(pz - originZ);
+          }
         }
       }
 
@@ -923,30 +925,31 @@ async function loadRegionAsync(
           const tx = getNumVal(entityCompound, 'TileX');
           const ty = getNumVal(entityCompound, 'TileY');
           const tz = getNumVal(entityCompound, 'TileZ');
-          x = Math.floor(tx - originX);
-          y = Math.floor(ty - originY);
-          z = Math.floor(tz - originZ);
+
+          if (tx >= 0 && tx < width && ty >= 0 && ty < height && tz >= 0 && tz < depth) {
+            x = tx; y = ty; z = tz;
+          } else {
+            x = tx - originX;
+            y = ty - originY;
+            z = tz - originZ;
+          }
         } else if (entityCompound.has('x') && entityCompound.has('y') && entityCompound.has('z')) {
           const tx = getNumVal(entityCompound, 'x');
           const ty = getNumVal(entityCompound, 'y');
           const tz = getNumVal(entityCompound, 'z');
-          x = Math.floor(tx - originX);
-          y = Math.floor(ty - originY);
-          z = Math.floor(tz - originZ);
+
+          if (tx >= 0 && tx < width && ty >= 0 && ty < height && tz >= 0 && tz < depth) {
+            x = tx; y = ty; z = tz;
+          } else {
+            x = tx - originX;
+            y = ty - originY;
+            z = tz - originZ;
+          }
         }
       }
 
-      // If coordinates are relative within bounds
       if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
-        // Fall back to wrapping within bounds if coordinates were relative (0..size)
-        const relX = Math.floor(x + originX);
-        const relY = Math.floor(y + originY);
-        const relZ = Math.floor(z + originZ);
-        if (relX >= 0 && relX < width && relY >= 0 && relY < height && relZ >= 0 && relZ < depth) {
-          x = relX; y = relY; z = relZ;
-        } else {
-          return;
-        }
+        return;
       }
 
       let paletteIdx = palette.findIndex(
@@ -1282,7 +1285,6 @@ window.toggleDayNight = function () {
     if ((renderer as any).sunlight) {
       const sun = (renderer as any).sunlight;
       if (isNightMode) {
-        // Night Mode: Ambient 0.12, Sun 0.08, Background #040810, Clean contrast
         sun.intensity = 0.08;
         sun.ambientIntensity = 0.12;
         if (sun.emissive) sun.emissive.intensity = 0.25;
@@ -1290,7 +1292,6 @@ window.toggleDayNight = function () {
         if (sun.light) sun.light.intensity = 0.08;
         if (sun.ambient) sun.ambient.intensity = 0.12;
       } else {
-        // Day Mode: Ambient 0.65, Sun 0.50, Exposure 0.77, Emissive 0.10 (~10% boost for high clarity)
         sun.intensity = 0.50;
         sun.ambientIntensity = 0.65;
         if (sun.emissive) sun.emissive.intensity = 0.10;
