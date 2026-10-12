@@ -378,7 +378,7 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas
+    // Ensure hanging sign texture keys exist in loaded.assets.textures for Lodestone native SpecialRenderers
     const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
     woodTypes.forEach(w => {
       const signKey = `entity/signs/${w}`;
@@ -386,88 +386,20 @@ async function init() {
       if (loaded.assets.textures[signKey]) {
         loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
       }
+      // Delete blockstates and models for hanging signs so Lodestone uses native SpecialRenderers for hanging signs (same as standing/wall signs)
+      delete loaded.assets.blockstates[`${w}_hanging_sign`];
+      delete loaded.assets.blockstates[`${w}_wall_hanging_sign`];
+      delete loaded.assets.models[`block/${w}_hanging_sign`];
     });
 
-    // Create custom blockstates and models for hanging signs across all wood types
-    const createHangingSignBlockState = (modelName: string) => ({
-      variants: {
-        'facing=north': { model: modelName },
-        'facing=south': { model: modelName, y: 180 },
-        'facing=west': { model: modelName, y: 270 },
-        'facing=east': { model: modelName, y: 90 },
-        'rotation=0': { model: modelName, y: 0 },
-        'rotation=1': { model: modelName, y: 22.5 },
-        'rotation=2': { model: modelName, y: 45 },
-        'rotation=3': { model: modelName, y: 67.5 },
-        'rotation=4': { model: modelName, y: 90 },
-        'rotation=5': { model: modelName, y: 112.5 },
-        'rotation=6': { model: modelName, y: 135 },
-        'rotation=7': { model: modelName, y: 157.5 },
-        'rotation=8': { model: modelName, y: 180 },
-        'rotation=9': { model: modelName, y: 202.5 },
-        'rotation=10': { model: modelName, y: 225 },
-        'rotation=11': { model: modelName, y: 247.5 },
-        'rotation=12': { model: modelName, y: 270 },
-        'rotation=13': { model: modelName, y: 292.5 },
-        'rotation=14': { model: modelName, y: 315 },
-        'rotation=15': { model: modelName, y: 337.5 },
-        '': { model: modelName }
-      }
-    });
-
-    const createHangingSignModel = (wood: string) => {
-      const boardTex = wood === 'bamboo'
-        ? 'block/bamboo_block'
-        : (wood === 'crimson' || wood === 'warped' ? `block/stripped_${wood}_stem` : `block/stripped_${wood}_log`);
-      const plankTex = `block/${wood}_planks`;
-      return {
-        textures: {
-          board: boardTex,
-          planks: plankTex,
-          particle: plankTex
-        },
-      elements: [
-        {
-          from: [1, 0, 7],
-          to: [15, 10, 9],
-          faces: {
-            north: { uv: [1, 6, 15, 16], texture: '#board' },
-            south: { uv: [1, 6, 15, 16], texture: '#board' },
-            east: { uv: [7, 6, 9, 16], texture: '#board' },
-            west: { uv: [7, 6, 9, 16], texture: '#board' },
-            up: { uv: [1, 7, 15, 9], texture: '#board' },
-            down: { uv: [1, 7, 15, 9], texture: '#board' }
-          }
-        },
-        {
-          from: [3, 10, 7.5],
-          to: [5, 16, 8.5],
-          faces: {
-            north: { uv: [3, 0, 5, 6], texture: '#planks' },
-            south: { uv: [3, 0, 5, 6], texture: '#planks' },
-            east: { uv: [7, 0, 8, 6], texture: '#planks' },
-            west: { uv: [7, 0, 8, 6], texture: '#planks' }
-          }
-        },
-        {
-          from: [11, 10, 7.5],
-          to: [13, 16, 8.5],
-          faces: {
-            north: { uv: [11, 0, 13, 6], texture: '#planks' },
-            south: { uv: [11, 0, 13, 6], texture: '#planks' },
-            east: { uv: [7, 0, 8, 6], texture: '#planks' },
-            west: { uv: [7, 0, 8, 6], texture: '#planks' }
-          }
+    // Alias all texture keys in loaded.assets.textures to include minecraft: namespace prefix for BlockModel lookup compatibility
+    if (loaded.assets.textures) {
+      Object.keys(loaded.assets.textures).forEach(key => {
+        if (!key.startsWith('minecraft:')) {
+          loaded.assets.textures['minecraft:' + key] = loaded.assets.textures[key];
         }
-      ]
-    };
-  };
-
-    woodTypes.forEach(w => {
-      loaded.assets.blockstates[`${w}_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
-      loaded.assets.blockstates[`${w}_wall_hanging_sign`] = createHangingSignBlockState(`block/${w}_hanging_sign`);
-      loaded.assets.models[`block/${w}_hanging_sign`] = createHangingSignModel(w);
-    });
+      });
+    }
 
 
     // Create custom blockstates and models for double chests (left/right)
@@ -704,15 +636,6 @@ async function init() {
     console.log('[Verify] loaded.assets.models[\'block/item_frame\']:', loaded.assets.models['block/item_frame']);
     console.log('[Verify] loaded.assets.textures[\'entity/signs/hanging/oak\']:', loaded.assets.textures['entity/signs/hanging/oak']);
 
-    // Alias all texture keys in atlas to include minecraft: namespace prefix for BlockModel lookup compatibility
-    if (currentResources && currentResources.textures) {
-      const texMap = currentResources.textures;
-      Object.keys(texMap).forEach(key => {
-        if (!key.startsWith('minecraft:')) {
-          texMap['minecraft:' + key] = texMap[key];
-        }
-      });
-    }
 
     if (window.AndroidHost) {
       window.AndroidHost.onLoadingProgress('READY');
@@ -1023,17 +946,22 @@ async function loadRegionAsync(
           if (str) facingStr = str.toLowerCase();
         }
 
-            // Convert world/absolute pos to region relative pos if coordinates exceed region size
-            let relX = px >= 0 && px < width ? px : px - originX;
-            let relY = py >= 0 && py < height ? py : py - originY;
-            let relZ = pz >= 0 && pz < depth ? pz : pz - originZ;
+            let relX = px - originX;
+            let relY = py - originY;
+            let relZ = pz - originZ;
             if (relX < 0 || relX >= width || relY < 0 || relY >= height || relZ < 0 || relZ >= depth) {
-              relX = px - regPos[0];
-              relY = py - regPos[1];
-              relZ = pz - regPos[2];
+              if (px >= 0 && px < width && py >= 0 && py < height && pz >= 0 && pz < depth) {
+                relX = px;
+                relY = py;
+                relZ = pz;
+              } else {
+                relX = px - regPos[0];
+                relY = py - regPos[1];
+                relZ = pz - regPos[2];
+              }
             }
 
-        // Bound coordinates within region size
+            // Bound coordinates within region size
             if (relX >= 0 && relX < width && relY >= 0 && relY < height && relZ >= 0 && relZ < depth) {
           let stateIdx = palette.findIndex(
             s => s.getName().toString() === id && s.getProperty('facing') === facingStr
