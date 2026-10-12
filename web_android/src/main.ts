@@ -392,17 +392,17 @@ async function init() {
       delete loaded.assets.models[`block/${w}_wall_hanging_sign`];
 
       const signKey = `entity/signs/${w}`;
-      if (!loaded.assets.textures[signKey]) {
+      if (!loaded.assets.textures[signKey] || !Array.isArray(loaded.assets.textures[signKey])) {
         const fallback = loaded.assets.textures['entity/signs/oak'];
-        if (fallback) {
+        if (fallback && Array.isArray(fallback)) {
           loaded.assets.textures[signKey] = fallback;
         }
       }
 
       const hangingKey = `entity/signs/hanging/${w}`;
-      if (!loaded.assets.textures[hangingKey]) {
+      if (!loaded.assets.textures[hangingKey] || !Array.isArray(loaded.assets.textures[hangingKey])) {
         const fallback = loaded.assets.textures['entity/signs/hanging/oak'];
-        if (fallback) {
+        if (fallback && Array.isArray(fallback)) {
           loaded.assets.textures[hangingKey] = fallback;
         }
       }
