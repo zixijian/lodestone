@@ -394,7 +394,10 @@ async function init() {
       const hangingKey = `entity/signs/hanging/${w}`;
       if (!loaded.assets.textures[hangingKey]) {
         // Fall back directly to oak hanging sign texture (64x32) for missing wood types like pale_oak
-        loaded.assets.textures[hangingKey] = loaded.assets.textures['entity/signs/hanging/oak'];
+        const fallback = loaded.assets.textures['entity/signs/hanging/oak'];
+        if (fallback) {
+          loaded.assets.textures[hangingKey] = fallback;
+        }
       }
     });
 
