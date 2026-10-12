@@ -378,15 +378,9 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign texture keys exist in loaded.assets.textures for Lodestone native SpecialRenderers
+    // Delete blockstates and models for hanging signs so Lodestone uses native SpecialRenderers for hanging signs (same as standing/wall signs)
     const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
     woodTypes.forEach(w => {
-      const signKey = `entity/signs/${w}`;
-      const hangingKey = `entity/signs/hanging/${w}`;
-      if (loaded.assets.textures[signKey]) {
-        loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
-      }
-      // Delete blockstates and models for hanging signs so Lodestone uses native SpecialRenderers for hanging signs (same as standing/wall signs)
       delete loaded.assets.blockstates[`${w}_hanging_sign`];
       delete loaded.assets.blockstates[`${w}_wall_hanging_sign`];
       delete loaded.assets.models[`block/${w}_hanging_sign`];
