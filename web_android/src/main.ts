@@ -162,6 +162,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
         if (waterMesh) mesh.merge(waterMesh);
       }
+      // Apply 0.0625 scaling to convert 0..16 voxel coordinates into unit world block dimensions
       const t = mat4.create();
       mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
       return mesh.transform(t);
@@ -374,14 +375,9 @@ async function init() {
       delete loaded.assets.models[`block/${w}_hanging_sign`];
       delete loaded.assets.models[`block/${w}_wall_hanging_sign`];
 
-      const signKey = `entity/signs/${w}`;
       const hangingKey = `entity/signs/hanging/${w}`;
-      if (loaded.assets.textures[hangingKey]) {
-        // Texture is present
-      } else if (loaded.assets.textures[signKey]) {
-        loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
-      } else {
-        // Fallback for pale_oak or missing wood types: use oak hanging sign texture
+      if (!loaded.assets.textures[hangingKey]) {
+        // Fall back directly to oak hanging sign texture (64x32) for missing wood types like pale_oak
         loaded.assets.textures[hangingKey] = loaded.assets.textures['entity/signs/hanging/oak'];
       }
     });
@@ -894,7 +890,7 @@ async function loadRegionAsync(
       checkTag('FacingDirection');
       checkTag('Direction');
 
-      // Compute block position (support both relative coordinates AND absolute world coordinates)
+      // Compute block position relative to region grid [0..width-1, 0..height-1, 0..depth-1]
       let x = -1, y = -1, z = -1;
 
       if (entityCompound.has('Pos')) {
@@ -904,18 +900,17 @@ async function loadRegionAsync(
           const py = getNumVal(posList.get(1));
           const pz = getNumVal(posList.get(2));
 
-          const directX = Math.floor(px);
-          const directY = Math.floor(py);
-          const directZ = Math.floor(pz);
+          x = Math.floor(px - originX);
+          y = Math.floor(py - originY);
+          z = Math.floor(pz - originZ);
 
-          if (directX >= 0 && directX < width && directY >= 0 && directY < height && directZ >= 0 && directZ < depth) {
-            x = directX;
-            y = directY;
-            z = directZ;
-          } else {
-            x = Math.floor(px - originX);
-            y = Math.floor(py - originY);
-            z = Math.floor(pz - originZ);
+          if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
+            const relX = Math.floor(px);
+            const relY = Math.floor(py);
+            const relZ = Math.floor(pz);
+            if (relX >= 0 && relX < width && relY >= 0 && relY < height && relZ >= 0 && relZ < depth) {
+              x = relX; y = relY; z = relZ;
+            }
           }
         }
       }
@@ -926,24 +921,28 @@ async function loadRegionAsync(
           const ty = getNumVal(entityCompound, 'TileY');
           const tz = getNumVal(entityCompound, 'TileZ');
 
-          if (tx >= 0 && tx < width && ty >= 0 && ty < height && tz >= 0 && tz < depth) {
-            x = tx; y = ty; z = tz;
-          } else {
-            x = tx - originX;
-            y = ty - originY;
-            z = tz - originZ;
+          x = Math.floor(tx - originX);
+          y = Math.floor(ty - originY);
+          z = Math.floor(tz - originZ);
+
+          if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
+            if (tx >= 0 && tx < width && ty >= 0 && ty < height && tz >= 0 && tz < depth) {
+              x = tx; y = ty; z = tz;
+            }
           }
         } else if (entityCompound.has('x') && entityCompound.has('y') && entityCompound.has('z')) {
           const tx = getNumVal(entityCompound, 'x');
           const ty = getNumVal(entityCompound, 'y');
           const tz = getNumVal(entityCompound, 'z');
 
-          if (tx >= 0 && tx < width && ty >= 0 && ty < height && tz >= 0 && tz < depth) {
-            x = tx; y = ty; z = tz;
-          } else {
-            x = tx - originX;
-            y = ty - originY;
-            z = tz - originZ;
+          x = Math.floor(tx - originX);
+          y = Math.floor(ty - originY);
+          z = Math.floor(tz - originZ);
+
+          if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
+            if (tx >= 0 && tx < width && ty >= 0 && ty < height && tz >= 0 && tz < depth) {
+              x = tx; y = ty; z = tz;
+            }
           }
         }
       }
