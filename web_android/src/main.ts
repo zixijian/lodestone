@@ -114,133 +114,7 @@ function getNumVal(tag: any, key?: string): number {
   return this.placedBlocksCache;
 };
 
-// Helper to create custom hanging sign mesh with correct wood texture and iron chain texture
-function createCustomHangingSignMesh(woodType: string, isWall: boolean, blockProps: any, atlas: any) {
-  const BlockModel = (Lodestone as any).BlockModel;
-  const Cull = (Lodestone as any).Cull;
-  const signTex = `entity/signs/hanging/${woodType}`;
-  const chainTex = `block/chain`;
-
-  const signBoard = {
-    from: [1, 0, 7],
-    to: [15, 10, 9],
-    faces: {
-      north: { uv: [0.5, 7, 4, 12], texture: '#0' },
-      east: { uv: [0, 7, 0.5, 12], texture: '#0' },
-      south: { uv: [4.5, 7, 8, 12], texture: '#0' },
-      west: { uv: [4, 7, 4.5, 12], texture: '#0' },
-      up: { uv: [4, 7, 0.5, 6], texture: '#0' },
-      down: { uv: [7.5, 6, 4, 7], texture: '#0' },
-    }
-  };
-
-  let elements: any[] = [signBoard];
-
-  if (isWall) {
-    const wallBar = {
-      from: [0, 14, 6],
-      to: [16, 16, 10],
-      faces: {
-        north: { uv: [1, 2, 5, 3], texture: '#0' },
-        east: { uv: [0, 2, 1, 3], texture: '#0' },
-        south: { uv: [6, 2, 10, 3], texture: '#0' },
-        west: { uv: [5, 2, 6, 3], texture: '#0' },
-        up: { uv: [5, 2, 1, 0], texture: '#0' },
-        down: { uv: [9, 0, 5, 2], texture: '#0' },
-      }
-    };
-    const chainLeft = {
-      from: [2, 10, 7],
-      to: [4, 14, 9],
-      faces: {
-        north: { uv: [0, 0, 2, 4], texture: '#1' },
-        south: { uv: [0, 0, 2, 4], texture: '#1' },
-        east: { uv: [0, 0, 2, 4], texture: '#1' },
-        west: { uv: [0, 0, 2, 4], texture: '#1' }
-      }
-    };
-    const chainRight = {
-      from: [12, 10, 7],
-      to: [14, 14, 9],
-      faces: {
-        north: { uv: [0, 0, 2, 4], texture: '#1' },
-        south: { uv: [0, 0, 2, 4], texture: '#1' },
-        east: { uv: [0, 0, 2, 4], texture: '#1' },
-        west: { uv: [0, 0, 2, 4], texture: '#1' }
-      }
-    };
-    elements.push(wallBar, chainLeft, chainRight);
-  } else {
-    const attached = blockProps?.attached === 'true';
-    if (attached) {
-      const chainLeft = {
-        from: [3, 10, 7],
-        to: [5, 16, 9],
-        faces: {
-          north: { uv: [0, 0, 2, 6], texture: '#1' },
-          south: { uv: [0, 0, 2, 6], texture: '#1' },
-          east: { uv: [0, 0, 2, 6], texture: '#1' },
-          west: { uv: [0, 0, 2, 6], texture: '#1' }
-        }
-      };
-      const chainRight = {
-        from: [11, 10, 7],
-        to: [13, 16, 9],
-        faces: {
-          north: { uv: [0, 0, 2, 6], texture: '#1' },
-          south: { uv: [0, 0, 2, 6], texture: '#1' },
-          east: { uv: [0, 0, 2, 6], texture: '#1' },
-          west: { uv: [0, 0, 2, 6], texture: '#1' }
-        }
-      };
-      elements.push(chainLeft, chainRight);
-    } else {
-      const chainLeft = {
-        from: [2, 10, 7],
-        to: [4, 16, 9],
-        rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
-        faces: {
-          north: { uv: [0, 0, 2, 6], texture: '#1' },
-          south: { uv: [0, 0, 2, 6], texture: '#1' },
-          east: { uv: [0, 0, 2, 6], texture: '#1' },
-          west: { uv: [0, 0, 2, 6], texture: '#1' }
-        }
-      };
-      const chainRight = {
-        from: [12, 10, 7],
-        to: [14, 16, 9],
-        rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
-        faces: {
-          north: { uv: [0, 0, 2, 6], texture: '#1' },
-          south: { uv: [0, 0, 2, 6], texture: '#1' },
-          east: { uv: [0, 0, 2, 6], texture: '#1' },
-          west: { uv: [0, 0, 2, 6], texture: '#1' }
-        }
-      };
-      elements.push(chainLeft, chainRight);
-    }
-  }
-
-  const model = new BlockModel(undefined, { '0': signTex, '1': chainTex }, elements);
-  const mesh = model.getMesh(atlas, Cull.none());
-
-  const t = mat4.create();
-  if (isWall) {
-    const facing = blockProps?.facing || 'south';
-    mat4.translate(t, t, [8, 8, 8]);
-    mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
-    mat4.translate(t, t, [-8, -8, -8]);
-  } else {
-    const rotation = parseInt(blockProps?.rotation || '0', 10) / 16 * Math.PI * 2;
-    mat4.translate(t, t, [8, 8, 8]);
-    mat4.rotateY(t, t, rotation);
-    mat4.translate(t, t, [-8, -8, -8]);
-  }
-  mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
-  return mesh.transform(t);
-}
-
-// Override SpecialRenderers.getBlockMesh to handle custom special renderers (e.g. hanging signs, double chests)
+// Override SpecialRenderers.getBlockMesh to delegate double chests to custom models while allowing native tile entity renderers
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -261,21 +135,6 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         }
         return emptyMesh;
       }
-    } else if (name.endsWith('_hanging_sign') || name.endsWith('_wall_hanging_sign')) {
-      const isWall = name.endsWith('_wall_hanging_sign');
-      const woodType = name.replace('minecraft:', '').replace('_wall_hanging_sign', '').replace('_hanging_sign', '');
-      let props: any = {};
-      if (typeof block.getProperties === 'function') {
-        props = block.getProperties() || {};
-      } else if (block.properties) {
-        props = block.properties || {};
-      }
-      const mesh = createCustomHangingSignMesh(woodType, isWall, props, atlas);
-      if (block.isWaterlogged && block.isWaterlogged()) {
-        const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
-        if (waterMesh) mesh.merge(waterMesh);
-      }
-      return mesh;
     }
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
   };
@@ -486,16 +345,16 @@ async function init() {
       delete loaded.assets.models[`block/${w}_wall_hanging_sign`];
 
       const signKey = `entity/signs/${w}`;
-      if (!loaded.assets.textures[signKey] || !Array.isArray(loaded.assets.textures[signKey])) {
-        const fallback = loaded.assets.textures['entity/signs/oak'];
+      if (w === 'pale_oak' || !loaded.assets.textures[signKey] || !Array.isArray(loaded.assets.textures[signKey])) {
+        const fallback = loaded.assets.textures['entity/signs/birch'] || loaded.assets.textures['entity/signs/oak'];
         if (fallback && Array.isArray(fallback)) {
           loaded.assets.textures[signKey] = fallback;
         }
       }
 
       const hangingKey = `entity/signs/hanging/${w}`;
-      if (!loaded.assets.textures[hangingKey] || !Array.isArray(loaded.assets.textures[hangingKey])) {
-        const fallback = loaded.assets.textures['entity/signs/hanging/oak'];
+      if (w === 'pale_oak' || !loaded.assets.textures[hangingKey] || !Array.isArray(loaded.assets.textures[hangingKey])) {
+        const fallback = loaded.assets.textures['entity/signs/hanging/birch'] || loaded.assets.textures['entity/signs/hanging/oak'];
         if (fallback && Array.isArray(fallback)) {
           loaded.assets.textures[hangingKey] = fallback;
         }
@@ -846,7 +705,19 @@ async function loadRegionAsync(
         });
       }
     }
-    palette.push(new BlockState(name, properties));
+    let normName = name;
+    if (normName === 'minecraft:hanging_sign') normName = 'minecraft:oak_hanging_sign';
+    if (normName === 'minecraft:wall_hanging_sign') normName = 'minecraft:oak_wall_hanging_sign';
+
+    if (normName.endsWith('_hanging_sign') && !normName.endsWith('_wall_hanging_sign')) {
+      if (properties.facing && properties.rotation === undefined) {
+        normName = normName.replace('_hanging_sign', '_wall_hanging_sign');
+      } else if (properties.rotation === undefined) {
+        properties.rotation = '0';
+      }
+    }
+
+    palette.push(new BlockState(normName, properties));
   });
 
   const isAir = palette.map(state => state.is('minecraft:air'));
@@ -975,8 +846,23 @@ async function loadRegionAsync(
     if (!list) continue;
 
     list.forEach((entityCompound: any) => {
-      if (!entityCompound || typeof entityCompound.getString !== 'function') return;
-      const id = entityCompound.getString('id') ?? entityCompound.getString('Id') ?? '';
+      if (!entityCompound) return;
+      let id = '';
+      if (typeof entityCompound.getString === 'function') {
+        id = entityCompound.getString('id') ?? entityCompound.getString('Id') ?? '';
+      }
+      if (!id && entityCompound.has('id')) {
+        const val = entityCompound.get('id');
+        if (val && typeof val.getAsString === 'function') {
+          id = val.getAsString();
+        } else if (val && typeof val.value === 'string') {
+          id = val.value;
+        }
+      }
+      if (!id && entityCompound.has('Item')) {
+        id = 'minecraft:item_frame';
+      }
+
       if (id !== 'minecraft:item_frame' && id !== 'minecraft:glow_item_frame' && id !== 'item_frame' && id !== 'glow_item_frame') return;
 
       const normId = id.startsWith('minecraft:') ? id : 'minecraft:' + id;
@@ -1074,6 +960,22 @@ async function loadRegionAsync(
 
       if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
         return;
+      }
+
+      // If [x, y, z] is already occupied by a solid block in storedBlocks, offset into adjacent empty cell towards facing
+      let targetX = x, targetY = y, targetZ = z;
+      const occupied = storedBlocks.some(b => b.pos[0] === x && b.pos[1] === y && b.pos[2] === z);
+      if (occupied) {
+        if (facing === 'south') targetZ = z + 1;
+        else if (facing === 'north') targetZ = z - 1;
+        else if (facing === 'west') targetX = x - 1;
+        else if (facing === 'east') targetX = x + 1;
+        else if (facing === 'up') targetY = y + 1;
+        else if (facing === 'down') targetY = y - 1;
+
+        if (targetX >= 0 && targetX < width && targetY >= 0 && targetY < height && targetZ >= 0 && targetZ < depth) {
+          x = targetX; y = targetY; z = targetZ;
+        }
       }
 
       let paletteIdx = palette.findIndex(
