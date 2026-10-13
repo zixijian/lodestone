@@ -100,7 +100,6 @@ let animFrameId: number | null = null;
 };
 
 // Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
-// and to support pale_oak signs & hanging signs.
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -120,82 +119,6 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
           if (waterMesh) emptyMesh.merge(waterMesh);
         }
         return emptyMesh;
-      }
-    }
-
-    // Support pale_oak signs and hanging signs
-    if (name === 'minecraft:pale_oak_hanging_sign') {
-      let attached = false;
-      let rotation = 0;
-      if (typeof block.getProperties === 'function') {
-        const props = block.getProperties();
-        if (props) {
-          attached = props.attached === 'true';
-          rotation = (parseInt(props.rotation || '0', 10) / 16) * Math.PI * 2;
-        }
-      } else if (block.properties) {
-        attached = block.properties.attached === 'true';
-        rotation = (parseInt(block.properties.rotation || '0', 10) / 16) * Math.PI * 2;
-      }
-      const renderer = (Lodestone as any).SpecialRenderers?.hangingSignRenderer?.(
-        (Lodestone as any).Identifier.create('pale_oak')
-      );
-      if (renderer) {
-        const signMesh = renderer(attached, atlas);
-        if (signMesh) {
-          const t = mat4.create();
-          mat4.translate(t, t, [0.5, 0.5, 0.5]);
-          mat4.rotateY(t, t, rotation);
-          mat4.translate(t, t, [-0.5, -0.5, -0.5]);
-          signMesh.transform(t);
-          return signMesh;
-        }
-      }
-    } else if (name === 'minecraft:pale_oak_wall_hanging_sign') {
-      let facing = 'north';
-      if (typeof block.getProperties === 'function') {
-        const props = block.getProperties();
-        if (props && props.facing) facing = props.facing;
-      } else if (block.properties && block.properties.facing) {
-        facing = block.properties.facing;
-      }
-      const renderer = (Lodestone as any).SpecialRenderers?.wallHangingSignRenderer?.('pale_oak');
-      if (renderer) {
-        const signMesh = renderer(facing, atlas);
-        if (signMesh) return signMesh;
-      }
-    } else if (name === 'minecraft:pale_oak_sign') {
-      let rotation = 0;
-      if (typeof block.getProperties === 'function') {
-        const props = block.getProperties();
-        if (props && props.rotation) rotation = (parseInt(props.rotation, 10) / 16) * Math.PI * 2;
-      } else if (block.properties && block.properties.rotation) {
-        rotation = (parseInt(block.properties.rotation, 10) / 16) * Math.PI * 2;
-      }
-      const renderer = (Lodestone as any).SpecialRenderers?.signRenderer?.('pale_oak');
-      if (renderer) {
-        const signMesh = renderer(atlas);
-        if (signMesh) {
-          const t = mat4.create();
-          mat4.translate(t, t, [0.5, 0.5, 0.5]);
-          mat4.rotateY(t, t, rotation);
-          mat4.translate(t, t, [-0.5, -0.5, -0.5]);
-          signMesh.transform(t);
-          return signMesh;
-        }
-      }
-    } else if (name === 'minecraft:pale_oak_wall_sign') {
-      let facing = 'north';
-      if (typeof block.getProperties === 'function') {
-        const props = block.getProperties();
-        if (props && props.facing) facing = props.facing;
-      } else if (block.properties && block.properties.facing) {
-        facing = block.properties.facing;
-      }
-      const renderer = (Lodestone as any).SpecialRenderers?.wallSignRenderer?.('pale_oak');
-      if (renderer) {
-        const signMesh = renderer(facing, atlas);
-        if (signMesh) return signMesh;
       }
     }
 
@@ -523,24 +446,24 @@ async function init() {
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
         '': { model: modelName, y: 180 },
-        'facing=south': { model: modelName, y: 0 },
-        'facing=north': { model: modelName, y: 180 },
-        'facing=west': { model: modelName, y: 270 },
-        'facing=east': { model: modelName, y: 90 },
-        'facing=up': { model: modelName, x: 270 },
-        'facing=down': { model: modelName, x: 90 },
-        'map=false,facing=south': { model: modelName, y: 0 },
-        'map=false,facing=north': { model: modelName, y: 180 },
-        'map=false,facing=west': { model: modelName, y: 270 },
-        'map=false,facing=east': { model: modelName, y: 90 },
-        'map=false,facing=up': { model: modelName, x: 270 },
-        'map=false,facing=down': { model: modelName, x: 90 },
-        'map=true,facing=south': { model: modelName, y: 0 },
-        'map=true,facing=north': { model: modelName, y: 180 },
-        'map=true,facing=west': { model: modelName, y: 270 },
-        'map=true,facing=east': { model: modelName, y: 90 },
-        'map=true,facing=up': { model: modelName, x: 270 },
-        'map=true,facing=down': { model: modelName, x: 90 }
+        'facing=south': { model: modelName, y: 180 },
+        'facing=north': { model: modelName, y: 0 },
+        'facing=west': { model: modelName, y: 90 },
+        'facing=east': { model: modelName, y: 270 },
+        'facing=up': { model: modelName, x: 90 },
+        'facing=down': { model: modelName, x: 270 },
+        'map=false,facing=south': { model: modelName, y: 180 },
+        'map=false,facing=north': { model: modelName, y: 0 },
+        'map=false,facing=west': { model: modelName, y: 90 },
+        'map=false,facing=east': { model: modelName, y: 270 },
+        'map=false,facing=up': { model: modelName, x: 90 },
+        'map=false,facing=down': { model: modelName, x: 270 },
+        'map=true,facing=south': { model: modelName, y: 180 },
+        'map=true,facing=north': { model: modelName, y: 0 },
+        'map=true,facing=west': { model: modelName, y: 90 },
+        'map=true,facing=east': { model: modelName, y: 270 },
+        'map=true,facing=up': { model: modelName, x: 90 },
+        'map=true,facing=down': { model: modelName, x: 270 }
       }
     });
 
@@ -844,7 +767,18 @@ async function loadRegionAsync(
     let targetY = relY;
     let targetZ = relZ;
 
-    if (relX >= 0 && relX < size[0] && relY >= 0 && relY < size[1] && relZ >= 0 && relZ < size[2]) {
+    // If coordinates came from TileX/TileY/TileZ or integer Pos on the wall block,
+    // offset into the adjacent block space where the item frame hangs according to facing
+    if (!entityTag.has('Pos')) {
+      if (facing === 'south') targetZ += 1;
+      else if (facing === 'north') targetZ -= 1;
+      else if (facing === 'west') targetX -= 1;
+      else if (facing === 'east') targetX += 1;
+      else if (facing === 'up') targetY += 1;
+      else if (facing === 'down') targetY -= 1;
+    }
+
+    if (targetX >= 0 && targetX < size[0] && targetY >= 0 && targetY < size[1] && targetZ >= 0 && targetZ < size[2]) {
       let palIdx = palette.findIndex(
         st => st.getName().toString() === normId && st.getProperties()?.facing === facing
       );
