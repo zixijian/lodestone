@@ -145,6 +145,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         const signMesh = renderer(attached, atlas);
         if (signMesh) {
           const t = mat4.create();
+          mat4.scale(t, t, [0.0625, 0.0625, 0.0625]);
           mat4.translate(t, t, [8, 8, 8]);
           mat4.rotateY(t, t, rotation);
           mat4.translate(t, t, [-8, -8, -8]);
@@ -372,6 +373,14 @@ async function init() {
     if (!loaded.assets.textures['block/stripped_pale_oak_log']) {
       loaded.assets.textures['block/stripped_pale_oak_log'] = loaded.assets.textures['block/stripped_birch_log'] || [2032, 1072, 16, 16];
     }
+
+    // Mirror all texture keys with minecraft: namespace prefix for texture atlas lookups
+    Object.keys(loaded.assets.textures).forEach(k => {
+      if (!k.startsWith('minecraft:')) {
+        loaded.assets.textures['minecraft:' + k] = loaded.assets.textures[k];
+      }
+    });
+
     // Delete blockstates and models for hanging signs so SpecialRenderers.hangingSignRenderer and wallHangingSignRenderer execute natively
     const allWoodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped', 'pale_oak'];
     allWoodTypes.forEach(w => {
@@ -505,16 +514,16 @@ async function init() {
       },
       elements: [
         {
-          from: [3, 3, 15.5],
-          to: [13, 13, 16.2],
+          from: [3, 3, 0.2],
+          to: [13, 13, 0.8],
           faces: {
             north: { uv: [3, 3, 13, 13], texture: '#wood' },
             south: { uv: [3, 3, 13, 13], texture: '#wood' }
           }
         },
         {
-          from: [2, 2, 15.2],
-          to: [14, 3, 16.5],
+          from: [2, 2, 0.1],
+          to: [14, 3, 1.2],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
@@ -525,8 +534,8 @@ async function init() {
           }
         },
         {
-          from: [2, 13, 15.2],
-          to: [14, 14, 16.5],
+          from: [2, 13, 0.1],
+          to: [14, 14, 1.2],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
@@ -537,8 +546,8 @@ async function init() {
           }
         },
         {
-          from: [2, 3, 15.2],
-          to: [3, 13, 16.5],
+          from: [2, 3, 0.1],
+          to: [3, 13, 1.2],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
@@ -547,8 +556,8 @@ async function init() {
           }
         },
         {
-          from: [13, 3, 15.2],
-          to: [14, 13, 16.5],
+          from: [13, 3, 0.1],
+          to: [14, 13, 1.2],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
@@ -792,6 +801,10 @@ async function loadRegionAsync(
       relZ = relZ - (regZ + rawSize[2] + 1);
     }
 
+    let targetX = relX;
+    let targetY = relY;
+    let targetZ = relZ;
+
     if (relX >= 0 && relX < size[0] && relY >= 0 && relY < size[1] && relZ >= 0 && relZ < size[2]) {
       let palIdx = palette.findIndex(
         st => st.getName().toString() === normId && st.getProperties()?.facing === facing
@@ -801,7 +814,7 @@ async function loadRegionAsync(
         isAir.push(false);
         palIdx = palette.length - 1;
       }
-      storedBlocks.push({ pos: [relX, relY, relZ], state: palIdx });
+      storedBlocks.push({ pos: [targetX, targetY, targetZ], state: palIdx });
     }
   };
 
