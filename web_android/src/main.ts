@@ -99,6 +99,103 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
+// Override BlockModel.prototype.getElementMesh to support multi-resolution textures (e.g. 64x32 hanging signs, 64x64 chests)
+if ((Lodestone as any).BlockModel?.prototype) {
+  (Lodestone as any).BlockModel.prototype.getElementMesh = function (e: any, atlas: any, cull: any, getTint: any) {
+    const mesh = new (Lodestone as any).Mesh();
+    const [x0, y0, z0] = e.from;
+    const [x1, y1, z1] = e.to;
+
+    const atlasImg = atlas.getTextureAtlas ? atlas.getTextureAtlas() : null;
+    const atlasWidth = atlasImg?.width || 2048;
+    const atlasHeight = atlasImg?.height || 2048;
+
+    const faceRotations: any = {
+      0: [0, 1, 0, 3, 2, 3, 2, 1],
+      90: [2, 1, 0, 1, 0, 3, 2, 3],
+      180: [2, 3, 2, 1, 0, 1, 0, 3],
+      270: [0, 3, 2, 3, 2, 1, 0, 1]
+    };
+
+    const addFace = (face: any, uv: number[], pos: number[]) => {
+      const quad = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(pos[0], pos[1], pos[2]),
+        new (Lodestone as any).Vector(pos[3], pos[4], pos[5]),
+        new (Lodestone as any).Vector(pos[6], pos[7], pos[8]),
+        new (Lodestone as any).Vector(pos[9], pos[10], pos[11])
+      );
+      const tint = getTint ? getTint(face.tintindex) : undefined;
+      if (tint) quad.setColor(tint);
+
+      const texKey = this.getTexture(face.texture);
+      const [u0, v0, u1, v1] = atlas.getTextureUV(texKey);
+
+      let du = (u1 - u0) / 16;
+      let dv = (v1 - v0) / 16;
+
+      const texW = Math.round((u1 - u0) * atlasWidth);
+      const texH = Math.round((v1 - v0) * atlasHeight);
+      if (texW > 0 && texH > 0 && (texW !== 16 || texH !== 16)) {
+        du = 1 / atlasWidth;
+        dv = 1 / atlasHeight;
+      }
+
+      const uvCalc = [
+        (face.uv?.[0] ?? uv[0]) * du,
+        (face.uv?.[1] ?? uv[1]) * dv,
+        (face.uv?.[2] ?? uv[2]) * du,
+        (face.uv?.[3] ?? uv[3]) * dv
+      ];
+
+      const r = faceRotations[face.rotation ?? 0] || faceRotations[0];
+      quad.setTexture([
+        u0 + uvCalc[r[0]], v0 + uvCalc[r[1]],
+        u0 + uvCalc[r[2]], v0 + uvCalc[r[3]],
+        u0 + uvCalc[r[4]], v0 + uvCalc[r[5]],
+        u0 + uvCalc[r[6]], v0 + uvCalc[r[7]]
+      ], [
+        u0 + Math.min(uvCalc[0], uvCalc[2]),
+        v0 + Math.min(uvCalc[1], uvCalc[3]),
+        u0 + Math.max(uvCalc[0], uvCalc[2]),
+        v0 + Math.max(uvCalc[1], uvCalc[3])
+      ]);
+      mesh.quads.push(quad);
+    };
+
+    if (e.faces?.up?.texture && (!e.faces.up.cullface || !cull[e.faces.up.cullface])) {
+      addFace(e.faces.up, [x0, 16 - z1, x1, 16 - z0], [x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0]);
+    }
+    if (e.faces?.down?.texture && (!e.faces.down.cullface || !cull[e.faces.down.cullface])) {
+      addFace(e.faces.down, [16 - z1, 16 - x1, 16 - z0, 16 - x0], [x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1]);
+    }
+    if (e.faces?.south?.texture && (!e.faces.south.cullface || !cull[e.faces.south.cullface])) {
+      addFace(e.faces.south, [x0, 16 - y1, x1, 16 - y0], [x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1]);
+    }
+    if (e.faces?.north?.texture && (!e.faces.north.cullface || !cull[e.faces.north.cullface])) {
+      addFace(e.faces.north, [16 - x1, 16 - y1, 16 - x0, 16 - y0], [x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0]);
+    }
+    if (e.faces?.east?.texture && (!e.faces.east.cullface || !cull[e.faces.east.cullface])) {
+      addFace(e.faces.east, [16 - z1, 16 - y1, 16 - z0, 16 - y0], [x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1]);
+    }
+    if (e.faces?.west?.texture && (!e.faces.west.cullface || !cull[e.faces.west.cullface])) {
+      addFace(e.faces.west, [z0, 16 - y1, z1, 16 - y0], [x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0]);
+    }
+
+    if (e.rotation) {
+      const t = mat4.create();
+      mat4.translate(t, t, [e.rotation.origin[0], e.rotation.origin[1], e.rotation.origin[2]]);
+      const rad = (e.rotation.angle * Math.PI) / 180;
+      if (e.rotation.axis === 'x') mat4.rotateX(t, t, rad);
+      else if (e.rotation.axis === 'y') mat4.rotateY(t, t, rad);
+      else if (e.rotation.axis === 'z') mat4.rotateZ(t, t, rad);
+      mat4.translate(t, t, [-e.rotation.origin[0], -e.rotation.origin[1], -e.rotation.origin[2]]);
+      mesh.transform(t);
+    }
+
+    return mesh;
+  };
+}
+
 // Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
@@ -435,57 +532,57 @@ async function init() {
         '': { model: modelName },
         'facing=south': { model: modelName, y: 0 },
         'facing=north': { model: modelName, y: 180 },
-        'facing=west': { model: modelName, y: 270 },
         'facing=east': { model: modelName, y: 90 },
-        'facing=up': { model: modelName, x: 270 },
-        'facing=down': { model: modelName, x: 90 },
+        'facing=west': { model: modelName, y: 270 },
+        'facing=up': { model: modelName, x: 90 },
+        'facing=down': { model: modelName, x: 270 },
         'map=false,facing=south': { model: modelName, y: 0 },
         'map=false,facing=north': { model: modelName, y: 180 },
-        'map=false,facing=west': { model: modelName, y: 270 },
         'map=false,facing=east': { model: modelName, y: 90 },
-        'map=false,facing=up': { model: modelName, x: 270 },
-        'map=false,facing=down': { model: modelName, x: 90 },
+        'map=false,facing=west': { model: modelName, y: 270 },
+        'map=false,facing=up': { model: modelName, x: 90 },
+        'map=false,facing=down': { model: modelName, x: 270 },
         'map=true,facing=south': { model: modelName, y: 0 },
         'map=true,facing=north': { model: modelName, y: 180 },
-        'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
-        'map=true,facing=up': { model: modelName, x: 270 },
-        'map=true,facing=down': { model: modelName, x: 90 }
+        'map=true,facing=west': { model: modelName, y: 270 },
+        'map=true,facing=up': { model: modelName, x: 90 },
+        'map=true,facing=down': { model: modelName, x: 270 }
       }
     });
 
     loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
     loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
 
-    // Item frame base model facing SOUTH (occupies z=15..16 on the SOUTH wall)
+    // Item frame base model facing SOUTH (attached to wall face at z=0, occupying z=0..1)
     const createItemFrameModel = (texName: string) => ({
       textures: {
         wood: texName
       },
       elements: [
         {
-          from: [3, 3, 15.2],
-          to: [13, 13, 15.8],
+          from: [3, 3, 0.1],
+          to: [13, 13, 0.6],
           faces: {
             north: { uv: [3, 3, 13, 13], texture: '#wood' },
             south: { uv: [3, 3, 13, 13], texture: '#wood' }
           }
         },
         {
-          from: [2, 2, 15],
-          to: [14, 3, 16],
+          from: [2, 2, 0],
+          to: [14, 3, 1],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
             up: { uv: [2, 14, 14, 16], texture: '#wood' },
             down: { uv: [2, 0, 14, 2], texture: '#wood' },
-            east: { uv: [0, 13, 2, 14], texture: '#wood' },
-            west: { uv: [14, 13, 16, 14], texture: '#wood' }
+            east: { uv: [14, 13, 16, 14], texture: '#wood' },
+            west: { uv: [0, 13, 2, 14], texture: '#wood' }
           }
         },
         {
-          from: [2, 13, 15],
-          to: [14, 14, 16],
+          from: [2, 13, 0],
+          to: [14, 14, 1],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
@@ -496,8 +593,8 @@ async function init() {
           }
         },
         {
-          from: [2, 3, 15],
-          to: [3, 13, 16],
+          from: [2, 3, 0],
+          to: [3, 13, 1],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
@@ -506,8 +603,8 @@ async function init() {
           }
         },
         {
-          from: [13, 3, 15],
-          to: [14, 13, 16],
+          from: [13, 3, 0],
+          to: [14, 13, 1],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
@@ -661,7 +758,7 @@ async function loadRegionAsync(
   const palette: BlockState[] = [];
   paletteList.forEach((entry: any) => {
     if (!entry.isCompound()) return;
-    const name = entry.getString('Name') ?? 'minecraft:air';
+    let name = entry.getString('Name') ?? 'minecraft:air';
     const properties: { [key: string]: string } = {};
     if (entry.has('Properties')) {
       const propsTag = entry.get('Properties');
@@ -681,6 +778,9 @@ async function loadRegionAsync(
           }
         });
       }
+    }
+    if (name.includes('_hanging_sign') && properties.facing && !properties.rotation) {
+      name = name.replace('_hanging_sign', '_wall_hanging_sign');
     }
     palette.push(new BlockState(name, properties));
   });
@@ -765,14 +865,12 @@ async function loadRegionAsync(
     let targetY = relY;
     let targetZ = relZ;
 
-    if (!entityTag.has('Pos')) {
-      if (facing === 'south') targetZ += 1;
-      else if (facing === 'north') targetZ -= 1;
-      else if (facing === 'west') targetX -= 1;
-      else if (facing === 'east') targetX += 1;
-      else if (facing === 'up') targetY += 1;
-      else if (facing === 'down') targetY -= 1;
-    }
+    if (facing === 'south') targetZ += 1;
+    else if (facing === 'north') targetZ -= 1;
+    else if (facing === 'west') targetX -= 1;
+    else if (facing === 'east') targetX += 1;
+    else if (facing === 'up') targetY += 1;
+    else if (facing === 'down') targetY -= 1;
 
     if (targetX >= 0 && targetX < size[0] && targetY >= 0 && targetY < size[1] && targetZ >= 0 && targetZ < size[2]) {
       let palIdx = palette.findIndex(
