@@ -492,20 +492,20 @@ async function init() {
     // Custom blockstate for item frames across orientations with fallback
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
-        'facing=north': { model: modelName, y: 0 },
-        'facing=south': { model: modelName, y: 180 },
+        'facing=south': { model: modelName, y: 0 },
+        'facing=north': { model: modelName, y: 180 },
         'facing=west': { model: modelName, y: 270 },
         'facing=east': { model: modelName, y: 90 },
         'facing=up': { model: modelName, x: 270 },
         'facing=down': { model: modelName, x: 90 },
-        'map=false,facing=north': { model: modelName, y: 0 },
-        'map=false,facing=south': { model: modelName, y: 180 },
+        'map=false,facing=south': { model: modelName, y: 0 },
+        'map=false,facing=north': { model: modelName, y: 180 },
         'map=false,facing=west': { model: modelName, y: 270 },
         'map=false,facing=east': { model: modelName, y: 90 },
         'map=false,facing=up': { model: modelName, x: 270 },
         'map=false,facing=down': { model: modelName, x: 90 },
-        'map=true,facing=north': { model: modelName, y: 0 },
-        'map=true,facing=south': { model: modelName, y: 180 },
+        'map=true,facing=south': { model: modelName, y: 0 },
+        'map=true,facing=north': { model: modelName, y: 180 },
         'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
         'map=true,facing=up': { model: modelName, x: 270 },
@@ -517,22 +517,23 @@ async function init() {
     loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
     loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
 
-    const createItemFrameModel = () => ({
+    const createItemFrameModel = (frameTex: string) => ({
       textures: {
-        wood: 'block/birch_planks'
+        wood: 'block/birch_planks',
+        bg: frameTex
       },
       elements: [
         {
-          from: [3, 3, 0],
-          to: [13, 13, 1],
+          from: [3, 3, 0.1],
+          to: [13, 13, 0.6],
           faces: {
             north: { uv: [3, 3, 13, 13], texture: '#wood' },
-            south: { uv: [3, 3, 13, 13], texture: '#wood' }
+            south: { uv: [0, 0, 16, 16], texture: '#bg' }
           }
         },
         {
-          from: [2, 2, 0],
-          to: [14, 3, 2],
+          from: [2, 2, 0.1],
+          to: [14, 3, 1.1],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
@@ -543,8 +544,8 @@ async function init() {
           }
         },
         {
-          from: [2, 13, 0],
-          to: [14, 14, 2],
+          from: [2, 13, 0.1],
+          to: [14, 14, 1.1],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
@@ -555,8 +556,8 @@ async function init() {
           }
         },
         {
-          from: [2, 3, 0],
-          to: [3, 13, 2],
+          from: [2, 3, 0.1],
+          to: [3, 13, 1.1],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
@@ -565,8 +566,8 @@ async function init() {
           }
         },
         {
-          from: [13, 3, 0],
-          to: [14, 13, 2],
+          from: [13, 3, 0.1],
+          to: [14, 13, 1.1],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
@@ -577,8 +578,8 @@ async function init() {
       ]
     });
 
-    loaded.assets.models['block/item_frame'] = createItemFrameModel();
-    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
+    loaded.assets.models['block/item_frame'] = createItemFrameModel('item/item_frame');
+    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel('item/glow_item_frame');
 
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
