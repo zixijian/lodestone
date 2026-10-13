@@ -100,6 +100,7 @@ let animFrameId: number | null = null;
 };
 
 // Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
+// and to render ceiling hanging signs at full 1:1 scale (preventing 2/3 scale disconnection gaps).
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -121,6 +122,43 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         return emptyMesh;
       }
     }
+
+    if (name.endsWith('_hanging_sign') && !name.endsWith('_wall_hanging_sign')) {
+      const woodType = name.replace('minecraft:', '').replace('_hanging_sign', '');
+      let attached = false;
+      let rotation = 0;
+      if (typeof block.getProperties === 'function') {
+        const props = block.getProperties();
+        if (props) {
+          attached = props.attached === 'true';
+          rotation = (parseInt(props.rotation || '0', 10) / 16) * Math.PI * 2;
+        }
+      } else if (block.properties) {
+        attached = block.properties.attached === 'true';
+        rotation = (parseInt(block.properties.rotation || '0', 10) / 16) * Math.PI * 2;
+      }
+
+      const renderer = (Lodestone as any).SpecialRenderers?.hangingSignRenderer?.(
+        (Lodestone as any).Identifier.create(woodType)
+      );
+      if (renderer) {
+        const signMesh = renderer(attached, atlas);
+        if (signMesh) {
+          const t = mat4.create();
+          mat4.translate(t, t, [8, 8, 8]);
+          mat4.rotateY(t, t, rotation);
+          mat4.translate(t, t, [-8, -8, -8]);
+          signMesh.transform(t);
+
+          if (block.isWaterlogged && block.isWaterlogged()) {
+            const waterMesh = (Lodestone as any).SpecialRenderers?.liquidRenderer?.('water', 0, atlas, cull, 0);
+            if (waterMesh) signMesh.merge(waterMesh);
+          }
+          return signMesh;
+        }
+      }
+    }
+
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
   };
 }
@@ -321,18 +359,18 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure pale_oak textures map correctly without corrupting hanging sign textures
+    // Map pale_oak textures to light wood texture atlas regions so pale_oak signs and planks render as pale white/light wood
     if (!loaded.assets.textures['entity/signs/pale_oak']) {
-      loaded.assets.textures['entity/signs/pale_oak'] = loaded.assets.textures['entity/signs/oak'] || [1648, 928, 64, 32];
+      loaded.assets.textures['entity/signs/pale_oak'] = loaded.assets.textures['entity/signs/birch'] || [1392, 928, 64, 32];
     }
     if (!loaded.assets.textures['entity/signs/hanging/pale_oak']) {
-      loaded.assets.textures['entity/signs/hanging/pale_oak'] = loaded.assets.textures['entity/signs/hanging/oak'] || [1648, 928, 64, 32];
+      loaded.assets.textures['entity/signs/hanging/pale_oak'] = loaded.assets.textures['entity/signs/hanging/birch'] || [1392, 928, 64, 32];
     }
     if (!loaded.assets.textures['block/pale_oak_planks']) {
-      loaded.assets.textures['block/pale_oak_planks'] = loaded.assets.textures['block/oak_planks'] || [1008, 1152, 16, 16];
+      loaded.assets.textures['block/pale_oak_planks'] = loaded.assets.textures['block/birch_planks'] || [1040, 1152, 16, 16];
     }
     if (!loaded.assets.textures['block/stripped_pale_oak_log']) {
-      loaded.assets.textures['block/stripped_pale_oak_log'] = loaded.assets.textures['block/stripped_oak_log'] || [2016, 1072, 16, 16];
+      loaded.assets.textures['block/stripped_pale_oak_log'] = loaded.assets.textures['block/stripped_birch_log'] || [2032, 1072, 16, 16];
     }
     // Delete blockstates and models for hanging signs so SpecialRenderers.hangingSignRenderer and wallHangingSignRenderer execute natively
     const allWoodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped', 'pale_oak'];
@@ -461,22 +499,22 @@ async function init() {
     loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
     loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
 
-    const createItemFrameModel = () => ({
+    const createItemFrameModel = (texName: string = 'block/birch_planks') => ({
       textures: {
-        wood: 'block/birch_planks'
+        wood: texName
       },
       elements: [
         {
-          from: [3, 3, 15],
-          to: [13, 13, 16],
+          from: [3, 3, 15.5],
+          to: [13, 13, 16.2],
           faces: {
             north: { uv: [3, 3, 13, 13], texture: '#wood' },
             south: { uv: [3, 3, 13, 13], texture: '#wood' }
           }
         },
         {
-          from: [2, 2, 14],
-          to: [14, 3, 16],
+          from: [2, 2, 15.2],
+          to: [14, 3, 16.5],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
@@ -487,8 +525,8 @@ async function init() {
           }
         },
         {
-          from: [2, 13, 14],
-          to: [14, 14, 16],
+          from: [2, 13, 15.2],
+          to: [14, 14, 16.5],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
@@ -499,8 +537,8 @@ async function init() {
           }
         },
         {
-          from: [2, 3, 14],
-          to: [3, 13, 16],
+          from: [2, 3, 15.2],
+          to: [3, 13, 16.5],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
@@ -509,8 +547,8 @@ async function init() {
           }
         },
         {
-          from: [13, 3, 14],
-          to: [14, 13, 16],
+          from: [13, 3, 15.2],
+          to: [14, 13, 16.5],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
@@ -521,8 +559,8 @@ async function init() {
       ]
     });
 
-    loaded.assets.models['block/item_frame'] = createItemFrameModel();
-    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
+    loaded.assets.models['block/item_frame'] = createItemFrameModel('block/birch_planks');
+    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel('block/birch_planks');
 
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
