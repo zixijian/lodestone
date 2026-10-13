@@ -322,19 +322,6 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Map pale_oak textures to light wood texture atlas regions so pale_oak signs and planks render as pale white/light wood
-    if (!loaded.assets.textures['entity/signs/pale_oak']) {
-      loaded.assets.textures['entity/signs/pale_oak'] = loaded.assets.textures['entity/signs/birch'] || [1392, 928, 64, 32];
-    }
-    if (!loaded.assets.textures['entity/signs/hanging/pale_oak']) {
-      loaded.assets.textures['entity/signs/hanging/pale_oak'] = loaded.assets.textures['entity/signs/hanging/birch'] || [1392, 928, 64, 32];
-    }
-    if (!loaded.assets.textures['block/pale_oak_planks']) {
-      loaded.assets.textures['block/pale_oak_planks'] = loaded.assets.textures['block/birch_planks'] || [1040, 1152, 16, 16];
-    }
-    if (!loaded.assets.textures['block/stripped_pale_oak_log']) {
-      loaded.assets.textures['block/stripped_pale_oak_log'] = loaded.assets.textures['block/stripped_birch_log'] || [2032, 1072, 16, 16];
-    }
 
     // Mirror all texture keys with minecraft: namespace prefix for texture atlas lookups
     Object.keys(loaded.assets.textures).forEach(k => {
@@ -445,39 +432,40 @@ async function init() {
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
-        '': { model: modelName, y: 180 },
-        'facing=south': { model: modelName, y: 180 },
-        'facing=north': { model: modelName, y: 0 },
-        'facing=west': { model: modelName, y: 90 },
-        'facing=east': { model: modelName, y: 270 },
-        'facing=up': { model: modelName, x: 90 },
-        'facing=down': { model: modelName, x: 270 },
-        'map=false,facing=south': { model: modelName, y: 180 },
-        'map=false,facing=north': { model: modelName, y: 0 },
-        'map=false,facing=west': { model: modelName, y: 90 },
-        'map=false,facing=east': { model: modelName, y: 270 },
-        'map=false,facing=up': { model: modelName, x: 90 },
-        'map=false,facing=down': { model: modelName, x: 270 },
-        'map=true,facing=south': { model: modelName, y: 180 },
-        'map=true,facing=north': { model: modelName, y: 0 },
-        'map=true,facing=west': { model: modelName, y: 90 },
-        'map=true,facing=east': { model: modelName, y: 270 },
-        'map=true,facing=up': { model: modelName, x: 90 },
-        'map=true,facing=down': { model: modelName, x: 270 }
+        '': { model: modelName },
+        'facing=south': { model: modelName, y: 0 },
+        'facing=north': { model: modelName, y: 180 },
+        'facing=west': { model: modelName, y: 270 },
+        'facing=east': { model: modelName, y: 90 },
+        'facing=up': { model: modelName, x: 270 },
+        'facing=down': { model: modelName, x: 90 },
+        'map=false,facing=south': { model: modelName, y: 0 },
+        'map=false,facing=north': { model: modelName, y: 180 },
+        'map=false,facing=west': { model: modelName, y: 270 },
+        'map=false,facing=east': { model: modelName, y: 90 },
+        'map=false,facing=up': { model: modelName, x: 270 },
+        'map=false,facing=down': { model: modelName, x: 90 },
+        'map=true,facing=south': { model: modelName, y: 0 },
+        'map=true,facing=north': { model: modelName, y: 180 },
+        'map=true,facing=west': { model: modelName, y: 270 },
+        'map=true,facing=east': { model: modelName, y: 90 },
+        'map=true,facing=up': { model: modelName, x: 270 },
+        'map=true,facing=down': { model: modelName, x: 90 }
       }
     });
 
     loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
     loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
 
+    // Item frame base model facing SOUTH (occupies z=15..16 on the SOUTH wall)
     const createItemFrameModel = (texName: string) => ({
       textures: {
         wood: texName
       },
       elements: [
         {
-          from: [3, 3, 15],
-          to: [13, 13, 15.6],
+          from: [3, 3, 15.2],
+          to: [13, 13, 15.8],
           faces: {
             north: { uv: [3, 3, 13, 13], texture: '#wood' },
             south: { uv: [3, 3, 13, 13], texture: '#wood' }
@@ -746,9 +734,19 @@ async function loadRegionAsync(
     }
 
     // Determine position within region coordinates
-    let relX = Math.floor(px);
-    let relY = Math.floor(py);
-    let relZ = Math.floor(pz);
+    let calcX = px, calcY = py, calcZ = pz;
+    if (entityTag.has('Pos')) {
+      if (facing === 'south') calcZ += 0.2;
+      else if (facing === 'north') calcZ -= 0.2;
+      else if (facing === 'west') calcX -= 0.2;
+      else if (facing === 'east') calcX += 0.2;
+      else if (facing === 'up') calcY += 0.2;
+      else if (facing === 'down') calcY -= 0.2;
+    }
+
+    let relX = Math.floor(calcX);
+    let relY = Math.floor(calcY);
+    let relZ = Math.floor(calcZ);
 
     if (rawSize[0] < 0) {
       const regX = regionCompound.getCompound('Position')?.getNumber('x') ?? 0;
@@ -767,8 +765,6 @@ async function loadRegionAsync(
     let targetY = relY;
     let targetZ = relZ;
 
-    // If coordinates came from TileX/TileY/TileZ or integer Pos on the wall block,
-    // offset into the adjacent block space where the item frame hangs according to facing
     if (!entityTag.has('Pos')) {
       if (facing === 'south') targetZ += 1;
       else if (facing === 'north') targetZ -= 1;
