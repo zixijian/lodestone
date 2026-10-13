@@ -47,22 +47,6 @@ let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
 
-// Safe helper to extract primitive number from NBT tag or compound
-function getNumVal(tag: any, key?: string): number {
-  if (!tag) return 0;
-  if (key !== undefined) {
-    if (typeof tag.getNumber === 'function') return tag.getNumber(key) ?? 0;
-    const child = typeof tag.get === 'function' ? tag.get(key) : tag[key];
-    return getNumVal(child, undefined);
-  }
-  if (typeof tag === 'number') return tag;
-  if (typeof tag.value === 'number') return tag.value;
-  if (typeof tag.value === 'bigint') return Number(tag.value);
-  if (typeof tag.getNumber === 'function') return tag.getNumber() ?? 0;
-  if (typeof tag.getAsString === 'function') return parseFloat(tag.getAsString()) || 0;
-  return 0;
-}
-
 // High-performance, zero-GC Uint16Array flat block grid storage with on-demand lazy block object creation
 (Structure.prototype as any).ensurePlacedCaches = function () {
   if (this.placedBlocksGrid) return;
@@ -109,12 +93,13 @@ function getNumVal(tag: any, key?: string): number {
   this.placedBlocksCache = [];
   for (let i = 0; i < this.blocks.length; i++) {
     const b = this.blocks[i];
-    this.placedBlocksCache.push({ pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt });
+    const placed = { pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt };
+    this.placedBlocksCache.push(placed);
   }
   return this.placedBlocksCache;
 };
 
-// Override SpecialRenderers.getBlockMesh to delegate double chests to custom models while allowing native tile entity renderers
+// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -198,8 +183,8 @@ if (Lodestone.ChunkBuilder) {
       blockName === 'minecraft:chest' ||
       blockName === 'minecraft:trapped_chest' ||
       blockName.includes('hanging_sign') ||
-      blockName.includes('sign') ||
-      blockName.includes('frame')
+      blockName === 'minecraft:item_frame' ||
+      blockName === 'minecraft:glow_item_frame'
     ) {
       return false;
     }
@@ -329,36 +314,32 @@ async function init() {
     };
 
     const [loaded, opaqueRes, transparentRes, nonSelfCullingRes, emissiveRes] = await Promise.all([
-      loadDefaultPackResources({ baseUrl: packBaseUrl }),
+      loadDefaultPackResources({ baseUrl: packBaseUrl + `?cb=${cb}` }),
       fetch(packBaseUrl + `block-flags/opaque.txt?cb=${cb}`).catch(() => null),
       fetch(packBaseUrl + `block-flags/transparent.txt?cb=${cb}`).catch(() => null),
-      fetch(packBaseUrl + `block-flags/non_self_culling.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/non-self-culling.txt?cb=${cb}`).catch(() => null),
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure standing and hanging sign textures map correctly in atlas and delete default blockstates/models so SpecialRenderers handles hanging signs
-    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped', 'pale_oak'];
-    woodTypes.forEach(w => {
+    // Ensure pale_oak textures map correctly without corrupting hanging sign textures
+    if (!loaded.assets.textures['entity/signs/pale_oak']) {
+      loaded.assets.textures['entity/signs/pale_oak'] = loaded.assets.textures['entity/signs/oak'] || [1648, 928, 64, 32];
+    }
+    if (!loaded.assets.textures['entity/signs/hanging/pale_oak']) {
+      loaded.assets.textures['entity/signs/hanging/pale_oak'] = loaded.assets.textures['entity/signs/hanging/oak'] || [1648, 928, 64, 32];
+    }
+    if (!loaded.assets.textures['block/pale_oak_planks']) {
+      loaded.assets.textures['block/pale_oak_planks'] = loaded.assets.textures['block/oak_planks'] || [1008, 1152, 16, 16];
+    }
+    if (!loaded.assets.textures['block/stripped_pale_oak_log']) {
+      loaded.assets.textures['block/stripped_pale_oak_log'] = loaded.assets.textures['block/stripped_oak_log'] || [2016, 1072, 16, 16];
+    }
+    // Delete blockstates and models for hanging signs so SpecialRenderers.hangingSignRenderer and wallHangingSignRenderer execute natively
+    const allWoodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped', 'pale_oak'];
+    allWoodTypes.forEach(w => {
       delete loaded.assets.blockstates[`${w}_hanging_sign`];
       delete loaded.assets.blockstates[`${w}_wall_hanging_sign`];
       delete loaded.assets.models[`block/${w}_hanging_sign`];
-      delete loaded.assets.models[`block/${w}_wall_hanging_sign`];
-
-      const signKey = `entity/signs/${w}`;
-      if (w === 'pale_oak' || !loaded.assets.textures[signKey] || !Array.isArray(loaded.assets.textures[signKey])) {
-        const fallback = loaded.assets.textures['entity/signs/birch'] || loaded.assets.textures['entity/signs/oak'];
-        if (fallback && Array.isArray(fallback)) {
-          loaded.assets.textures[signKey] = fallback;
-        }
-      }
-
-      const hangingKey = `entity/signs/hanging/${w}`;
-      if (w === 'pale_oak' || !loaded.assets.textures[hangingKey] || !Array.isArray(loaded.assets.textures[hangingKey])) {
-        const fallback = loaded.assets.textures['entity/signs/hanging/birch'] || loaded.assets.textures['entity/signs/hanging/oak'];
-        if (fallback && Array.isArray(fallback)) {
-          loaded.assets.textures[hangingKey] = fallback;
-        }
-      }
     });
 
     // Create custom blockstates and models for double chests (left/right)
@@ -387,6 +368,10 @@ async function init() {
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
+      // isLeft = type=left (Left half of double chest from viewer perspective):
+      // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
+      // isRight = type=right (Right half of double chest from viewer perspective):
+      // Spans x = 0..15, outer wall at x=15 (east), inner seam at x=0 (west). Latch at x=0..1.
       const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
       const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
 
@@ -418,10 +403,16 @@ async function init() {
       };
 
       if (isLeft) {
+        // Left half (isLeft = true, type=left):
+        // Outer wall is West face (x=1), using normal_left.png [7.25, 10.75] outer side texture.
+        // East face (x=16) is inner seam, omitted so no face renders inside seam.
         bodyFaces.west = { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' };
         lidFaces.west = { uv: [7.25, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' };
         latchFaces.west = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       } else {
+        // Right half (isLeft = false, type=right):
+        // Outer wall is East face (x=15), using normal_right.png [0, 3.5] with u-flipped UV [3.5, 8.25, 0, 10.75].
+        // West face (x=0) is inner seam, omitted so no face renders inside seam.
         bodyFaces.east = { uv: [3.5, 8.25, 0, 10.75], rotation: 180, texture: '#0' };
         lidFaces.east = { uv: [3.5, 3.75, 0, 4.75], rotation: 180, texture: '#0' };
         latchFaces.east = { uv: [0.25, 0.25, 0, 1.25], rotation: 180, texture: '#0' };
@@ -442,9 +433,10 @@ async function init() {
     loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
 
-    // Custom blockstate for item frames across orientations with fallback
+    // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
+        '': { model: modelName, y: 180 },
         'facing=south': { model: modelName, y: 0 },
         'facing=north': { model: modelName, y: 180 },
         'facing=west': { model: modelName, y: 270 },
@@ -462,31 +454,29 @@ async function init() {
         'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
         'map=true,facing=up': { model: modelName, x: 270 },
-        'map=true,facing=down': { model: modelName, x: 90 },
-        '': { model: modelName }
+        'map=true,facing=down': { model: modelName, x: 90 }
       }
     });
 
     loaded.assets.blockstates['item_frame'] = createItemFrameBlockState('block/item_frame');
     loaded.assets.blockstates['glow_item_frame'] = createItemFrameBlockState('block/glow_item_frame');
 
-    const createItemFrameModel = (frameTex: string) => ({
+    const createItemFrameModel = () => ({
       textures: {
-        wood: 'block/birch_planks',
-        bg: frameTex
+        wood: 'block/birch_planks'
       },
       elements: [
         {
-          from: [3, 3, 0.1],
-          to: [13, 13, 0.6],
+          from: [3, 3, 15],
+          to: [13, 13, 16],
           faces: {
             north: { uv: [3, 3, 13, 13], texture: '#wood' },
-            south: { uv: [0, 0, 16, 16], texture: '#bg' }
+            south: { uv: [3, 3, 13, 13], texture: '#wood' }
           }
         },
         {
-          from: [2, 2, 0.1],
-          to: [14, 3, 1.1],
+          from: [2, 2, 14],
+          to: [14, 3, 16],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
@@ -497,8 +487,8 @@ async function init() {
           }
         },
         {
-          from: [2, 13, 0.1],
-          to: [14, 14, 1.1],
+          from: [2, 13, 14],
+          to: [14, 14, 16],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
@@ -509,8 +499,8 @@ async function init() {
           }
         },
         {
-          from: [2, 3, 0.1],
-          to: [3, 13, 1.1],
+          from: [2, 3, 14],
+          to: [3, 13, 16],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
@@ -519,8 +509,8 @@ async function init() {
           }
         },
         {
-          from: [13, 3, 0.1],
-          to: [14, 13, 1.1],
+          from: [13, 3, 14],
+          to: [14, 13, 16],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
@@ -531,8 +521,8 @@ async function init() {
       ]
     });
 
-    loaded.assets.models['block/item_frame'] = createItemFrameModel('item/item_frame');
-    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel('item/glow_item_frame');
+    loaded.assets.models['block/item_frame'] = createItemFrameModel();
+    loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
 
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
@@ -559,23 +549,13 @@ async function init() {
       emissive: emissiveJson
     };
 
-    // Pre-alias all texture keys in loaded.assets.textures so textureAtlas.idMap receives both minecraft: prefixed and non-prefixed keys
-    if (loaded.assets.textures) {
-      Object.keys(loaded.assets.textures).forEach(key => {
-        if (!key.startsWith('minecraft:')) {
-          loaded.assets.textures['minecraft:' + key] = loaded.assets.textures[key];
-        } else {
-          loaded.assets.textures[key.replace('minecraft:', '')] = loaded.assets.textures[key];
-        }
-      });
-    }
-
     currentResources = createResourcesFromPack({
       assets: loaded.assets,
       atlas: loaded.atlas,
       flags
     });
 
+    // Alias all texture keys in atlas to include minecraft: namespace prefix for BlockModel lookup compatibility
     if (currentResources && currentResources.textures) {
       const texMap = currentResources.textures;
       Object.keys(texMap).forEach(key => {
@@ -705,22 +685,96 @@ async function loadRegionAsync(
         });
       }
     }
-    let normName = name;
-    if (normName === 'minecraft:hanging_sign') normName = 'minecraft:oak_hanging_sign';
-    if (normName === 'minecraft:wall_hanging_sign') normName = 'minecraft:oak_wall_hanging_sign';
-
-    if (normName.endsWith('_hanging_sign') && !normName.endsWith('_wall_hanging_sign')) {
-      if (properties.facing && properties.rotation === undefined) {
-        normName = normName.replace('_hanging_sign', '_wall_hanging_sign');
-      } else if (properties.rotation === undefined) {
-        properties.rotation = '0';
-      }
-    }
-
-    palette.push(new BlockState(normName, properties));
+    palette.push(new BlockState(name, properties));
   });
 
   const isAir = palette.map(state => state.is('minecraft:air'));
+
+  // NBT Entity Parsing for Item Frames & Glow Item Frames
+  const processEntityCompound = (entityTag: any) => {
+    if (!entityTag || !entityTag.isCompound()) return;
+    const id = entityTag.getString('id') ?? entityTag.getString('Id') ?? '';
+    const normId = id.startsWith('minecraft:') ? id : 'minecraft:' + id;
+    if (normId !== 'minecraft:item_frame' && normId !== 'minecraft:glow_item_frame') return;
+
+    let px = 0, py = 0, pz = 0;
+    if (entityTag.has('Pos')) {
+      const posList = entityTag.getList('Pos');
+      if (posList && posList.length >= 3) {
+        px = posList.get(0)?.value ?? posList.get(0) ?? 0;
+        py = posList.get(1)?.value ?? posList.get(1) ?? 0;
+        pz = posList.get(2)?.value ?? posList.get(2) ?? 0;
+      }
+    } else if (entityTag.has('TileX')) {
+      px = entityTag.getNumber('TileX') ?? 0;
+      py = entityTag.getNumber('TileY') ?? 0;
+      pz = entityTag.getNumber('TileZ') ?? 0;
+    } else if (entityTag.has('x')) {
+      px = entityTag.getNumber('x') ?? 0;
+      py = entityTag.getNumber('y') ?? 0;
+      pz = entityTag.getNumber('z') ?? 0;
+    }
+
+    let facing = 'south';
+    if (entityTag.has('Facing')) {
+      const f = entityTag.get('Facing')?.value ?? entityTag.get('Facing') ?? 0;
+      const fNum = typeof f === 'number' ? f : parseInt(String(f), 10);
+      if (fNum === 0) facing = 'down';
+      else if (fNum === 1) facing = 'up';
+      else if (fNum === 2) facing = 'north';
+      else if (fNum === 3) facing = 'south';
+      else if (fNum === 4) facing = 'west';
+      else if (fNum === 5) facing = 'east';
+    } else if (entityTag.has('Direction')) {
+      const d = entityTag.get('Direction')?.value ?? entityTag.get('Direction') ?? 0;
+      const dNum = typeof d === 'number' ? d : parseInt(String(d), 10);
+      if (dNum === 0) facing = 'south';
+      else if (dNum === 1) facing = 'west';
+      else if (dNum === 2) facing = 'north';
+      else if (dNum === 3) facing = 'east';
+      else if (dNum === 4) facing = 'up';
+      else if (dNum === 5) facing = 'down';
+    }
+
+    // Determine position within region coordinates
+    let relX = Math.floor(px);
+    let relY = Math.floor(py);
+    let relZ = Math.floor(pz);
+
+    if (rawSize[0] < 0) {
+      const regX = regionCompound.getCompound('Position')?.getNumber('x') ?? 0;
+      relX = relX - (regX + rawSize[0] + 1);
+    }
+    if (rawSize[1] < 0) {
+      const regY = regionCompound.getCompound('Position')?.getNumber('y') ?? 0;
+      relY = relY - (regY + rawSize[1] + 1);
+    }
+    if (rawSize[2] < 0) {
+      const regZ = regionCompound.getCompound('Position')?.getNumber('z') ?? 0;
+      relZ = relZ - (regZ + rawSize[2] + 1);
+    }
+
+    if (relX >= 0 && relX < size[0] && relY >= 0 && relY < size[1] && relZ >= 0 && relZ < size[2]) {
+      let palIdx = palette.findIndex(
+        st => st.getName().toString() === normId && st.getProperties()?.facing === facing
+      );
+      if (palIdx < 0) {
+        palette.push(new BlockState(normId, { facing }));
+        isAir.push(false);
+        palIdx = palette.length - 1;
+      }
+      storedBlocks.push({ pos: [relX, relY, relZ], state: palIdx });
+    }
+  };
+
+  ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'].forEach(key => {
+    if (regionCompound.has(key)) {
+      const list = regionCompound.getList(key);
+      if (list && typeof list.forEach === 'function') {
+        list.forEach((item: any) => processEntityCompound(item));
+      }
+    }
+  });
 
   const blockStatesNbt = regionCompound.has('BlockStates')
     ? regionCompound.getLongArray('BlockStates')
@@ -821,182 +875,6 @@ async function loadRegionAsync(
         lastYield = performance.now();
       }
     }
-  }
-
-
-  // Parse entities (Entities, PendingBlockEntities, TileEntities, BlockEntities) for item frames
-  const entityLists = ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'];
-  const facingMap: { [key: number]: string } = {
-    0: 'down', 1: 'up', 2: 'north', 3: 'south', 4: 'west', 5: 'east'
-  };
-
-  const regPosNbt = regionCompound.getCompound('Position');
-  const regPos = [
-    getNumVal(regPosNbt, 'x'),
-    getNumVal(regPosNbt, 'y'),
-    getNumVal(regPosNbt, 'z')
-  ];
-  const originX = rawSize[0] < 0 ? regPos[0] + rawSize[0] + 1 : regPos[0];
-  const originY = rawSize[1] < 0 ? regPos[1] + rawSize[1] + 1 : regPos[1];
-  const originZ = rawSize[2] < 0 ? regPos[2] + rawSize[2] + 1 : regPos[2];
-
-  for (const listKey of entityLists) {
-    if (!regionCompound.has(listKey)) continue;
-    const list = regionCompound.getList(listKey);
-    if (!list) continue;
-
-    list.forEach((entityCompound: any) => {
-      if (!entityCompound) return;
-      let id = '';
-      if (typeof entityCompound.getString === 'function') {
-        id = entityCompound.getString('id') ?? entityCompound.getString('Id') ?? '';
-      }
-      if (!id && entityCompound.has('id')) {
-        const val = entityCompound.get('id');
-        if (val && typeof val.getAsString === 'function') {
-          id = val.getAsString();
-        } else if (val && typeof val.value === 'string') {
-          id = val.value;
-        }
-      }
-      if (!id && entityCompound.has('Item')) {
-        id = 'minecraft:item_frame';
-      }
-
-      if (id !== 'minecraft:item_frame' && id !== 'minecraft:glow_item_frame' && id !== 'item_frame' && id !== 'glow_item_frame') return;
-
-      const normId = id.startsWith('minecraft:') ? id : 'minecraft:' + id;
-
-      let facing = 'south';
-      let facingNum: number | null = null;
-
-      const checkTag = (tagName: string) => {
-        if (facingNum !== null) return;
-        if (entityCompound.has(tagName)) {
-          const val = entityCompound.get(tagName);
-          if (val) {
-            let strVal = '';
-            if (typeof val === 'string') {
-              strVal = val.toLowerCase();
-            } else if (typeof val.value === 'string') {
-              strVal = val.value.toLowerCase();
-            } else if (typeof val.getAsString === 'function') {
-              strVal = val.getAsString().toLowerCase();
-            }
-            if (strVal && (strVal === 'south' || strVal === 'north' || strVal === 'west' || strVal === 'east' || strVal === 'up' || strVal === 'down')) {
-              facing = strVal;
-              facingNum = 999;
-            } else {
-              const num = getNumVal(val);
-              if (facingMap[num] !== undefined) {
-                facing = facingMap[num];
-                facingNum = num;
-              }
-            }
-          }
-        }
-      };
-
-      checkTag('Facing');
-      checkTag('FacingDirection');
-      checkTag('Direction');
-
-      // Compute block position relative to region grid [0..width-1, 0..height-1, 0..depth-1]
-      let x = -1, y = -1, z = -1;
-
-      if (entityCompound.has('Pos')) {
-        const posList = entityCompound.getList('Pos');
-        if (posList && posList.length >= 3) {
-          const px = getNumVal(posList.get(0));
-          const py = getNumVal(posList.get(1));
-          const pz = getNumVal(posList.get(2));
-
-          x = Math.floor(px - originX);
-          y = Math.floor(py - originY);
-          z = Math.floor(pz - originZ);
-
-          if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
-            const relX = Math.floor(px);
-            const relY = Math.floor(py);
-            const relZ = Math.floor(pz);
-            if (relX >= 0 && relX < width && relY >= 0 && relY < height && relZ >= 0 && relZ < depth) {
-              x = relX; y = relY; z = relZ;
-            }
-          }
-        }
-      }
-
-      if (x < 0 || y < 0 || z < 0 || x >= width || y >= height || z >= depth) {
-        if (entityCompound.has('TileX') && entityCompound.has('TileY') && entityCompound.has('TileZ')) {
-          const tx = getNumVal(entityCompound, 'TileX');
-          const ty = getNumVal(entityCompound, 'TileY');
-          const tz = getNumVal(entityCompound, 'TileZ');
-
-          x = Math.floor(tx - originX);
-          y = Math.floor(ty - originY);
-          z = Math.floor(tz - originZ);
-
-          if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
-            if (tx >= 0 && tx < width && ty >= 0 && ty < height && tz >= 0 && tz < depth) {
-              x = tx; y = ty; z = tz;
-            }
-          }
-        } else if (entityCompound.has('x') && entityCompound.has('y') && entityCompound.has('z')) {
-          const tx = getNumVal(entityCompound, 'x');
-          const ty = getNumVal(entityCompound, 'y');
-          const tz = getNumVal(entityCompound, 'z');
-
-          x = Math.floor(tx - originX);
-          y = Math.floor(ty - originY);
-          z = Math.floor(tz - originZ);
-
-          if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
-            if (tx >= 0 && tx < width && ty >= 0 && ty < height && tz >= 0 && tz < depth) {
-              x = tx; y = ty; z = tz;
-            }
-          }
-        }
-      }
-
-      if (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth) {
-        return;
-      }
-
-      // If [x, y, z] is already occupied by a solid block in storedBlocks, offset into adjacent empty cell towards facing
-      let targetX = x, targetY = y, targetZ = z;
-      const occupied = storedBlocks.some(b => b.pos[0] === x && b.pos[1] === y && b.pos[2] === z);
-      if (occupied) {
-        if (facing === 'south') targetZ = z + 1;
-        else if (facing === 'north') targetZ = z - 1;
-        else if (facing === 'west') targetX = x - 1;
-        else if (facing === 'east') targetX = x + 1;
-        else if (facing === 'up') targetY = y + 1;
-        else if (facing === 'down') targetY = y - 1;
-
-        if (targetX >= 0 && targetX < width && targetY >= 0 && targetY < height && targetZ >= 0 && targetZ < depth) {
-          x = targetX; y = targetY; z = targetZ;
-        }
-      }
-
-      let paletteIdx = palette.findIndex(
-        st => st.getName().toString() === normId && st.getProperties()?.facing === facing
-      );
-
-      if (paletteIdx === -1) {
-        palette.push(new BlockState(normId, { facing }));
-        paletteIdx = palette.length - 1;
-      }
-
-      storedBlocks.push({ pos: [x, y, z], state: paletteIdx });
-
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (z < minZ) minZ = z;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      if (z > maxZ) maxZ = z;
-      hasPlaced = true;
-    });
   }
 
   if (hasPlaced) {
@@ -1311,6 +1189,7 @@ window.toggleDayNight = function () {
     if ((renderer as any).sunlight) {
       const sun = (renderer as any).sunlight;
       if (isNightMode) {
+        // Night Mode: Ambient 0.12, Sun 0.08, Background #040810, Clean contrast
         sun.intensity = 0.08;
         sun.ambientIntensity = 0.12;
         if (sun.emissive) sun.emissive.intensity = 0.25;
@@ -1318,6 +1197,7 @@ window.toggleDayNight = function () {
         if (sun.light) sun.light.intensity = 0.08;
         if (sun.ambient) sun.ambient.intensity = 0.12;
       } else {
+        // Day Mode: Ambient 0.65, Sun 0.50, Exposure 0.77, Emissive 0.10 (~10% boost for high clarity)
         sun.intensity = 0.50;
         sun.ambientIntensity = 0.65;
         if (sun.emissive) sun.emissive.intensity = 0.10;
