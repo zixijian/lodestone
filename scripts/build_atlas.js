@@ -61,26 +61,31 @@ txtFiles.forEach(txtFile => {
 
 console.log(`Parsed ${allSprites.length} unique texture sprites.`);
 
-// Sort sprites by height descending for optimal shelf packing without gaps
+// Sort sprites by height descending for optimal shelf packing
 allSprites.sort((a, b) => b.h - a.h || b.w - a.w || a.key.localeCompare(b.key));
 
 const atlasWidth = 2048;
-const atlasHeight = 2048; // Lodestone requires a 2048x2048 square canvas
-let currentX = 0;
-let currentY = 0;
+const atlasHeight = 2048; // Standard 2048x2048 square canvas
+const pad = 2; // 2px gutter padding between sprites to prevent texture filtering bleed
+
+let currentX = pad;
+let currentY = pad;
 let rowHeight = 0;
 
 const packedSprites = [];
 
 for (const sprite of allSprites) {
-  if (currentX + sprite.w > atlasWidth) {
+  const totalW = sprite.w + pad * 2;
+  const totalH = sprite.h + pad * 2;
+
+  if (currentX + totalW > atlasWidth) {
     currentY += rowHeight;
-    currentX = 0;
+    currentX = pad;
     rowHeight = 0;
   }
 
-  const destX = currentX;
-  const destY = currentY;
+  const destX = currentX + pad;
+  const destY = currentY + pad;
 
   packedSprites.push({
     ...sprite,
@@ -88,9 +93,9 @@ for (const sprite of allSprites) {
     destY
   });
 
-  currentX += sprite.w;
-  if (sprite.h > rowHeight) {
-    rowHeight = sprite.h;
+  currentX += totalW;
+  if (totalH > rowHeight) {
+    rowHeight = totalH;
   }
 }
 
@@ -110,21 +115,70 @@ txtFiles.forEach(txtFile => {
 // Create 2048x2048 master PNG canvas
 const masterPng = new PNG({ width: atlasWidth, height: atlasHeight });
 
-// Copy pixel data for each sprite
+function setPixel(png, x, y, r, g, b, a) {
+  if (x < 0 || y < 0 || x >= png.width || y >= png.height) return;
+  const idx = (y * png.width + x) * 4;
+  png.data[idx] = r;
+  png.data[idx + 1] = g;
+  png.data[idx + 2] = b;
+  png.data[idx + 3] = a;
+}
+
+function getPixel(srcPng, x, y) {
+  const idx = (y * srcPng.width + x) * 4;
+  return [
+    srcPng.data[idx],
+    srcPng.data[idx + 1],
+    srcPng.data[idx + 2],
+    srcPng.data[idx + 3]
+  ];
+}
+
+// Copy pixel data for each sprite with edge clamping/extrusion into gutter padding
 for (const sprite of packedSprites) {
   const srcPng = subAtlasPngs[sprite.subAtlasFile];
   if (!srcPng) continue;
 
+  // 1. Copy exact inner sprite pixels
   for (let y = 0; y < sprite.h; y++) {
     for (let x = 0; x < sprite.w; x++) {
-      const srcIdx = ((sprite.y + y) * srcPng.width + (sprite.x + x)) * 4;
-      const destIdx = ((sprite.destY + y) * atlasWidth + (sprite.destX + x)) * 4;
-
-      masterPng.data[destIdx] = srcPng.data[srcIdx];
-      masterPng.data[destIdx + 1] = srcPng.data[srcIdx + 1];
-      masterPng.data[destIdx + 2] = srcPng.data[srcIdx + 2];
-      masterPng.data[destIdx + 3] = srcPng.data[srcIdx + 3];
+      const [r, g, b, a] = getPixel(srcPng, sprite.x + x, sprite.y + y);
+      setPixel(masterPng, sprite.destX + x, sprite.destY + y, r, g, b, a);
     }
+  }
+
+  // 2. Extrude border pixels into gutter padding to prevent edge alpha bleed
+  for (let p = 1; p <= pad; p++) {
+    // Top and Bottom padding rows
+    for (let x = 0; x < sprite.w; x++) {
+      const topPx = getPixel(srcPng, sprite.x + x, sprite.y);
+      setPixel(masterPng, sprite.destX + x, sprite.destY - p, ...topPx);
+
+      const botPx = getPixel(srcPng, sprite.x + x, sprite.y + sprite.h - 1);
+      setPixel(masterPng, sprite.destX + x, sprite.destY + sprite.h - 1 + p, ...botPx);
+    }
+
+    // Left and Right padding columns
+    for (let y = 0; y < sprite.h; y++) {
+      const leftPx = getPixel(srcPng, sprite.x, sprite.y + y);
+      setPixel(masterPng, sprite.destX - p, sprite.destY + y, ...leftPx);
+
+      const rightPx = getPixel(srcPng, sprite.x + sprite.w - 1, sprite.y + y);
+      setPixel(masterPng, sprite.destX + sprite.w - 1 + p, sprite.destY + y, ...rightPx);
+    }
+
+    // Corner padding pixels
+    const topLeft = getPixel(srcPng, sprite.x, sprite.y);
+    setPixel(masterPng, sprite.destX - p, sprite.destY - p, ...topLeft);
+
+    const topRight = getPixel(srcPng, sprite.x + sprite.w - 1, sprite.y);
+    setPixel(masterPng, sprite.destX + sprite.w - 1 + p, sprite.destY - p, ...topRight);
+
+    const botLeft = getPixel(srcPng, sprite.x, sprite.y + sprite.h - 1);
+    setPixel(masterPng, sprite.destX - p, sprite.destY + sprite.h - 1 + p, ...botLeft);
+
+    const botRight = getPixel(srcPng, sprite.x + sprite.w - 1, sprite.y + sprite.h - 1);
+    setPixel(masterPng, sprite.destX + sprite.w - 1 + p, sprite.destY + sprite.h - 1 + p, ...botRight);
   }
 }
 
