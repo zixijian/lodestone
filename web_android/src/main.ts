@@ -433,7 +433,38 @@ async function init() {
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
 
     // Custom blockstate for item frames across orientations
-    const createItemFrameBlockState = (modelName: string) => ({
+    const createItemFrameBlockState = (modelName: string) => {
+      const facings = ['north', 'south', 'west', 'east', 'up', 'down'];
+      const rotMap: { [key: string]: any } = {
+        north: {},
+        south: { y: 180 },
+        west: { y: 270 },
+        east: { y: 90 },
+        up: { x: 270 },
+        down: { x: 90 }
+      };
+      const variants: { [key: string]: any } = { '': { model: modelName } };
+
+      const bools = ['true', 'false'];
+      facings.forEach(facing => {
+        const rot = rotMap[facing];
+        variants['facing=' + facing] = { model: modelName, ...rot };
+
+        bools.forEach(map => {
+          variants['map=' + map + ',facing=' + facing] = { model: modelName, ...rot };
+          bools.forEach(fixed => {
+            variants['fixed=' + fixed + ',facing=' + facing] = { model: modelName, ...rot };
+            variants['fixed=' + fixed + ',map=' + map + ',facing=' + facing] = { model: modelName, ...rot };
+            bools.forEach(invisible => {
+              variants['invisible=' + invisible + ',facing=' + facing] = { model: modelName, ...rot };
+              variants['fixed=' + fixed + ',invisible=' + invisible + ',map=' + map + ',facing=' + facing] = { model: modelName, ...rot };
+            });
+          });
+        });
+      });
+      return { variants };
+    };
+    const _oldCreateItemFrameBlockState = (modelName: string) => ({
       variants: {
         '': { model: modelName },
         'facing=north': { model: modelName },
@@ -554,7 +585,15 @@ async function init() {
       flags
     });
 
-    // Alias all texture keys in atlas to include minecraft: namespace prefix for BlockModel lookup compatibility
+    // Alias all texture keys in atlas and loaded.assets.textures to include minecraft: namespace prefix for BlockModel lookup compatibility
+    if (loaded && loaded.assets && loaded.assets.textures) {
+      const texMap = loaded.assets.textures;
+      Object.keys(texMap).forEach(key => {
+        if (!key.startsWith('minecraft:')) {
+          texMap['minecraft:' + key] = texMap[key];
+        }
+      });
+    }
     if (currentResources && currentResources.textures) {
       const texMap = currentResources.textures;
       Object.keys(texMap).forEach(key => {
