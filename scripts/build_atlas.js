@@ -65,6 +65,7 @@ console.log(`Parsed ${allSprites.length} unique texture sprites.`);
 allSprites.sort((a, b) => b.h - a.h || b.w - a.w || a.key.localeCompare(b.key));
 
 const atlasWidth = 2048;
+const atlasHeight = 2048; // Lodestone requires a 2048x2048 square canvas
 let currentX = 0;
 let currentY = 0;
 let rowHeight = 0;
@@ -93,8 +94,8 @@ for (const sprite of allSprites) {
   }
 }
 
-const atlasHeight = currentY + rowHeight;
-console.log(`Master Atlas dimensions: ${atlasWidth} x ${atlasHeight}`);
+const packedContentHeight = currentY + rowHeight;
+console.log(`Master Atlas dimensions: ${atlasWidth} x ${atlasHeight} (packed content height: ${packedContentHeight})`);
 
 // Cache sub-atlas PNG images in memory
 const subAtlasPngs = {};
@@ -106,7 +107,7 @@ txtFiles.forEach(txtFile => {
   }
 });
 
-// Create master PNG canvas
+// Create 2048x2048 master PNG canvas
 const masterPng = new PNG({ width: atlasWidth, height: atlasHeight });
 
 // Copy pixel data for each sprite
