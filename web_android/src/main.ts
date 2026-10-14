@@ -87,21 +87,16 @@ let animFrameId: number | null = null;
 
 (Structure.prototype as any).getBlocks = function () {
   this.ensurePlacedCaches();
-  if (this.placedBlocksCache && this.placedBlocksCache.length > 0) {
-    return this.placedBlocksCache;
-  }
   this.placedBlocksCache = [];
   const w = this.size[0], h = this.size[1], d = this.size[2];
   const hd = h * d;
   for (let i = 0; i < this.blocks.length; i++) {
     const b = this.blocks[i];
-    const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
-    let placed = this.placedBlockObjectMap.get(idx);
-    if (!placed) {
-      placed = { pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt };
-      this.placedBlockObjectMap.set(idx, placed);
-    }
-    this.placedBlocksCache.push(placed);
+    this.placedBlocksCache.push({
+      pos: [b.pos[0], b.pos[1], b.pos[2]],
+      state: this.palette[b.state],
+      nbt: b.nbt
+    });
   }
   return this.placedBlocksCache;
 };
@@ -328,13 +323,21 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas
-    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+    // Ensure sign and hanging sign textures map correctly in atlas for all wood types (including pale_oak)
+    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'pale_oak', 'spruce', 'warped'];
     woodTypes.forEach(w => {
-      const signKey = `entity/signs/${w}`;
-      const hangingKey = `entity/signs/hanging/${w}`;
-      if (loaded.assets.textures[signKey]) {
-        loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
+      const blockSignKey = `block/${w}_sign`;
+      const blockHangingKey = `block/${w}_hanging_sign`;
+      const entitySignKey = `entity/signs/${w}`;
+      const entityHangingKey = `entity/signs/hanging/${w}`;
+
+      if (loaded.assets.textures[blockSignKey]) {
+        loaded.assets.textures[entitySignKey] = loaded.assets.textures[blockSignKey];
+        loaded.assets.textures[`minecraft:${entitySignKey}`] = loaded.assets.textures[blockSignKey];
+      }
+      if (loaded.assets.textures[blockHangingKey]) {
+        loaded.assets.textures[entityHangingKey] = loaded.assets.textures[blockHangingKey];
+        loaded.assets.textures[`minecraft:${entityHangingKey}`] = loaded.assets.textures[blockHangingKey];
       }
     });
 
@@ -432,6 +435,7 @@ async function init() {
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
+        '': { model: modelName },
         'facing=north': { model: modelName },
         'facing=south': { model: modelName, y: 180 },
         'facing=west': { model: modelName, y: 270 },
@@ -731,6 +735,111 @@ async function loadRegionAsync(
   const volume = width * height * depth;
 
   const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
+
+  // NBT Entities (Item Frames / Glow Item Frames) extraction
+  const entitiesLists = ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'];
+  const entityPaletteMap = new Map<string, number>();
+
+  const getOrCreatePaletteIndex = (name: string, props: { [key: string]: string } = {}) => {
+    const key = name + '||' + JSON.stringify(props);
+    if (entityPaletteMap.has(key)) return entityPaletteMap.get(key)!;
+
+    // Search existing palette
+    for (let i = 0; i < palette.length; i++) {
+      if (palette[i].getName().toString() === name) {
+        const pProps = palette[i].getProperties() || {};
+        let match = true;
+        for (const [pk, pv] of Object.entries(props)) {
+          if (pProps[pk] !== pv) { match = false; break; }
+        }
+        if (match) {
+          entityPaletteMap.set(key, i);
+          return i;
+        }
+      }
+    }
+
+    // Create new BlockState
+    const newState = new (Lodestone as any).BlockState(name, props);
+    palette.push(newState);
+    isAir.push(false);
+    const newIdx = palette.length - 1;
+    entityPaletteMap.set(key, newIdx);
+    return newIdx;
+  };
+
+  const regPosNbt = regionCompound.getCompound('Position');
+  const regPosX = regPosNbt?.getNumber('x') ?? 0;
+  const regPosY = regPosNbt?.getNumber('y') ?? 0;
+  const regPosZ = regPosNbt?.getNumber('z') ?? 0;
+
+  const originX = rawSize[0] < 0 ? regPosX + rawSize[0] + 1 : regPosX;
+  const originY = rawSize[1] < 0 ? regPosY + rawSize[1] + 1 : regPosY;
+  const originZ = rawSize[2] < 0 ? regPosZ + rawSize[2] + 1 : regPosZ;
+
+  entitiesLists.forEach(listName => {
+    if (!regionCompound.has(listName)) return;
+    const listTag = regionCompound.getList(listName);
+    listTag.forEach((entityCompound: any) => {
+      if (!entityCompound || !entityCompound.isCompound()) return;
+      const id = entityCompound.getString('id') ?? entityCompound.getString('Id') ?? '';
+      if (id === 'minecraft:item_frame' || id === 'minecraft:glow_item_frame' || id === 'item_frame' || id === 'glow_item_frame') {
+        const fullId = id.includes(':') ? id : 'minecraft:' + id;
+        let px = 0, py = 0, pz = 0;
+
+        if (entityCompound.has('Pos')) {
+          const posList = entityCompound.getList('Pos');
+          px = posList.getNumber(0) ?? 0;
+          py = posList.getNumber(1) ?? 0;
+          pz = posList.getNumber(2) ?? 0;
+        } else if (entityCompound.has('TileX')) {
+          px = entityCompound.getNumber('TileX') ?? 0;
+          py = entityCompound.getNumber('TileY') ?? 0;
+          pz = entityCompound.getNumber('TileZ') ?? 0;
+        } else if (entityCompound.has('x')) {
+          px = entityCompound.getNumber('x') ?? 0;
+          py = entityCompound.getNumber('y') ?? 0;
+          pz = entityCompound.getNumber('z') ?? 0;
+        }
+
+        let relX = Math.floor(px - originX);
+        let relY = Math.floor(py - originY);
+        let relZ = Math.floor(pz - originZ);
+
+        if (relX < 0 || relX >= width || relY < 0 || relY >= height || relZ < 0 || relZ >= depth) {
+          relX = Math.floor(px);
+          relY = Math.floor(py);
+          relZ = Math.floor(pz);
+        }
+
+        if (relX >= 0 && relX < width && relY >= 0 && relY < height && relZ >= 0 && relZ < depth) {
+          let facing = 'south';
+          if (entityCompound.has('Facing')) {
+            const fTag = entityCompound.get('Facing');
+            const fVal = typeof fTag?.getValue === 'function' ? fTag.getValue() : fTag?.value;
+            const fNum = Number(fVal);
+            if (!isNaN(fNum)) {
+              const facingMap: { [key: number]: string } = { 0: 'down', 1: 'up', 2: 'north', 3: 'south', 4: 'west', 5: 'east' };
+              facing = facingMap[fNum] || 'south';
+            } else if (typeof fVal === 'string') {
+              facing = fVal.toLowerCase();
+            }
+          } else if (entityCompound.has('Direction')) {
+            const dTag = entityCompound.get('Direction');
+            const dVal = typeof dTag?.getValue === 'function' ? dTag.getValue() : dTag?.value;
+            const dNum = Number(dVal);
+            if (!isNaN(dNum)) {
+              const facingMap: { [key: number]: string } = { 0: 'south', 1: 'west', 2: 'north', 3: 'east' };
+              facing = facingMap[dNum] || 'south';
+            }
+          }
+
+          const stateIdx = getOrCreatePaletteIndex(fullId, { facing });
+          storedBlocks.push({ pos: [relX, relY, relZ], state: stateIdx });
+        }
+      }
+    });
+  });
 
   let minX = width, minY = height, minZ = depth;
   let maxX = 0, maxY = 0, maxZ = 0;
