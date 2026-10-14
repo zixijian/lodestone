@@ -328,13 +328,19 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas
-    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+    // Alias block sign textures to entity/signs/* so Lodestone Native SpecialRenderers find sign textures
+    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'pale_oak', 'poplar', 'spruce', 'warped'];
     woodTypes.forEach(w => {
-      const signKey = `entity/signs/${w}`;
-      const hangingKey = `entity/signs/hanging/${w}`;
-      if (loaded.assets.textures[signKey]) {
-        loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
+      const blockSignKey = `block/${w}_sign`;
+      const blockHangingKey = `block/${w}_hanging_sign`;
+      const entitySignKey = `entity/signs/${w}`;
+      const entityHangingKey = `entity/signs/hanging/${w}`;
+
+      if (loaded.assets.textures[blockSignKey]) {
+        loaded.assets.textures[entitySignKey] = loaded.assets.textures[blockSignKey];
+      }
+      if (loaded.assets.textures[blockHangingKey]) {
+        loaded.assets.textures[entityHangingKey] = loaded.assets.textures[blockHangingKey];
       }
     });
 
