@@ -12,6 +12,24 @@ const {
   NbtFile
 } = Lodestone;
 
+// Patch TextureAtlas.prototype.getTextureUV for dual-key fallback compatibility
+if ((Lodestone as any).TextureAtlas?.prototype?.getTextureUV) {
+  const origGetTextureUV = (Lodestone as any).TextureAtlas.prototype.getTextureUV;
+  (Lodestone as any).TextureAtlas.prototype.getTextureUV = function (id: any) {
+    if (!id) return [0, 0, this.part, this.part];
+    const str = id.toString();
+    if (this.idMap[str]) return this.idMap[str];
+    if (str.startsWith('minecraft:')) {
+      const plain = str.substring(10);
+      if (this.idMap[plain]) return this.idMap[plain];
+    } else {
+      const prefixed = 'minecraft:' + str;
+      if (this.idMap[prefixed]) return this.idMap[prefixed];
+    }
+    return origGetTextureUV.call(this, id);
+  };
+}
+
 // Declare types for android host interface exposure
 declare global {
   interface Window {
@@ -379,7 +397,7 @@ async function init() {
       loadDefaultPackResources({ baseUrl: packBaseUrl + `?cb=${cb}` }),
       fetch(packBaseUrl + `block-flags/opaque.txt?cb=${cb}`).catch(() => null),
       fetch(packBaseUrl + `block-flags/transparent.txt?cb=${cb}`).catch(() => null),
-      fetch(packBaseUrl + `block-flags/non-self-culling.txt?cb=${cb}`).catch(() => null),
+      fetch(packBaseUrl + `block-flags/non_self_culling.txt?cb=${cb}`).catch(() => null),
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
