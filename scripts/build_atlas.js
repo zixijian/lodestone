@@ -201,7 +201,6 @@ fs.writeFileSync(outputAtlasPath, masterBuffer);
 const newTextures = {};
 packedSprites.forEach(sprite => {
   newTextures[sprite.key] = [sprite.destX, sprite.destY, sprite.w, sprite.h];
-  newTextures["minecraft:" + sprite.key] = [sprite.destX, sprite.destY, sprite.w, sprite.h];
 });
 
 const woodTypes = ["acacia", "bamboo", "birch", "cherry", "crimson", "dark_oak", "jungle", "mangrove", "oak", "pale_oak", "poplar", "spruce", "warped"];
@@ -209,12 +208,10 @@ woodTypes.forEach(w => {
   const blockSign = newTextures["block/" + w + "_sign"];
   if (blockSign) {
     newTextures["entity/signs/" + w] = blockSign;
-    newTextures["minecraft:entity/signs/" + w] = blockSign;
   }
   const blockHanging = newTextures["block/" + w + "_hanging_sign"];
   if (blockHanging) {
     newTextures["entity/signs/hanging/" + w] = blockHanging;
-    newTextures["minecraft:entity/signs/hanging/" + w] = blockHanging;
   }
 });
 
