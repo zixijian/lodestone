@@ -91,17 +91,9 @@ let animFrameId: number | null = null;
     return this.placedBlocksCache;
   }
   this.placedBlocksCache = [];
-  const w = this.size[0], h = this.size[1], d = this.size[2];
-  const hd = h * d;
   for (let i = 0; i < this.blocks.length; i++) {
     const b = this.blocks[i];
-    const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
-    let placed = this.placedBlockObjectMap.get(idx);
-    if (!placed) {
-      placed = { pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt };
-      this.placedBlockObjectMap.set(idx, placed);
-    }
-    this.placedBlocksCache.push(placed);
+    this.placedBlocksCache.push({ pos: [b.pos[0], b.pos[1], b.pos[2]], state: this.palette[b.state], nbt: b.nbt });
   }
   return this.placedBlocksCache;
 };
@@ -435,6 +427,7 @@ async function init() {
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
+        '': { model: modelName },
         'facing=north': { model: modelName },
         'facing=south': { model: modelName, y: 180 },
         'facing=west': { model: modelName, y: 270 },
@@ -452,7 +445,13 @@ async function init() {
         'map=true,facing=west': { model: modelName, y: 270 },
         'map=true,facing=east': { model: modelName, y: 90 },
         'map=true,facing=up': { model: modelName, x: 270 },
-        'map=true,facing=down': { model: modelName, x: 90 }
+        'map=true,facing=down': { model: modelName, x: 90 },
+        'fixed=false,facing=north,invisible=false,map=false': { model: modelName },
+        'fixed=false,facing=south,invisible=false,map=false': { model: modelName, y: 180 },
+        'fixed=false,facing=west,invisible=false,map=false': { model: modelName, y: 270 },
+        'fixed=false,facing=east,invisible=false,map=false': { model: modelName, y: 90 },
+        'fixed=false,facing=up,invisible=false,map=false': { model: modelName, x: 270 },
+        'fixed=false,facing=down,invisible=false,map=false': { model: modelName, x: 90 }
       }
     });
 
@@ -803,9 +802,12 @@ async function loadRegionAsync(
   // Extract NBT Entities / TileEntities / BlockEntities / PendingBlockEntities
   const entityLists = ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'];
   const positionTag = regionCompound.has('Position') ? regionCompound.getCompound('Position') : null;
-  const originX = positionTag ? (positionTag.getNumber('x') ?? 0) : 0;
-  const originY = positionTag ? (positionTag.getNumber('y') ?? 0) : 0;
-  const originZ = positionTag ? (positionTag.getNumber('z') ?? 0) : 0;
+  const regPosX = positionTag ? (positionTag.getNumber('x') ?? 0) : 0;
+  const regPosY = positionTag ? (positionTag.getNumber('y') ?? 0) : 0;
+  const regPosZ = positionTag ? (positionTag.getNumber('z') ?? 0) : 0;
+  const originX = rawSize[0] < 0 ? regPosX + rawSize[0] + 1 : regPosX;
+  const originY = rawSize[1] < 0 ? regPosY + rawSize[1] + 1 : regPosY;
+  const originZ = rawSize[2] < 0 ? regPosZ + rawSize[2] + 1 : regPosZ;
 
   const placedBlocksGrid = new Set<string>();
   storedBlocks.forEach(b => placedBlocksGrid.add(b.pos[0] + ',' + b.pos[1] + ',' + b.pos[2]));
