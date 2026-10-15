@@ -21,10 +21,16 @@ function parseTxt(filename) {
     const parts = trimmed.split('\t');
     if (parts.length < 5) continue;
     const rawKey = parts[0];
-    const x = parseInt(parts[1].split('=')[1], 10);
-    const y = parseInt(parts[2].split('=')[1], 10);
+    let x = parseInt(parts[1].split('=')[1], 10);
+    let y = parseInt(parts[2].split('=')[1], 10);
     const w = parseInt(parts[3].split('=')[1], 10);
     const h = parseInt(parts[4].split('=')[1], 10);
+
+    // zixijian/atlas sub-atlas images (.png_0.png) include a 1px extrusion padding around each sprite.
+    // The metadata (.txt) records the outer top-left bounding box at (x, y).
+    // The actual 1:1 sprite pixel content starts at (x + 1, y + 1).
+    x += 1;
+    y += 1;
 
     let key = rawKey;
     if (key.startsWith('minecraft:')) {
@@ -62,7 +68,7 @@ txtFiles.forEach(txtFile => {
 console.log(`Parsed ${allSprites.length} unique texture sprites.`);
 
 // Sort sprites by cell height descending for optimal shelf packing with 1px padding
-const pad = 1; // 1px padding around each sprite to prevent GPU sampling bleeding
+const pad = 1; // 1px padding around each sprite in the destination atlas to prevent GPU sampling bleeding
 allSprites.sort((a, b) => (b.h + pad * 2) - (a.h + pad * 2) || (b.w + pad * 2) - (a.w + pad * 2) || a.key.localeCompare(b.key));
 
 const atlasWidth = 2048;
