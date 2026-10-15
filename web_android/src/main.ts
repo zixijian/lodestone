@@ -411,14 +411,17 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Ensure hanging sign textures map correctly in atlas
-    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'spruce', 'warped'];
+    // Delete sign blockstates and models so Lodestone native SpecialRenderers render signs cleanly
+    const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'pale_oak', 'poplar', 'spruce', 'warped'];
     woodTypes.forEach(w => {
-      const signKey = `entity/signs/${w}`;
-      const hangingKey = `entity/signs/hanging/${w}`;
-      if (loaded.assets.textures[signKey]) {
-        loaded.assets.textures[hangingKey] = loaded.assets.textures[signKey];
-      }
+      delete loaded.assets.blockstates[`${w}_sign`];
+      delete loaded.assets.models[`${w}_sign`];
+      delete loaded.assets.blockstates[`${w}_wall_sign`];
+      delete loaded.assets.models[`${w}_wall_sign`];
+      delete loaded.assets.blockstates[`${w}_hanging_sign`];
+      delete loaded.assets.models[`${w}_hanging_sign`];
+      delete loaded.assets.blockstates[`${w}_wall_hanging_sign`];
+      delete loaded.assets.models[`${w}_wall_hanging_sign`];
     });
 
     // Create custom blockstates and models for double chests (left/right)
