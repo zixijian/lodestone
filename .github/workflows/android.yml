@@ -29,7 +29,6 @@ jobs:
           cd web_android
           npm install
           mkdir -p public/default-pack
-          cp -r node_modules/@mattzh72/lodestone/assets/default-pack/* public/default-pack/
           ./node_modules/.bin/vite build
           mkdir -p ../app/src/main/assets/web/default-pack
           cp -r public/default-pack/* ../app/src/main/assets/web/default-pack/

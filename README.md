@@ -4,6 +4,28 @@
 
 ---
 
+## 🎨 材质包升级要点与解决方案 (Texture Pack Upgrade)
+
+为了提升渲染精度并支持 Minecraft 1.21.4+ 最新方块材质（包含苍白木 Pale Oak 系列），本项目从 [zixijian/atlas](https://github.com/zixijian/atlas) 升级并自动合成了 2048x2048 主图集（Master Texture Atlas）。针对合成材质包中的错位、杂线以及特殊方块渲染问题，实施了以下技术方案：
+
+### 1. zixijian/atlas 1px 边框剥离与像素精准对齐
+- **问题分析**：`zixijian/atlas` 生成的子图集 PNG（`*.png_0.png`）为了防止贴图拼接渗色，在每个贴图四周加入了 1 像素的外包扩充边框。其 `.txt` 元数据文件中记录的坐标 `(x, y)` 是包含此 1px 扩充边框的左上角起点。直接提取会导致所有方块贴图在渲染时产生 1 像素的整体右上偏移（例如轨道 Rail 出现非对称 1px 错位）。
+- **技术方案**：在 `scripts/build_atlas.js` 构建脚本中，解析元数据坐标时自动对起点进行 `+1` 像素校正（即取 `x + 1, y + 1`），提取出 1:1 绝对准确的原始贴图像素区域。
+
+### 2. 图集 1px 像素挤出保护边 (Bleed Padding Extrusion)
+- **问题分析**：在 2048x2048 拼接图集中，若贴图紧密相邻放置，GPU 双线性采样（Bilinear Filtering）和 WebGL Shader 半像素 Clamping 计算会在贴图边缘采样到邻近贴图的颜色，导致方块边缘出现黑线或异色杂线。
+- **技术方案**：在主图集中为每个贴图四周保留 1px 保护边，并将贴图边缘像素向外延伸 1 像素（Edge Extrusion）。即使 GPU 在边缘进行插值采样，采到的也是完全一致的延伸像素，彻底消除了贴图边缘黑线。
+
+### 3. 告示牌与悬挂告示牌（Sign & Hanging Sign）尺寸与贴图修复
+- **尺寸一致性**：移除 Lodestone 引擎在渲染天花板垂直悬挂告示牌（`hanging_sign`）时默认施加的 `2/3` 缩小变换（`mat4.scale`），使天花板悬挂告示牌与侧挂告示牌（`wall_hanging_sign`）保持 100% 原始尺寸，并调整铁链模型位置使其贴合顶部方块。
+- **苍白木（Pale Oak）支持**：在引擎 `WoodTypes` 中补充 `'pale_oak'` 与 `'poplar'` 木材类型，并映射 `entity/signs/pale_oak` 贴图路径，使苍白木普通告示牌与悬挂告示牌正常渲染。
+
+### 4. 物品展示框（Item Frame & Glow Item Frame）NBT 实体解析
+- **问题分析**：在 Litematica 投影结构中，物品展示框作为实体存储于 NBT Compound 的 `Entities` / `PendingBlockEntities` / `TileEntities` / `BlockEntities` 列表中，而非 `BlockStates` 方块网格数组中。
+- **技术方案**：在 `loadRegionAsync` 中增加对 NBT 实体列表的提取逻辑，解析物品展示框的坐标（`Pos` 或 `TileX, Y, Z`）与 `Facing` 朝向，自动构建 `BlockState` 并插入渲染网格中，使普通物品展示框与发光物品展示框正常显示。
+
+---
+
 ## 🚀 架构设计与渲染原理
 
 本应用采用 **混合开发（Hybrid）架构**，将原生 Android 界面与 Web 3D 渲染进行整合：

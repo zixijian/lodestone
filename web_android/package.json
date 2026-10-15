@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "rm -rf node_modules/.vite && rm -rf ../app/src/main/assets/web/* && vite build && mkdir -p ../app/src/main/assets/web/default-pack && cp -r public/default-pack/* ../app/src/main/assets/web/default-pack/"
+    "build": "node ../scripts/patch_lodestone.js && rm -rf node_modules/.vite && rm -rf ../app/src/main/assets/web/* && vite build && mkdir -p ../app/src/main/assets/web/default-pack && cp -r public/default-pack/* ../app/src/main/assets/web/default-pack/"
   },
   "dependencies": {
     "@mattzh72/lodestone": "^0.6.0",
     "three": "^0.164.1"
   },
   "devDependencies": {
+    "pngjs": "^7.0.0",
     "typescript": "^5.2.2",
     "vite": "^5.0.0"
   }
