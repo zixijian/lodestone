@@ -181,9 +181,8 @@ if (Lodestone.ChunkBuilder) {
     if (
       blockName === 'minecraft:chest' ||
       blockName === 'minecraft:trapped_chest' ||
-      blockName.includes('hanging_sign') ||
-      blockName === 'minecraft:item_frame' ||
-      blockName === 'minecraft:glow_item_frame'
+      blockName.includes('sign') ||
+      blockName.includes('frame')
     ) {
       return false;
     }
@@ -202,6 +201,70 @@ if (Lodestone.ChunkBuilder) {
       if (!flags?.opaque) return false;
     }
     return true;
+  };
+
+  Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
+    const blockName = block.state.getName();
+    const nameStr = blockName.toString();
+    const blockProps = this.getBlockProps(block.state);
+    if (this.isFullyOccluded(block)) {
+      return;
+    }
+    const chunkPos = [
+      Math.floor(block.pos[0] / this.chunkSize[0]),
+      Math.floor(block.pos[1] / this.chunkSize[1]),
+      Math.floor(block.pos[2] / this.chunkSize[2]),
+    ];
+    const chunkKey = this.chunkKey(chunkPos);
+    if (chunkFilter && !chunkFilter.has(chunkKey)) return;
+    const chunk = this.getChunk(chunkPos);
+    try {
+      const cull = {
+        up: this.needsCull(block, Lodestone.Direction.UP),
+        down: this.needsCull(block, Lodestone.Direction.DOWN),
+        west: this.needsCull(block, Lodestone.Direction.WEST),
+        east: this.needsCull(block, Lodestone.Direction.EAST),
+        north: this.needsCull(block, Lodestone.Direction.NORTH),
+        south: this.needsCull(block, Lodestone.Direction.SOUTH),
+      };
+      const mesh = new (Lodestone as any).Mesh();
+
+      // For signs and hanging signs, ONLY use SpecialRenderer to prevent double rendering and scale issues
+      const isSpecialSign = nameStr.includes('sign');
+
+      if (!isSpecialSign) {
+        const blockDefinition = this.resources.getBlockDefinition(blockName);
+        if (blockDefinition) {
+          try {
+            mesh.merge(blockDefinition.getMesh(blockName, blockProps, this.resources, this.resources, cull));
+          } catch (e) {
+            // Fallback if BlockDefinition fails
+          }
+        }
+      }
+
+      if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
+        try {
+          const specialMesh = (Lodestone as any).SpecialRenderers.getBlockMesh(block.state, block.nbt, this.resources, cull);
+          if (specialMesh && !specialMesh.isEmpty()) {
+            mesh.merge(specialMesh);
+          }
+        } catch (e) {
+          // Fallback if SpecialRenderer fails
+        }
+      }
+
+      if (!mesh.isEmpty()) {
+        this.finishChunkMesh(mesh, block.pos, blockName, blockProps, chunkKey);
+        if (this.resources.getBlockFlags(block.state.getName())?.semi_transparent) {
+          chunk.transparentMesh.merge(mesh);
+        } else {
+          chunk.mesh.merge(mesh);
+        }
+      }
+    } catch (e) {
+      console.error(`Error rendering block ${nameStr}`, e);
+    }
   };
 }
 

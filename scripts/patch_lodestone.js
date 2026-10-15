@@ -6,7 +6,7 @@ const targetPath = path.join(__dirname, '../web_android/node_modules/@mattzh72/l
 if (fs.existsSync(targetPath)) {
   let code = fs.readFileSync(targetPath, 'utf-8');
 
-  // 1. Add pale_oak and poplar to WoodTypes (using regex to match multi-line definition)
+  // 1. Add pale_oak and poplar to WoodTypes
   code = code.replace(
     /const WoodTypes = \[\s*[\s\S]*?\s*\];/g,
     "const WoodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'crimson', 'warped', 'mangrove', 'bamboo', 'cherry', 'pale_oak', 'poplar'];"
