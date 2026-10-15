@@ -31,30 +31,11 @@ if (fs.existsSync(targetPath)) {
     "WoodTypes addition"
   );
 
-  // 2. Patch signRenderer for standing bamboo signs
-  const oldSignRenderer = `function signRenderer(texture) {
-        return (atlas) => {
-            return new BlockModel(undefined, {
-                0: texture.withPrefix('entity/signs/').toString(),
-            }, [
-                {
-                    from: [-4, 8, 7],
-                    to: [20, 20, 9],
-                    faces: {
-                        north: { uv: [0.5, 1, 6.5, 7], texture: '#0' },
-                        east: { uv: [0, 1, 0.5, 7], texture: '#0' },
-                        south: { uv: [7, 1, 13, 7], texture: '#0' },
-                        west: { uv: [6.5, 1, 7, 7], texture: '#0' },
-                        up: { uv: [6.5, 1, 0.5, 0], texture: '#0' },
-                        down: { uv: [12.5, 0, 6.5, 1], texture: '#0' },
-                    },
-                },`;
-
-  const newSignRenderer = `function signRenderer(texture) {
+  // 2. Patch signRenderer with precise UV coordinates to eliminate right-edge texture bleed
+  const patchedSignRenderer = `function signRenderer(texture) {
         const isBamboo = texture.toString().includes('bamboo');
-        const northUv = isBamboo ? [0.5, 1, 6.25, 7] : [0.5, 1, 6.5, 7];
-        const westUv = isBamboo ? [6.25, 1, 6.75, 7] : [6.5, 1, 7, 7];
-        const southUv = isBamboo ? [6.75, 1, 12.5, 7] : [7, 1, 13, 7];
+        const northUv = isBamboo ? [0.5, 1, 6.35, 7] : [0.5, 1, 6.45, 7];
+        const southUv = isBamboo ? [6.85, 1, 12.85, 7] : [7, 1, 12.95, 7];
         return (atlas) => {
             return new BlockModel(undefined, {
                 0: texture.withPrefix('entity/signs/').toString(),
@@ -66,38 +47,39 @@ if (fs.existsSync(targetPath)) {
                         north: { uv: northUv, texture: '#0' },
                         east: { uv: [0, 1, 0.5, 7], texture: '#0' },
                         south: { uv: southUv, texture: '#0' },
-                        west: { uv: westUv, texture: '#0' },
-                        up: { uv: [6.5, 1, 0.5, 0], texture: '#0' },
-                        down: { uv: [12.5, 0, 6.5, 1], texture: '#0' },
-                    },
-                },`;
-
-  code = replaceOrSkip(code, oldSignRenderer, newSignRenderer, "signRenderer patch");
-
-  // 3. Patch wallSignRenderer for wall bamboo signs
-  const oldWallSignRenderer = `function wallSignRenderer(texture) {
-        return (atlas) => {
-            return new BlockModel(undefined, {
-                0: texture.withPrefix('entity/signs/').toString(),
-            }, [
-                {
-                    from: [-4, 4, 17],
-                    to: [20, 16, 19],
-                    faces: {
-                        north: { uv: [0.5, 1, 6.5, 7], texture: '#0' },
-                        east: { uv: [0, 1, 0.5, 7], texture: '#0' },
-                        south: { uv: [7, 1, 13, 7], texture: '#0' },
                         west: { uv: [6.5, 1, 7, 7], texture: '#0' },
                         up: { uv: [6.5, 1, 0.5, 0], texture: '#0' },
                         down: { uv: [12.5, 0, 6.5, 1], texture: '#0' },
                     },
-                },`;
+                },
+                {
+                    from: [7, -6, 7],
+                    to: [9, 8, 9],
+                    faces: {
+                        north: { uv: [0.5, 8, 1, 15], texture: '#0' },
+                        east: { uv: [0, 8, 0.5, 15], texture: '#0' },
+                        south: { uv: [1.5, 8, 2, 15], texture: '#0' },
+                        west: { uv: [1, 8, 1.5, 15], texture: '#0' },
+                        up: { uv: [1, 8, 0.5, 7], texture: '#0' },
+                        down: { uv: [1.5, 7, 1, 8], texture: '#0' },
+                    },
+                },
+            ]).getMesh(atlas, Cull.none());
+        };
+    }`;
 
-  const newWallSignRenderer = `function wallSignRenderer(texture) {
+  const startSignIdx = code.indexOf('function signRenderer(');
+  const endSignIdx = code.indexOf('SpecialRenderers.signRenderer = signRenderer;');
+  if (startSignIdx !== -1 && endSignIdx !== -1) {
+    const oldSignCode = code.substring(startSignIdx, endSignIdx);
+    code = code.replace(oldSignCode, patchedSignRenderer + '\n    ');
+  }
+
+  // 3. Patch wallSignRenderer
+  const patchedWallSignRenderer = `function wallSignRenderer(texture) {
         const isBamboo = texture.toString().includes('bamboo');
-        const northUv = isBamboo ? [0.5, 1, 6.25, 7] : [0.5, 1, 6.5, 7];
-        const westUv = isBamboo ? [6.25, 1, 6.75, 7] : [6.5, 1, 7, 7];
-        const southUv = isBamboo ? [6.75, 1, 12.5, 7] : [7, 1, 13, 7];
+        const northUv = isBamboo ? [0.5, 1, 6.35, 7] : [0.5, 1, 6.45, 7];
+        const southUv = isBamboo ? [6.85, 1, 12.85, 7] : [7, 1, 12.95, 7];
         return (atlas) => {
             return new BlockModel(undefined, {
                 0: texture.withPrefix('entity/signs/').toString(),
@@ -109,22 +91,29 @@ if (fs.existsSync(targetPath)) {
                         north: { uv: northUv, texture: '#0' },
                         east: { uv: [0, 1, 0.5, 7], texture: '#0' },
                         south: { uv: southUv, texture: '#0' },
-                        west: { uv: westUv, texture: '#0' },
+                        west: { uv: [6.5, 1, 7, 7], texture: '#0' },
                         up: { uv: [6.5, 1, 0.5, 0], texture: '#0' },
                         down: { uv: [12.5, 0, 6.5, 1], texture: '#0' },
                     },
-                },`;
+                },
+            ]).getMesh(atlas, Cull.none());
+        };
+    }`;
 
-  code = replaceOrSkip(code, oldWallSignRenderer, newWallSignRenderer, "wallSignRenderer patch");
+  const startWallSignIdx = code.indexOf('function wallSignRenderer(');
+  const endWallSignIdx = code.indexOf('SpecialRenderers.wallSignRenderer = wallSignRenderer;');
+  if (startWallSignIdx !== -1 && endWallSignIdx !== -1) {
+    const oldWallSignCode = code.substring(startWallSignIdx, endWallSignIdx);
+    code = code.replace(oldWallSignCode, patchedWallSignRenderer + '\n    ');
+  }
 
   // 4. Replace hangingSignRenderer to fix chain positions, 3D cross quads, and UVs
-  if (!code.includes('4.75, 10, 6')) {
-    const startHangingIdx = code.indexOf('function hangingSignRenderer(');
-    const endHangingIdx = code.indexOf('SpecialRenderers.hangingSignRenderer = hangingSignRenderer;');
-    if (startHangingIdx !== -1 && endHangingIdx !== -1) {
-      const oldHangingSignRendererFunc = code.substring(startHangingIdx, endHangingIdx);
+  const startHangingIdx = code.indexOf('function hangingSignRenderer(');
+  const endHangingIdx = code.indexOf('SpecialRenderers.hangingSignRenderer = hangingSignRenderer;');
+  if (startHangingIdx !== -1 && endHangingIdx !== -1) {
+    const oldHangingSignRendererFunc = code.substring(startHangingIdx, endHangingIdx);
 
-      const newHangingSignRendererFunc = `function hangingSignRenderer(texture) {
+    const newHangingSignRendererFunc = `function hangingSignRenderer(texture) {
         return (attached, atlas) => {
             if (attached) {
                 return new BlockModel(undefined, {
@@ -143,32 +132,32 @@ if (fs.existsSync(targetPath)) {
                         },
                     },
                     {
-                        from: [1.5, 10, 8],
-                        to: [8, 16, 8],
+                        from: [3, 10, 8],
+                        to: [5, 16, 8],
                         faces: {
                             north: { uv: [14, 0, 16, 6], texture: '#0' },
                             south: { uv: [14, 0, 16, 6], texture: '#0' },
                         },
                     },
                     {
-                        from: [4.75, 10, 6],
-                        to: [4.75, 16, 10],
+                        from: [4, 10, 7],
+                        to: [4, 16, 9],
                         faces: {
                             east: { uv: [14, 0, 16, 6], texture: '#0' },
                             west: { uv: [14, 0, 16, 6], texture: '#0' },
                         },
                     },
                     {
-                        from: [8, 16, 8],
-                        to: [14.5, 10, 8],
+                        from: [11, 10, 8],
+                        to: [13, 16, 8],
                         faces: {
                             north: { uv: [14, 0, 16, 6], texture: '#0' },
                             south: { uv: [14, 0, 16, 6], texture: '#0' },
                         },
                     },
                     {
-                        from: [11.25, 10, 6],
-                        to: [11.25, 16, 10],
+                        from: [12, 10, 7],
+                        to: [12, 16, 9],
                         faces: {
                             east: { uv: [14, 0, 16, 6], texture: '#0' },
                             west: { uv: [14, 0, 16, 6], texture: '#0' },
@@ -225,21 +214,18 @@ if (fs.existsSync(targetPath)) {
                 },
             ]).getMesh(atlas, Cull.none());
         };
-    }
-    `;
+    }`;
 
-      code = code.replace(oldHangingSignRendererFunc, newHangingSignRendererFunc);
-    }
+    code = code.replace(oldHangingSignRendererFunc, newHangingSignRendererFunc + '\n    ');
   }
 
   // 5. Replace wallHangingSignRenderer to fix chain positions and UVs
-  if (!code.includes('13, 14, 9')) {
-    const startWallHangingIdx = code.indexOf('function wallHangingSignRenderer(');
-    const endWallHangingIdx = code.indexOf('SpecialRenderers.wallHangingSignRenderer = wallHangingSignRenderer;');
-    if (startWallHangingIdx !== -1 && endWallHangingIdx !== -1) {
-      const oldWallHangingSignRendererFunc = code.substring(startWallHangingIdx, endWallHangingIdx);
+  const startWallHangingIdx = code.indexOf('function wallHangingSignRenderer(');
+  const endWallHangingIdx = code.indexOf('SpecialRenderers.wallHangingSignRenderer = wallHangingSignRenderer;');
+  if (startWallHangingIdx !== -1 && endWallHangingIdx !== -1) {
+    const oldWallHangingSignRendererFunc = code.substring(startWallHangingIdx, endWallHangingIdx);
 
-      const newWallHangingSignRendererFunc = `function wallHangingSignRenderer(woodType) {
+    const newWallHangingSignRendererFunc = `function wallHangingSignRenderer(woodType) {
         return (atlas) => {
             return new BlockModel(undefined, {
                 0: \`entity/signs/hanging/\${woodType}\`,
@@ -302,14 +288,12 @@ if (fs.existsSync(targetPath)) {
                 },
             ]).getMesh(atlas, Cull.none());
         };
-    }
-    `;
+    }`;
 
-      code = code.replace(oldWallHangingSignRendererFunc, newWallHangingSignRendererFunc);
-    }
+    code = code.replace(oldWallHangingSignRendererFunc, newWallHangingSignRendererFunc + '\n    ');
   }
 
-  // 6. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
+  // 6. Force re-population of Sign and HangingSign maps
   const mapRefreshCode = `
     SignRenderers.clear();
     WallSignRenderers.clear();
