@@ -61,12 +61,12 @@ txtFiles.forEach(txtFile => {
 
 console.log(`Parsed ${allSprites.length} unique texture sprites.`);
 
-// Sort sprites by height descending for optimal shelf packing
-allSprites.sort((a, b) => b.h - a.h || b.w - a.w || a.key.localeCompare(b.key));
+// Sort sprites by cell height descending for optimal shelf packing with 1px padding
+const pad = 1; // 1px padding around each sprite to prevent GPU sampling bleeding
+allSprites.sort((a, b) => (b.h + pad * 2) - (a.h + pad * 2) || (b.w + pad * 2) - (a.w + pad * 2) || a.key.localeCompare(b.key));
 
 const atlasWidth = 2048;
 const atlasHeight = 2048; // Standard 2048x2048 square canvas
-const pad = 0; // Direct tight packing without gutter offset to match Lodestone texture bounds exactly
 
 let currentX = 0;
 let currentY = 0;
@@ -75,24 +75,31 @@ let rowHeight = 0;
 const packedSprites = [];
 
 for (const sprite of allSprites) {
-  if (currentX + sprite.w > atlasWidth) {
+  const cellW = sprite.w + pad * 2;
+  const cellH = sprite.h + pad * 2;
+
+  if (currentX + cellW > atlasWidth) {
     currentY += rowHeight;
     currentX = 0;
     rowHeight = 0;
   }
 
-  const destX = currentX;
-  const destY = currentY;
+  const destX = currentX + pad;
+  const destY = currentY + pad;
 
   packedSprites.push({
     ...sprite,
     destX,
-    destY
+    destY,
+    cellX: currentX,
+    cellY: currentY,
+    cellW,
+    cellH
   });
 
-  currentX += sprite.w;
-  if (sprite.h > rowHeight) {
-    rowHeight = sprite.h;
+  currentX += cellW;
+  if (cellH > rowHeight) {
+    rowHeight = cellH;
   }
 }
 
@@ -131,17 +138,49 @@ function getPixel(srcPng, x, y) {
   ];
 }
 
-// Copy pixel data for each sprite directly
+// Copy pixel data for each sprite with 1px edge extrusion (dilation)
 for (const sprite of packedSprites) {
   const srcPng = subAtlasPngs[sprite.subAtlasFile];
   if (!srcPng) continue;
 
+  // 1. Copy main sprite pixels
   for (let y = 0; y < sprite.h; y++) {
     for (let x = 0; x < sprite.w; x++) {
       const [r, g, b, a] = getPixel(srcPng, sprite.x + x, sprite.y + y);
       setPixel(masterPng, sprite.destX + x, sprite.destY + y, r, g, b, a);
     }
   }
+
+  // 2. Extrude top & bottom edge borders (pad = 1)
+  for (let x = 0; x < sprite.w; x++) {
+    const topPixel = getPixel(srcPng, sprite.x + x, sprite.y);
+    setPixel(masterPng, sprite.destX + x, sprite.destY - 1, ...topPixel);
+
+    const bottomPixel = getPixel(srcPng, sprite.x + x, sprite.y + sprite.h - 1);
+    setPixel(masterPng, sprite.destX + x, sprite.destY + sprite.h, ...bottomPixel);
+  }
+
+  // 3. Extrude left & right edge borders
+  for (let y = 0; y < sprite.h; y++) {
+    const leftPixel = getPixel(srcPng, sprite.x, sprite.y + y);
+    setPixel(masterPng, sprite.destX - 1, sprite.destY + y, ...leftPixel);
+
+    const rightPixel = getPixel(srcPng, sprite.x + sprite.w - 1, sprite.y + y);
+    setPixel(masterPng, sprite.destX + sprite.w, sprite.destY + y, ...rightPixel);
+  }
+
+  // 4. Fill 4 corners
+  const topLeft = getPixel(srcPng, sprite.x, sprite.y);
+  setPixel(masterPng, sprite.destX - 1, sprite.destY - 1, ...topLeft);
+
+  const topRight = getPixel(srcPng, sprite.x + sprite.w - 1, sprite.y);
+  setPixel(masterPng, sprite.destX + sprite.w, sprite.destY - 1, ...topRight);
+
+  const bottomLeft = getPixel(srcPng, sprite.x, sprite.y + sprite.h - 1);
+  setPixel(masterPng, sprite.destX - 1, sprite.destY + sprite.h, ...bottomLeft);
+
+  const bottomRight = getPixel(srcPng, sprite.x + sprite.w - 1, sprite.y + sprite.h - 1);
+  setPixel(masterPng, sprite.destX + sprite.w, sprite.destY + sprite.h, ...bottomRight);
 }
 
 // Target output files
@@ -152,7 +191,7 @@ console.log('Writing master atlas PNG to', outputAtlasPath);
 const masterBuffer = PNG.sync.write(masterPng);
 fs.writeFileSync(outputAtlasPath, masterBuffer);
 
-// Build new textures dictionary for assets.json
+// Build new textures dictionary for assets.json (exact destX, destY without pad offset)
 const newTextures = {};
 packedSprites.forEach(sprite => {
   newTextures[sprite.key] = [sprite.destX, sprite.destY, sprite.w, sprite.h];
