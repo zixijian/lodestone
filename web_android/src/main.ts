@@ -961,12 +961,12 @@ async function loadRegionAsync(
 
       const gridKey = relX + ',' + relY + ',' + relZ;
       if (placedBlocksGrid.has(gridKey)) {
-        if (facingStr === 'south' && relZ - 1 >= 0) relZ -= 1;
-        else if (facingStr === 'north' && relZ + 1 < depth) relZ += 1;
-        else if (facingStr === 'east' && relX - 1 >= 0) relX -= 1;
-        else if (facingStr === 'west' && relX + 1 < width) relX += 1;
-        else if (facingStr === 'up' && relY - 1 >= 0) relY -= 1;
-        else if (facingStr === 'down' && relY + 1 < height) relY += 1;
+        if (facingStr === 'south' && relZ + 1 < depth) relZ += 1;
+        else if (facingStr === 'north' && relZ - 1 >= 0) relZ -= 1;
+        else if (facingStr === 'east' && relX + 1 < width) relX += 1;
+        else if (facingStr === 'west' && relX - 1 >= 0) relX -= 1;
+        else if (facingStr === 'up' && relY + 1 < height) relY += 1;
+        else if (facingStr === 'down' && relY - 1 >= 0) relY -= 1;
       }
 
       const blockName = id === 'glow_item_frame' ? 'minecraft:glow_item_frame' : 'minecraft:item_frame';
