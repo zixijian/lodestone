@@ -6,9 +6,9 @@ const targetPath = path.join(__dirname, '../web_android/node_modules/@mattzh72/l
 if (fs.existsSync(targetPath)) {
   let code = fs.readFileSync(targetPath, 'utf-8');
 
-  // 1. Add pale_oak and poplar to WoodTypes
+  // 1. Add pale_oak and poplar to WoodTypes (using regex to match multi-line definition)
   code = code.replace(
-    "const WoodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'crimson', 'warped', 'mangrove', 'bamboo', 'cherry'];",
+    /const WoodTypes = \[\s*[\s\S]*?\s*\];/g,
     "const WoodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'crimson', 'warped', 'mangrove', 'bamboo', 'cherry', 'pale_oak', 'poplar'];"
   );
 
@@ -118,6 +118,27 @@ if (fs.existsSync(targetPath)) {
             }`;
 
   code = code.replace(oldAttachedChainModel, newAttachedChainModel);
+
+  // 4. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
+  const mapRefreshCode = `
+    SignRenderers.clear();
+    WallSignRenderers.clear();
+    HangingSignRenderers.clear();
+    WallHangingSignRenderers.clear();
+    WoodTypes.forEach(type => {
+        SignRenderers.set(\`minecraft:\${type}_sign\`, SpecialRenderers.signRenderer(Identifier.create(type)));
+        WallSignRenderers.set(\`minecraft:\${type}_wall_sign\`, SpecialRenderers.wallSignRenderer(Identifier.create(type)));
+        HangingSignRenderers.set(\`minecraft:\${type}_hanging_sign\`, SpecialRenderers.hangingSignRenderer(Identifier.create(type)));
+        WallHangingSignRenderers.set(\`minecraft:\${type}_wall_hanging_sign\`, SpecialRenderers.wallHangingSignRenderer(type));
+    });
+`;
+
+  if (!code.includes('SignRenderers.clear()')) {
+    code = code.replace(
+      "SpecialRenderers.getBlockMesh = getBlockMesh;",
+      mapRefreshCode + "\n    SpecialRenderers.getBlockMesh = getBlockMesh;"
+    );
+  }
 
   fs.writeFileSync(targetPath, code);
   console.log('Successfully applied Lodestone SpecialRenderer patch!');

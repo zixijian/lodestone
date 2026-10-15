@@ -427,31 +427,13 @@ async function init() {
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
-        '': { model: modelName },
         'facing=north': { model: modelName },
         'facing=south': { model: modelName, y: 180 },
         'facing=west': { model: modelName, y: 270 },
         'facing=east': { model: modelName, y: 90 },
         'facing=up': { model: modelName, x: 270 },
         'facing=down': { model: modelName, x: 90 },
-        'map=false,facing=north': { model: modelName },
-        'map=false,facing=south': { model: modelName, y: 180 },
-        'map=false,facing=west': { model: modelName, y: 270 },
-        'map=false,facing=east': { model: modelName, y: 90 },
-        'map=false,facing=up': { model: modelName, x: 270 },
-        'map=false,facing=down': { model: modelName, x: 90 },
-        'map=true,facing=north': { model: modelName },
-        'map=true,facing=south': { model: modelName, y: 180 },
-        'map=true,facing=west': { model: modelName, y: 270 },
-        'map=true,facing=east': { model: modelName, y: 90 },
-        'map=true,facing=up': { model: modelName, x: 270 },
-        'map=true,facing=down': { model: modelName, x: 90 },
-        'fixed=false,facing=north,invisible=false,map=false': { model: modelName },
-        'fixed=false,facing=south,invisible=false,map=false': { model: modelName, y: 180 },
-        'fixed=false,facing=west,invisible=false,map=false': { model: modelName, y: 270 },
-        'fixed=false,facing=east,invisible=false,map=false': { model: modelName, y: 90 },
-        'fixed=false,facing=up,invisible=false,map=false': { model: modelName, x: 270 },
-        'fixed=false,facing=down,invisible=false,map=false': { model: modelName, x: 90 }
+        '': { model: modelName }
       }
     });
 
@@ -558,6 +540,17 @@ async function init() {
       Object.keys(texMap).forEach(key => {
         if (!key.startsWith('minecraft:')) {
           texMap['minecraft:' + key] = texMap[key];
+        } else {
+          texMap[key.replace('minecraft:', '')] = texMap[key];
+        }
+      });
+      // Ensure entity sign textures are aliased for special sign renderers
+      woodTypes.forEach(w => {
+        if (texMap[`entity/signs/${w}`]) {
+          texMap[`minecraft:entity/signs/${w}`] = texMap[`entity/signs/${w}`];
+        }
+        if (texMap[`entity/signs/hanging/${w}`]) {
+          texMap[`minecraft:entity/signs/hanging/${w}`] = texMap[`entity/signs/hanging/${w}`];
         }
       });
     }
