@@ -508,36 +508,41 @@ async function init() {
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
-        'facing=south': { model: modelName },
-        'facing=north': { model: modelName, y: 180 },
-        'facing=east': { model: modelName, y: 90 },
-        'facing=west': { model: modelName, y: 270 },
-        'facing=up': { model: modelName, x: 270 },
-        'facing=down': { model: modelName, x: 90 },
-        'facing=south,fixed=false': { model: modelName },
-        'facing=north,fixed=false': { model: modelName, y: 180 },
-        'facing=east,fixed=false': { model: modelName, y: 90 },
-        'facing=west,fixed=false': { model: modelName, y: 270 },
-        'facing=up,fixed=false': { model: modelName, x: 270 },
-        'facing=down,fixed=false': { model: modelName, x: 90 },
-        'facing=south,fixed=true': { model: modelName },
-        'facing=north,fixed=true': { model: modelName, y: 180 },
-        'facing=east,fixed=true': { model: modelName, y: 90 },
-        'facing=west,fixed=true': { model: modelName, y: 270 },
-        'facing=up,fixed=true': { model: modelName, x: 270 },
-        'facing=down,fixed=true': { model: modelName, x: 90 },
-        'facing=south,map=false': { model: modelName },
-        'facing=north,map=false': { model: modelName, y: 180 },
-        'facing=east,map=false': { model: modelName, y: 90 },
-        'facing=west,map=false': { model: modelName, y: 270 },
-        'facing=up,map=false': { model: modelName, x: 270 },
-        'facing=down,map=false': { model: modelName, x: 90 },
-        'facing=south,map=true': { model: modelName },
-        'facing=north,map=true': { model: modelName, y: 180 },
-        'facing=east,map=true': { model: modelName, y: 90 },
-        'facing=west,map=true': { model: modelName, y: 270 },
-        'facing=up,map=true': { model: modelName, x: 270 },
-        'facing=down,map=true': { model: modelName, x: 90 },
+        'facing=north': { model: modelName, y: 0 },
+        'facing=south': { model: modelName, y: 180 },
+        'facing=west': { model: modelName, y: 90 },
+        'facing=east': { model: modelName, y: 270 },
+        'facing=up': { model: modelName, x: 90 },
+        'facing=down': { model: modelName, x: 270 },
+
+        'facing=north,fixed=false': { model: modelName, y: 0 },
+        'facing=south,fixed=false': { model: modelName, y: 180 },
+        'facing=west,fixed=false': { model: modelName, y: 90 },
+        'facing=east,fixed=false': { model: modelName, y: 270 },
+        'facing=up,fixed=false': { model: modelName, x: 90 },
+        'facing=down,fixed=false': { model: modelName, x: 270 },
+
+        'facing=north,fixed=true': { model: modelName, y: 0 },
+        'facing=south,fixed=true': { model: modelName, y: 180 },
+        'facing=west,fixed=true': { model: modelName, y: 90 },
+        'facing=east,fixed=true': { model: modelName, y: 270 },
+        'facing=up,fixed=true': { model: modelName, x: 90 },
+        'facing=down,fixed=true': { model: modelName, x: 270 },
+
+        'facing=north,map=false': { model: modelName, y: 0 },
+        'facing=south,map=false': { model: modelName, y: 180 },
+        'facing=west,map=false': { model: modelName, y: 90 },
+        'facing=east,map=false': { model: modelName, y: 270 },
+        'facing=up,map=false': { model: modelName, x: 90 },
+        'facing=down,map=false': { model: modelName, x: 270 },
+
+        'facing=north,map=true': { model: modelName, y: 0 },
+        'facing=south,map=true': { model: modelName, y: 180 },
+        'facing=west,map=true': { model: modelName, y: 90 },
+        'facing=east,map=true': { model: modelName, y: 270 },
+        'facing=up,map=true': { model: modelName, x: 90 },
+        'facing=down,map=true': { model: modelName, x: 270 },
+
         '': { model: modelName }
       }
     });
@@ -547,20 +552,21 @@ async function init() {
 
     const createItemFrameModel = () => ({
       textures: {
-        wood: 'block/birch_planks'
+        wood: 'block/birch_planks',
+        back: 'block/item_frame'
       },
       elements: [
         {
-          from: [3, 3, 0],
-          to: [13, 13, 0.5],
+          from: [3, 3, 15.5],
+          to: [13, 13, 16],
           faces: {
-            north: { uv: [3, 3, 13, 13], texture: '#wood' },
-            south: { uv: [3, 3, 13, 13], texture: '#wood' }
+            north: { uv: [3, 3, 13, 13], texture: '#back' },
+            south: { uv: [3, 3, 13, 13], texture: '#back' }
           }
         },
         {
-          from: [2, 2, 0],
-          to: [14, 3, 1],
+          from: [2, 2, 15],
+          to: [14, 3, 16],
           faces: {
             north: { uv: [2, 13, 14, 14], texture: '#wood' },
             south: { uv: [2, 13, 14, 14], texture: '#wood' },
@@ -571,8 +577,8 @@ async function init() {
           }
         },
         {
-          from: [2, 13, 0],
-          to: [14, 14, 1],
+          from: [2, 13, 15],
+          to: [14, 14, 16],
           faces: {
             north: { uv: [2, 2, 14, 3], texture: '#wood' },
             south: { uv: [2, 2, 14, 3], texture: '#wood' },
@@ -583,8 +589,8 @@ async function init() {
           }
         },
         {
-          from: [2, 3, 0],
-          to: [3, 13, 1],
+          from: [2, 3, 15],
+          to: [3, 13, 16],
           faces: {
             north: { uv: [13, 3, 14, 13], texture: '#wood' },
             south: { uv: [2, 3, 3, 13], texture: '#wood' },
@@ -593,8 +599,8 @@ async function init() {
           }
         },
         {
-          from: [13, 3, 0],
-          to: [14, 13, 1],
+          from: [13, 3, 15],
+          to: [14, 13, 16],
           faces: {
             north: { uv: [2, 3, 3, 13], texture: '#wood' },
             south: { uv: [13, 3, 14, 13], texture: '#wood' },
