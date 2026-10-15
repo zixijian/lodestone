@@ -106,25 +106,7 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
-function getPropStr(block: any, prop: string, fallback = ''): string {
-  if (typeof block.getProperty === 'function') {
-    const val = block.getProperty(prop);
-    if (val !== undefined && val !== null) return val.toString();
-  }
-  if (block.properties && block.properties[prop] !== undefined) {
-    return block.properties[prop].toString();
-  }
-  return fallback;
-}
-
-function getPropNum(block: any, prop: string, fallback = 0): number {
-  const str = getPropStr(block, prop, '');
-  if (!str) return fallback;
-  const num = parseInt(str, 10);
-  return isNaN(num) ? fallback : num;
-}
-
-// Override SpecialRenderers.getBlockMesh to yield double chest halves to BlockDefinition and fix sign scale/rendering
+// Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
@@ -146,71 +128,6 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         return emptyMesh;
       }
     }
-
-    if (name.includes('sign')) {
-      const cleanName = name.replace('minecraft:', '');
-      const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'pale_oak', 'poplar', 'spruce', 'warped'];
-      let woodType = '';
-      for (const w of woodTypes) {
-        if (cleanName.startsWith(w + '_')) {
-          woodType = w;
-          break;
-        }
-      }
-
-      if (woodType) {
-        const mesh = new (Lodestone as any).Mesh();
-
-        if (cleanName.endsWith('_wall_hanging_sign')) {
-          const facing = getPropStr(block, 'facing', 'south');
-          const t = mat4.create();
-          mat4.translate(t, t, [8, 8, 8]);
-          mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
-          mat4.translate(t, t, [-8, -8, -8]);
-          const renderer = (Lodestone as any).SpecialRenderers.wallHangingSignRenderer(woodType);
-          if (renderer) mesh.merge(renderer(atlas).transform(t));
-          return mesh;
-        }
-
-        if (cleanName.endsWith('_hanging_sign')) {
-          const attached = getPropStr(block, 'attached', 'false') === 'true';
-          const rotation = getPropNum(block, 'rotation', 0) / 16 * Math.PI * 2;
-          const t = mat4.create();
-          mat4.translate(t, t, [8, 8, 8]);
-          mat4.rotateY(t, t, rotation);
-          mat4.translate(t, t, [-8, -8, -8]);
-          const id = (Lodestone as any).Identifier.create(woodType);
-          const renderer = (Lodestone as any).SpecialRenderers.hangingSignRenderer(id);
-          if (renderer) mesh.merge(renderer(attached, atlas).transform(t));
-          return mesh;
-        }
-
-        if (cleanName.endsWith('_wall_sign')) {
-          const facing = getPropStr(block, 'facing', 'south');
-          const t = mat4.create();
-          mat4.translate(t, t, [8, 8, 8]);
-          mat4.rotateY(t, t, facing === 'west' ? Math.PI / 2 : facing === 'south' ? Math.PI : facing === 'east' ? Math.PI * 3 / 2 : 0);
-          mat4.translate(t, t, [-8, -8, -8]);
-          const renderer = (Lodestone as any).SpecialRenderers.wallSignRenderer(woodType);
-          if (renderer) mesh.merge(renderer(atlas).transform(t));
-          return mesh;
-        }
-
-        if (cleanName.endsWith('_sign')) {
-          const rotation = getPropNum(block, 'rotation', 0) / 16 * Math.PI * 2;
-          const t = mat4.create();
-          mat4.translate(t, t, [8, 8, 8]);
-          mat4.rotateY(t, t, rotation);
-          mat4.scale(t, t, [2 / 3, 2 / 3, 2 / 3]);
-          mat4.translate(t, t, [-8, -8, -8]);
-          const id = (Lodestone as any).Identifier.create(woodType);
-          const renderer = (Lodestone as any).SpecialRenderers.signRenderer(id);
-          if (renderer) mesh.merge(renderer(atlas).transform(t));
-          return mesh;
-        }
-      }
-    }
-
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
   };
 }
