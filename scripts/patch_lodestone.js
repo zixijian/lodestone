@@ -23,14 +23,13 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
   );
 
-  // 3. Hanging sign board UV mapping: v0=8 (Y=16px) to v1=13 (Y=26px)
-  // Shift sampling region to start at Y=16px (top of board in 64x32 texture), moving board image 2px UP on 3D model
+  // 3. Hanging sign board UV mapping: v0=8 (Y=16px) to v1=13 (Y=26px) with corrected U-axis orientation (U-flip)
   const boardPattern = /north:\s*\{ uv: \[0\.5, 7, 4, 12\], texture: '#0' \},\s*east:\s*\{ uv: \[0, 7, 0\.5, 12\], texture: '#0' \},\s*south:\s*\{ uv: \[4\.5, 7, 8, 12\], texture: '#0' \},\s*west:\s*\{ uv: \[4, 7, 4\.5, 12\], texture: '#0' \},\s*up:\s*\{ uv: \[4, 7, 0\.5, 6\], texture: '#0' \},\s*down:\s*\{ uv: \[7\.5, 6, 4, 7\], texture: '#0' \}/g;
 
-  const newBoardUv = `north: { uv: [0.5, 8, 4, 13], texture: '#0' },
-                        east: { uv: [0, 8, 0.5, 13], texture: '#0' },
-                        south: { uv: [4.5, 8, 8, 13], texture: '#0' },
-                        west: { uv: [4, 8, 4.5, 13], texture: '#0' },
+  const newBoardUv = `north: { uv: [4, 8, 0.5, 13], texture: '#0' },
+                        east: { uv: [0.5, 8, 0, 13], texture: '#0' },
+                        south: { uv: [8, 8, 4.5, 13], texture: '#0' },
+                        west: { uv: [4.5, 8, 4, 13], texture: '#0' },
                         up: { uv: [0.5, 7, 4, 8], texture: '#0' },
                         down: { uv: [4, 13, 7.5, 14], texture: '#0' }`;
 
@@ -56,7 +55,7 @@ if (fs.existsSync(targetPath)) {
                         west: { uv: [16, 0, 14, 6], texture: '#0' }`;
   code = code.replaceAll(oldCeilingChainEastWest, newCeilingChainEastWest);
 
-  // 4. Adjust Bamboo sign UV mapping in signRenderer and wallSignRenderer
+  // 5. Correct sign and wallSign UV mapping (U-flip on North, East, South, West to fix mirroring across all woods including bamboo)
   const oldSignPattern = `function signRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
@@ -76,9 +75,6 @@ if (fs.existsSync(targetPath)) {
                 },`;
 
   const newSignPattern = `function signRenderer(texture) {
-        const isBamboo = texture.toString().includes('bamboo');
-        const northUv = isBamboo ? [0.5, 1, 6.25, 7] : [0.5, 1, 6.5, 7];
-        const southUv = isBamboo ? [7, 1, 12.25, 7] : [7, 1, 13, 7];
         return (atlas) => {
             return new BlockModel(undefined, {
                 0: texture.withPrefix('entity/signs/').toString(),
@@ -87,10 +83,10 @@ if (fs.existsSync(targetPath)) {
                     from: [-4, 8, 7],
                     to: [20, 20, 9],
                     faces: {
-                        north: { uv: northUv, texture: '#0' },
-                        east: { uv: [0, 1, 0.5, 7], texture: '#0' },
-                        south: { uv: southUv, texture: '#0' },
-                        west: { uv: [6.5, 1, 7, 7], texture: '#0' },
+                        north: { uv: [6.5, 1, 0.5, 7], texture: '#0' },
+                        east: { uv: [0.5, 1, 0, 7], texture: '#0' },
+                        south: { uv: [13, 1, 7, 7], texture: '#0' },
+                        west: { uv: [7, 1, 6.5, 7], texture: '#0' },
                         up: { uv: [6.5, 1, 0.5, 0], texture: '#0' },
                         down: { uv: [12.5, 0, 6.5, 1], texture: '#0' },
                     },
@@ -117,9 +113,6 @@ if (fs.existsSync(targetPath)) {
                 },`;
 
   const newWallSignPattern = `function wallSignRenderer(texture) {
-        const isBamboo = texture.toString().includes('bamboo');
-        const northUv = isBamboo ? [0.5, 1, 6.25, 7] : [0.5, 1, 6.5, 7];
-        const southUv = isBamboo ? [7, 1, 12.25, 7] : [7, 1, 13, 7];
         return (atlas) => {
             return new BlockModel(undefined, {
                 0: texture.withPrefix('entity/signs/').toString(),
@@ -128,10 +121,10 @@ if (fs.existsSync(targetPath)) {
                     from: [-4, 4, 17],
                     to: [20, 16, 19],
                     faces: {
-                        north: { uv: northUv, texture: '#0' },
-                        east: { uv: [0, 1, 0.5, 7], texture: '#0' },
-                        south: { uv: southUv, texture: '#0' },
-                        west: { uv: [6.5, 1, 7, 7], texture: '#0' },
+                        north: { uv: [6.5, 1, 0.5, 7], texture: '#0' },
+                        east: { uv: [0.5, 1, 0, 7], texture: '#0' },
+                        south: { uv: [13, 1, 7, 7], texture: '#0' },
+                        west: { uv: [7, 1, 6.5, 7], texture: '#0' },
                         up: { uv: [6.5, 1, 0.5, 0], texture: '#0' },
                         down: { uv: [12.5, 0, 6.5, 1], texture: '#0' },
                     },
@@ -139,7 +132,7 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(oldWallSignPattern, newWallSignPattern);
 
-  // 5. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
+  // 6. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
   const mapRefreshCode = `
     SignRenderers.clear();
     WallSignRenderers.clear();
