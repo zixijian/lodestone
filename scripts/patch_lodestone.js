@@ -29,60 +29,189 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
   );
 
-  // 3. Fix hanging sign board UV sampling (shift v by -4 to 3..8)
-  code = code.replace(
-    /north:\s*\{\s*uv:\s*\[0\.5,\s*7,\s*4,\s*12\],\s*texture:\s*'#0'\s*\},\s*\n\s*east:\s*\{\s*uv:\s*\[0,\s*7,\s*0\.5,\s*12\],\s*texture:\s*'#0'\s*\},\s*\n\s*south:\s*\{\s*uv:\s*\[4\.5,\s*7,\s*8,\s*12\],\s*texture:\s*'#0'\s*\},\s*\n\s*west:\s*\{\s*uv:\s*\[4,\s*7,\s*4\.5,\s*12\],\s*texture:\s*'#0'\s*\},\s*\n\s*up:\s*\{\s*uv:\s*\[4,\s*7,\s*0\.5,\s*6\],\s*texture:\s*'#0'\s*\},\s*\n\s*down:\s*\{\s*uv:\s*\[7\.5,\s*6,\s*4,\s*7\],\s*texture:\s*'#0'\s*\}/g,
-    `north: { uv: [0.5, 3, 4, 8], texture: '#0' },
-                        east: { uv: [0, 3, 0.5, 8], texture: '#0' },
-                        south: { uv: [4.5, 3, 8, 8], texture: '#0' },
-                        west: { uv: [4, 3, 4.5, 8], texture: '#0' },
-                        up: { uv: [4, 3, 0.5, 2], texture: '#0' },
-                        down: { uv: [7.5, 2, 4, 3], texture: '#0' }`
-  );
-
-  // 4. Fix attached = true chain geometry (align quads to center x=3 and x=13)
-  const oldAttachedChainRegex = /\{\s*\n\s*from:\s*\[2,\s*10,\s*8\],\s*\n\s*to:\s*\[14,\s*16,\s*8\],\s*\n\s*faces:\s*\{\s*\n\s*north:\s*\{\s*uv:\s*\[3\.5,\s*3,\s*6\.5,\s*6\],\s*texture:\s*'#0'\s*\},\s*\n\s*south:\s*\{\s*uv:\s*\[3\.5,\s*3,\s*6\.5,\s*6\],\s*texture:\s*'#0'\s*\},\s*\n\s*\},\s*\n\s*\}/g;
-
-  const newAttachedChains = `{
+  // 3. Replace hangingSignRenderer cleanly
+  const newHangingSignRenderer = `function hangingSignRenderer(texture) {
+        return (attached, atlas) => {
+            if (attached) {
+                return new BlockModel(undefined, {
+                    0: texture.withPrefix('entity/signs/hanging/').toString(),
+                }, [
+                    {
+                        from: [1, 0, 7],
+                        to: [15, 10, 9],
+                        faces: {
+                            north: { uv: [1, 6, 15, 11], texture: '#0' },
+                            east: { uv: [0, 6, 1, 11], texture: '#0' },
+                            south: { uv: [1, 6, 15, 11], texture: '#0' },
+                            west: { uv: [15, 6, 16, 11], texture: '#0' },
+                            up: { uv: [1, 5, 15, 6], texture: '#0' },
+                            down: { uv: [1, 11, 15, 12], texture: '#0' },
+                        },
+                    },
+                    {
                         from: [2, 10, 8],
                         to: [4, 16, 8],
                         faces: {
-                            north: { uv: [14, 0, 16, 6], texture: '#0' },
-                            south: { uv: [14, 0, 16, 6], texture: '#0' },
+                            north: { uv: [0, 0, 3, 6], texture: '#0' },
+                            south: { uv: [0, 0, 3, 6], texture: '#0' },
                         },
                     },
                     {
                         from: [3, 10, 7],
                         to: [3, 16, 9],
                         faces: {
-                            east: { uv: [14, 0, 16, 6], texture: '#0' },
-                            west: { uv: [14, 0, 16, 6], texture: '#0' },
+                            east: { uv: [0, 0, 3, 6], texture: '#0' },
+                            west: { uv: [0, 0, 3, 6], texture: '#0' },
                         },
                     },
                     {
                         from: [12, 10, 8],
                         to: [14, 16, 8],
                         faces: {
-                            north: { uv: [14, 0, 16, 6], texture: '#0' },
-                            south: { uv: [14, 0, 16, 6], texture: '#0' },
+                            north: { uv: [0, 0, 3, 6], texture: '#0' },
+                            south: { uv: [0, 0, 3, 6], texture: '#0' },
                         },
                     },
                     {
                         from: [13, 10, 7],
                         to: [13, 16, 9],
                         faces: {
-                            east: { uv: [14, 0, 16, 6], texture: '#0' },
-                            west: { uv: [14, 0, 16, 6], texture: '#0' },
+                            east: { uv: [0, 0, 3, 6], texture: '#0' },
+                            west: { uv: [0, 0, 3, 6], texture: '#0' },
                         },
-                    }`;
+                    },
+                ]).getMesh(atlas, Cull.none());
+            }
+            return new BlockModel(undefined, {
+                0: texture.withPrefix('entity/signs/hanging/').toString(),
+            }, [
+                {
+                    from: [1, 0, 7],
+                    to: [15, 10, 9],
+                    faces: {
+                        north: { uv: [1, 6, 15, 11], texture: '#0' },
+                        east: { uv: [0, 6, 1, 11], texture: '#0' },
+                        south: { uv: [1, 6, 15, 11], texture: '#0' },
+                        west: { uv: [15, 6, 16, 11], texture: '#0' },
+                        up: { uv: [1, 5, 15, 6], texture: '#0' },
+                        down: { uv: [1, 11, 15, 12], texture: '#0' },
+                    },
+                },
+                {
+                    from: [1.5, 10, 8],
+                    to: [4.5, 16, 8],
+                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
+                    faces: {
+                        north: { uv: [0, 0, 3, 6], texture: '#0' },
+                        south: { uv: [0, 0, 3, 6], texture: '#0' },
+                    },
+                },
+                {
+                    from: [3, 10, 6.5],
+                    to: [3, 16, 9.5],
+                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
+                    faces: {
+                        east: { uv: [0, 0, 3, 6], texture: '#0' },
+                        west: { uv: [0, 0, 3, 6], texture: '#0' },
+                    },
+                },
+                {
+                    from: [11.5, 10, 8],
+                    to: [14.5, 16, 8],
+                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
+                    faces: {
+                        north: { uv: [0, 0, 3, 6], texture: '#0' },
+                        south: { uv: [0, 0, 3, 6], texture: '#0' },
+                    },
+                },
+                {
+                    from: [13, 10, 6.5],
+                    to: [13, 16, 9.5],
+                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
+                    faces: {
+                        east: { uv: [0, 0, 3, 6], texture: '#0' },
+                        west: { uv: [0, 0, 3, 6], texture: '#0' },
+                    },
+                },
+            ]).getMesh(atlas, Cull.none());
+        };
+    }`;
 
-  code = code.replace(oldAttachedChainRegex, newAttachedChains);
+  code = code.replace(/function hangingSignRenderer\(texture\) \{[\s\S]*?SpecialRenderers\.hangingSignRenderer = hangingSignRenderer;/g, newHangingSignRenderer + '\n    SpecialRenderers.hangingSignRenderer = hangingSignRenderer;');
 
-  // 5. Chain texture UV mapping for attached = false & wall hanging signs
-  code = code.replace(/uv:\s*\[0,\s*3,\s*0\.75,\s*6\]/g, 'uv: [14, 0, 16, 6]');
-  code = code.replace(/uv:\s*\[1\.5,\s*3,\s*2\.25,\s*6\]/g, 'uv: [14, 0, 16, 6]');
+  // 4. Replace wallHangingSignRenderer cleanly
+  const newWallHangingSignRenderer = `function wallHangingSignRenderer(woodType) {
+        return (atlas) => {
+            return new BlockModel(undefined, {
+                0: \`entity/signs/hanging/\${woodType}\`,
+            }, [
+                {
+                    from: [1, 0, 7],
+                    to: [15, 10, 9],
+                    faces: {
+                        north: { uv: [1, 6, 15, 11], texture: '#0' },
+                        east: { uv: [0, 6, 1, 11], texture: '#0' },
+                        south: { uv: [1, 6, 15, 11], texture: '#0' },
+                        west: { uv: [15, 6, 16, 11], texture: '#0' },
+                        up: { uv: [1, 5, 15, 6], texture: '#0' },
+                        down: { uv: [1, 11, 15, 12], texture: '#0' },
+                    },
+                },
+                {
+                    from: [0, 14, 6],
+                    to: [16, 16, 10],
+                    faces: {
+                        north: { uv: [0, 14, 16, 16], texture: '#0' },
+                        east: { uv: [0, 14, 4, 16], texture: '#0' },
+                        south: { uv: [0, 14, 16, 16], texture: '#0' },
+                        west: { uv: [0, 14, 4, 16], texture: '#0' },
+                        up: { uv: [0, 14, 16, 16], texture: '#0' },
+                        down: { uv: [0, 14, 16, 16], texture: '#0' },
+                    },
+                },
+                {
+                    from: [1.5, 10, 8],
+                    to: [4.5, 16, 8],
+                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
+                    faces: {
+                        north: { uv: [0, 0, 3, 6], texture: '#0' },
+                        south: { uv: [0, 0, 3, 6], texture: '#0' },
+                    },
+                },
+                {
+                    from: [3, 10, 6.5],
+                    to: [3, 16, 9.5],
+                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
+                    faces: {
+                        east: { uv: [0, 0, 3, 6], texture: '#0' },
+                        west: { uv: [0, 0, 3, 6], texture: '#0' },
+                    },
+                },
+                {
+                    from: [11.5, 10, 8],
+                    to: [14.5, 16, 8],
+                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
+                    faces: {
+                        north: { uv: [0, 0, 3, 6], texture: '#0' },
+                        south: { uv: [0, 0, 3, 6], texture: '#0' },
+                    },
+                },
+                {
+                    from: [13, 10, 6.5],
+                    to: [13, 16, 9.5],
+                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
+                    faces: {
+                        east: { uv: [0, 0, 3, 6], texture: '#0' },
+                        west: { uv: [0, 0, 3, 6], texture: '#0' },
+                    },
+                },
+            ]).getMesh(atlas, Cull.none());
+        };
+    }`;
 
-  // 6. Adjust Bamboo sign UV mapping in signRenderer and wallSignRenderer
+  code = code.replace(/function wallHangingSignRenderer\(woodType\) \{[\s\S]*?SpecialRenderers\.wallHangingSignRenderer = wallHangingSignRenderer;/g, newWallHangingSignRenderer + '\n    SpecialRenderers.wallHangingSignRenderer = wallHangingSignRenderer;');
+
+  // 5. Adjust Bamboo sign UV mapping in signRenderer and wallSignRenderer
   const oldSignPattern = `function signRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
@@ -165,7 +294,7 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(oldWallSignPattern, newWallSignPattern);
 
-  // 7. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
+  // 6. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
   const mapRefreshCode = `
     SignRenderers.clear();
     WallSignRenderers.clear();
