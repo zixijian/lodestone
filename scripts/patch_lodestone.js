@@ -23,15 +23,16 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
   );
 
-  // 3. Hanging sign board UV mapping (shift UP by 2 pixels = 1 V unit in 16-scale)
+  // 3. Hanging sign board UV mapping: v0=8 (Y=16px) to v1=13 (Y=26px)
+  // Shift sampling region to start at Y=16px (top of board in 64x32 texture), moving board image 2px UP on 3D model
   const boardPattern = /north:\s*\{ uv: \[0\.5, 7, 4, 12\], texture: '#0' \},\s*east:\s*\{ uv: \[0, 7, 0\.5, 12\], texture: '#0' \},\s*south:\s*\{ uv: \[4\.5, 7, 8, 12\], texture: '#0' \},\s*west:\s*\{ uv: \[4, 7, 4\.5, 12\], texture: '#0' \},\s*up:\s*\{ uv: \[4, 7, 0\.5, 6\], texture: '#0' \},\s*down:\s*\{ uv: \[7\.5, 6, 4, 7\], texture: '#0' \}/g;
 
-  const newBoardUv = `north: { uv: [0.5, 6, 4, 11], texture: '#0' },
-                        east: { uv: [0, 6, 0.5, 11], texture: '#0' },
-                        south: { uv: [4.5, 6, 8, 11], texture: '#0' },
-                        west: { uv: [4, 6, 4.5, 11], texture: '#0' },
-                        up: { uv: [0.5, 5, 4, 6], texture: '#0' },
-                        down: { uv: [4, 11, 7.5, 12], texture: '#0' }`;
+  const newBoardUv = `north: { uv: [0.5, 8, 4, 13], texture: '#0' },
+                        east: { uv: [0, 8, 0.5, 13], texture: '#0' },
+                        south: { uv: [4.5, 8, 8, 13], texture: '#0' },
+                        west: { uv: [4, 8, 4.5, 13], texture: '#0' },
+                        up: { uv: [0.5, 7, 4, 8], texture: '#0' },
+                        down: { uv: [4, 13, 7.5, 14], texture: '#0' }`;
 
   code = code.replace(boardPattern, newBoardUv);
 
