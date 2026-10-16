@@ -1,138 +1,117 @@
 const fs = require('fs');
 const path = require('path');
 
-const targetPath = path.join(__dirname, '../web_android/node_modules/@mattzh72/lodestone/lib/render/SpecialRenderer.js');
+const targetPath = path.resolve(
+  __dirname,
+  '../web_android/node_modules/@mattzh72/lodestone/lib/render/SpecialRenderer.js'
+);
 
 if (fs.existsSync(targetPath)) {
-  let code = fs.readFileSync(targetPath, 'utf-8');
-
-  // Normalize line endings to \n for consistent matching
+  let code = fs.readFileSync(targetPath, 'utf8');
   const hasCRLF = code.includes('\r\n');
   if (hasCRLF) {
     code = code.replace(/\r\n/g, '\n');
   }
 
   // 1. Add pale_oak and poplar to WoodTypes
-  code = code.replace(
-    /const WoodTypes = \[\s*[\s\S]*?\s*\];/g,
-    "const WoodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'crimson', 'warped', 'mangrove', 'bamboo', 'cherry', 'pale_oak', 'poplar'];"
-  );
+  if (!code.includes("'pale_oak'")) {
+    code = code.replace(
+      /const WoodTypes = \[([\s\S]*?)\];/,
+      (match, p1) => `const WoodTypes = [${p1.trim()}, 'pale_oak', 'poplar'];`
+    );
+  }
 
-  // 2. Remove 2/3 scale in ceiling hangingSignRenderer & wallHangingSignRenderer inside getBlockMesh if present
-  code = code.replace(
-    /mat4\.scale\(t,\s*t,\s*\[2\s*\/\s*3,\s*2\s*\/\s*3,\s*2\s*\/\s*3\]\);\s*\n\s*mat4\.translate\(t,\s*t,\s*\[-8,\s*-8,\s*-8\]\);\s*\n\s*mesh\.merge\(hangingSignRenderer/g,
-    "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(hangingSignRenderer"
-  );
+  // 2. Remove scale transforms (2/3 scale reduction) in hangingSignRenderer and wallHangingSignRenderer
+  code = code.replace(/case 'hanging_sign':[\s\S]*?break;/g, `case 'hanging_sign':\n            mesh = (HangingSignRenderers.get(block.name) ?? HangingSignRenderers.get('minecraft:oak_hanging_sign'))(atlas);\n            break;`);
+  code = code.replace(/case 'wall_hanging_sign':[\s\S]*?break;/g, `case 'wall_hanging_sign':\n            mesh = (WallHangingSignRenderers.get(block.name) ?? WallHangingSignRenderers.get('minecraft:oak_wall_hanging_sign'))(atlas);\n            break;`);
 
-  code = code.replace(
-    /mat4\.scale\(t,\s*t,\s*\[2\s*\/\s*3,\s*2\s*\/\s*3,\s*2\s*\/\s*3\]\);\s*\n\s*mat4\.translate\(t,\s*t,\s*\[-8,\s*-8,\s*-8\]\);\s*\n\s*mesh\.merge\(wallHangingSignRenderer/g,
-    "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
-  );
-
-  // 3. Replace hangingSignRenderer cleanly
+  // 3. Replace hangingSignRenderer cleanly with exact Minecraft 1.20+ UV coordinates and correct signature (attached, atlas)
   const newHangingSignRenderer = `function hangingSignRenderer(texture) {
+        const woodType = texture.path.split('/').pop();
         return (attached, atlas) => {
-            if (attached) {
-                return new BlockModel(undefined, {
-                    0: texture.withPrefix('entity/signs/hanging/').toString(),
-                }, [
-                    {
-                        from: [1, 0, 7],
-                        to: [15, 10, 9],
-                        faces: {
-                            north: { uv: [1, 2, 15, 7], texture: '#0' },
-                            east: { uv: [0, 2, 1, 7], texture: '#0' },
-                            south: { uv: [1, 2, 15, 7], texture: '#0' },
-                            west: { uv: [15, 2, 16, 7], texture: '#0' },
-                            up: { uv: [1, 1, 15, 2], texture: '#0' },
-                            down: { uv: [1, 7, 15, 8], texture: '#0' },
-                        },
+            const chainElements = attached ? [
+                {
+                    from: [2, 10, 8],
+                    to: [4, 16, 8],
+                    faces: {
+                        north: { uv: [14, 0, 16, 6], texture: '#0' },
+                        south: { uv: [14, 0, 16, 6], texture: '#0' },
                     },
-                    {
-                        from: [2, 10, 8],
-                        to: [4, 16, 8],
-                        faces: {
-                            north: { uv: [14, 0, 16, 6], texture: '#0' },
-                            south: { uv: [14, 0, 16, 6], texture: '#0' },
-                        },
+                },
+                {
+                    from: [3, 10, 7],
+                    to: [3, 16, 9],
+                    faces: {
+                        east: { uv: [14, 0, 16, 6], texture: '#0' },
+                        west: { uv: [14, 0, 16, 6], texture: '#0' },
                     },
-                    {
-                        from: [3, 10, 7],
-                        to: [3, 16, 9],
-                        faces: {
-                            east: { uv: [14, 0, 16, 6], texture: '#0' },
-                            west: { uv: [14, 0, 16, 6], texture: '#0' },
-                        },
+                },
+                {
+                    from: [12, 10, 8],
+                    to: [14, 16, 8],
+                    faces: {
+                        north: { uv: [14, 0, 16, 6], texture: '#0' },
+                        south: { uv: [14, 0, 16, 6], texture: '#0' },
                     },
-                    {
-                        from: [12, 10, 8],
-                        to: [14, 16, 8],
-                        faces: {
-                            north: { uv: [14, 0, 16, 6], texture: '#0' },
-                            south: { uv: [14, 0, 16, 6], texture: '#0' },
-                        },
+                },
+                {
+                    from: [13, 10, 7],
+                    to: [13, 16, 9],
+                    faces: {
+                        east: { uv: [14, 0, 16, 6], texture: '#0' },
+                        west: { uv: [14, 0, 16, 6], texture: '#0' },
                     },
-                    {
-                        from: [13, 10, 7],
-                        to: [13, 16, 9],
-                        faces: {
-                            east: { uv: [14, 0, 16, 6], texture: '#0' },
-                            west: { uv: [14, 0, 16, 6], texture: '#0' },
-                        },
+                },
+            ] : [
+                {
+                    from: [2, 10, 8],
+                    to: [4, 16, 8],
+                    faces: {
+                        north: { uv: [14, 0, 16, 6], texture: '#0' },
+                        south: { uv: [14, 0, 16, 6], texture: '#0' },
                     },
-                ]).getMesh(atlas, Cull.none());
-            }
+                },
+                {
+                    from: [3, 10, 7],
+                    to: [3, 16, 9],
+                    faces: {
+                        east: { uv: [14, 0, 16, 6], texture: '#0' },
+                        west: { uv: [14, 0, 16, 6], texture: '#0' },
+                    },
+                },
+                {
+                    from: [12, 10, 8],
+                    to: [14, 16, 8],
+                    faces: {
+                        north: { uv: [14, 0, 16, 6], texture: '#0' },
+                        south: { uv: [14, 0, 16, 6], texture: '#0' },
+                    },
+                },
+                {
+                    from: [13, 10, 7],
+                    to: [13, 16, 9],
+                    faces: {
+                        east: { uv: [14, 0, 16, 6], texture: '#0' },
+                        west: { uv: [14, 0, 16, 6], texture: '#0' },
+                    },
+                },
+            ];
             return new BlockModel(undefined, {
-                0: texture.withPrefix('entity/signs/hanging/').toString(),
+                0: \`entity/signs/hanging/\${woodType}\`,
             }, [
                 {
                     from: [1, 0, 7],
                     to: [15, 10, 9],
                     faces: {
-                        north: { uv: [1, 2, 15, 7], texture: '#0' },
-                        east: { uv: [0, 2, 1, 7], texture: '#0' },
-                        south: { uv: [1, 2, 15, 7], texture: '#0' },
-                        west: { uv: [15, 2, 16, 7], texture: '#0' },
-                        up: { uv: [1, 1, 15, 2], texture: '#0' },
-                        down: { uv: [1, 7, 15, 8], texture: '#0' },
+                        north: { uv: [1, 5, 15, 10], texture: '#0' },
+                        east: { uv: [0, 5, 1, 10], texture: '#0' },
+                        south: { uv: [1, 5, 15, 10], texture: '#0' },
+                        west: { uv: [15, 5, 16, 10], texture: '#0' },
+                        up: { uv: [1, 4, 15, 5], texture: '#0' },
+                        down: { uv: [1, 10, 15, 11], texture: '#0' },
                     },
                 },
-                {
-                    from: [1.5, 10, 8],
-                    to: [4.5, 16, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
-                    faces: {
-                        north: { uv: [14, 0, 16, 6], texture: '#0' },
-                        south: { uv: [14, 0, 16, 6], texture: '#0' },
-                    },
-                },
-                {
-                    from: [3, 10, 6.5],
-                    to: [3, 16, 9.5],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
-                    faces: {
-                        east: { uv: [14, 0, 16, 6], texture: '#0' },
-                        west: { uv: [14, 0, 16, 6], texture: '#0' },
-                    },
-                },
-                {
-                    from: [11.5, 10, 8],
-                    to: [14.5, 16, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
-                    faces: {
-                        north: { uv: [14, 0, 16, 6], texture: '#0' },
-                        south: { uv: [14, 0, 16, 6], texture: '#0' },
-                    },
-                },
-                {
-                    from: [13, 10, 6.5],
-                    to: [13, 16, 9.5],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
-                    faces: {
-                        east: { uv: [14, 0, 16, 6], texture: '#0' },
-                        west: { uv: [14, 0, 16, 6], texture: '#0' },
-                    },
-                },
+                ...chainElements,
             ]).getMesh(atlas, Cull.none());
         };
     }`;
@@ -149,12 +128,12 @@ if (fs.existsSync(targetPath)) {
                     from: [1, 0, 7],
                     to: [15, 10, 9],
                     faces: {
-                        north: { uv: [1, 2, 15, 7], texture: '#0' },
-                        east: { uv: [0, 2, 1, 7], texture: '#0' },
-                        south: { uv: [1, 2, 15, 7], texture: '#0' },
-                        west: { uv: [15, 2, 16, 7], texture: '#0' },
-                        up: { uv: [1, 1, 15, 2], texture: '#0' },
-                        down: { uv: [1, 7, 15, 8], texture: '#0' },
+                        north: { uv: [1, 5, 15, 10], texture: '#0' },
+                        east: { uv: [0, 5, 1, 10], texture: '#0' },
+                        south: { uv: [1, 5, 15, 10], texture: '#0' },
+                        west: { uv: [15, 5, 16, 10], texture: '#0' },
+                        up: { uv: [1, 4, 15, 5], texture: '#0' },
+                        down: { uv: [1, 10, 15, 11], texture: '#0' },
                     },
                 },
                 {
@@ -170,8 +149,8 @@ if (fs.existsSync(targetPath)) {
                     },
                 },
                 {
-                    from: [1.5, 10, 8],
-                    to: [4.5, 16, 8],
+                    from: [2, 10, 8],
+                    to: [4, 16, 8],
                     rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
                     faces: {
                         north: { uv: [14, 0, 16, 6], texture: '#0' },
@@ -179,8 +158,8 @@ if (fs.existsSync(targetPath)) {
                     },
                 },
                 {
-                    from: [3, 10, 6.5],
-                    to: [3, 16, 9.5],
+                    from: [3, 10, 7],
+                    to: [3, 16, 9],
                     rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
                     faces: {
                         east: { uv: [14, 0, 16, 6], texture: '#0' },
@@ -188,8 +167,8 @@ if (fs.existsSync(targetPath)) {
                     },
                 },
                 {
-                    from: [11.5, 10, 8],
-                    to: [14.5, 16, 8],
+                    from: [12, 10, 8],
+                    to: [14, 16, 8],
                     rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
                     faces: {
                         north: { uv: [14, 0, 16, 6], texture: '#0' },
@@ -197,8 +176,8 @@ if (fs.existsSync(targetPath)) {
                     },
                 },
                 {
-                    from: [13, 10, 6.5],
-                    to: [13, 16, 9.5],
+                    from: [13, 10, 7],
+                    to: [13, 16, 9],
                     rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
                     faces: {
                         east: { uv: [14, 0, 16, 6], texture: '#0' },
