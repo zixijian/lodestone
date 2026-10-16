@@ -23,11 +23,37 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
   );
 
-  // 3. Chain texture UV mapping
+  // 3. Hanging sign board UV mapping (shift UP by 2 pixels = 1 V unit in 16-scale)
+  const boardPattern = /north:\s*\{ uv: \[0\.5, 7, 4, 12\], texture: '#0' \},\s*east:\s*\{ uv: \[0, 7, 0\.5, 12\], texture: '#0' \},\s*south:\s*\{ uv: \[4\.5, 7, 8, 12\], texture: '#0' \},\s*west:\s*\{ uv: \[4, 7, 4\.5, 12\], texture: '#0' \},\s*up:\s*\{ uv: \[4, 7, 0\.5, 6\], texture: '#0' \},\s*down:\s*\{ uv: \[7\.5, 6, 4, 7\], texture: '#0' \}/g;
+
+  const newBoardUv = `north: { uv: [0.5, 6, 4, 11], texture: '#0' },
+                        east: { uv: [0, 6, 0.5, 11], texture: '#0' },
+                        south: { uv: [4.5, 6, 8, 11], texture: '#0' },
+                        west: { uv: [4, 6, 4.5, 11], texture: '#0' },
+                        up: { uv: [0.5, 5, 4, 6], texture: '#0' },
+                        down: { uv: [4, 11, 7.5, 12], texture: '#0' }`;
+
+  code = code.replace(boardPattern, newBoardUv);
+
+  // 4. Chain texture UV mapping with u-flipped opposite faces for aligned world-space sampling
   // Iron chain region in 64x32 sign entity textures: x=28..32, y=0..12 -> u=14..16, v=0..6
-  code = code.replace(/uv:\s*\[3\.5,\s*3,\s*6\.5,\s*6\]/g, 'uv: [14, 0, 16, 6]');
-  code = code.replace(/uv:\s*\[0,\s*3,\s*0\.75,\s*6\]/g, 'uv: [14, 0, 16, 6]');
-  code = code.replace(/uv:\s*\[1\.5,\s*3,\s*2\.25,\s*6\]/g, 'uv: [14, 0, 16, 6]');
+  const oldAttachedChain = `north: { uv: [3.5, 3, 6.5, 6], texture: '#0' },
+                            south: { uv: [3.5, 3, 6.5, 6], texture: '#0' }`;
+  const newAttachedChain = `north: { uv: [16, 0, 14, 6], texture: '#0' },
+                            south: { uv: [14, 0, 16, 6], texture: '#0' }`;
+  code = code.replace(oldAttachedChain, newAttachedChain);
+
+  const oldCeilingChainNorthSouth = `north: { uv: [0, 3, 0.75, 6], texture: '#0' },
+                        south: { uv: [0, 3, 0.75, 6], texture: '#0' }`;
+  const newCeilingChainNorthSouth = `north: { uv: [16, 0, 14, 6], texture: '#0' },
+                        south: { uv: [14, 0, 16, 6], texture: '#0' }`;
+  code = code.replaceAll(oldCeilingChainNorthSouth, newCeilingChainNorthSouth);
+
+  const oldCeilingChainEastWest = `east: { uv: [1.5, 3, 2.25, 6], texture: '#0' },
+                        west: { uv: [1.5, 3, 2.25, 6], texture: '#0' }`;
+  const newCeilingChainEastWest = `east: { uv: [14, 0, 16, 6], texture: '#0' },
+                        west: { uv: [16, 0, 14, 6], texture: '#0' }`;
+  code = code.replaceAll(oldCeilingChainEastWest, newCeilingChainEastWest);
 
   // 4. Adjust Bamboo sign UV mapping in signRenderer and wallSignRenderer
   const oldSignPattern = `function signRenderer(texture) {
