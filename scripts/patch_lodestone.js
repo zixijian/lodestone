@@ -24,20 +24,20 @@ if (fs.existsSync(targetPath)) {
   );
 
   // 3. Hanging sign board UV mapping:
-  // Standard Minecraft Hanging Sign UVs (32x32 texture in 64x32 atlas, scaled to 0..16 coordinates):
-  // North (front): [1, 8, 4.5, 13] (X=2..9px = 7px wide -> 14/16 model width)
-  // East (right edge): [0.5, 8, 1, 13] (X=1..2px = 1px wide -> 2/16 model depth)
-  // South (back): [5, 8, 8.5, 13] (X=10..17px = 7px wide)
-  // West (left edge): [4.5, 8, 5, 13] (X=9..10px = 1px wide)
-  // Up: [1, 7, 4.5, 8], Down: [4.5, 13, 8, 14]
-  const boardPattern = /north:\s*\{ uv: \[0\.5, 7, 4, 12\], texture: '#0' \},\s*east:\s*\{ uv: \[0, 7, 0\.5, 12\], texture: '#0' \},\s*south:\s*\{ uv: \[4\.5, 7, 8, 12\], texture: '#0' \},\s*west:\s*\{ uv: \[4, 7, 4\.5, 12\], texture: '#0' \},\s*up:\s*\{ uv: \[4, 7, 0\.5, 6\], texture: '#0' \},\s*down:\s*\{ uv: \[7\.5, 6, 4, 7\], texture: '#0' \}/g;
+  // Standard Minecraft Hanging Sign UVs:
+  // North (front): [0.5, 8, 4, 13] (X=2..16px in 32px texture space)
+  // East (right edge): [0, 8, 0.5, 13] (X=0..2px)
+  // South (back): [4.5, 8, 8, 13] (X=18..32px)
+  // West (left edge): [4, 8, 4.5, 13] (X=16..18px)
+  // Up: [0.5, 7, 4, 8], Down: [4, 13, 7.5, 14]
+  const boardPattern = /north:\s*\{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*east:\s*\{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*south:\s*\{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*west:\s*\{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*up:\s*\{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*down:\s*\{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \}/g;
 
-  const newBoardUv = `north: { uv: [1, 8, 4.5, 13], texture: '#0' },
-                        east: { uv: [0.5, 8, 1, 13], texture: '#0' },
-                        south: { uv: [5, 8, 8.5, 13], texture: '#0' },
-                        west: { uv: [4.5, 8, 5, 13], texture: '#0' },
-                        up: { uv: [1, 7, 4.5, 8], texture: '#0' },
-                        down: { uv: [4.5, 13, 8, 14], texture: '#0' }`;
+  const newBoardUv = `north: { uv: [0.5, 8, 4, 13], texture: '#0' },
+                        east: { uv: [0, 8, 0.5, 13], texture: '#0' },
+                        south: { uv: [4.5, 8, 8, 13], texture: '#0' },
+                        west: { uv: [4, 8, 4.5, 13], texture: '#0' },
+                        up: { uv: [0.5, 7, 4, 8], texture: '#0' },
+                        down: { uv: [4, 13, 7.5, 14], texture: '#0' }`;
 
   code = code.replace(boardPattern, newBoardUv);
 
@@ -61,12 +61,15 @@ if (fs.existsSync(targetPath)) {
   code = code.replaceAll(oldCeilingChainEastWest, newCeilingChainEastWest);
 
   // 5. Standing sign and Wall sign UV mapping:
-  // Standard Minecraft Sign UVs (X=2..14px for 24px wide model):
-  // North (front): [1, 1, 7, 7] (X=2..14px)
-  // East (right edge): [0.5, 1, 1, 7] (X=1..2px)
-  // South (back): [7.5, 1, 13.5, 7] (X=15..27px)
-  // West (left edge): [7, 1, 7.5, 7] (X=14..15px)
-  const oldSignPattern = `function signRenderer(texture) {
+  // Standard Minecraft Sign UVs:
+  // North (front): [0.5, 1, 6.5, 7] (X=2..26px)
+  // East (right edge): [0, 1, 0.5, 7] (X=0..2px)
+  // South (back): [7, 1, 13, 7] (X=28..52px)
+  // West (left edge): [6.5, 1, 7, 7] (X=26..28px)
+  // Up: [6.5, 1, 0.5, 0], Down: [12.5, 0, 6.5, 1]
+  const signPattern = /function signRenderer\(texture\) \{\s*return \(atlas\) => \{\s*return new BlockModel\(undefined, \{\s*0: texture\.withPrefix\('entity\/signs\/'\)\.toString\(\),\s*\}, \[\s*\{\s*from: \[-4, 8, 7\],\s*to: \[20, 20, 9\],\s*faces: \{\s*north: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*east: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*south: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*west: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*up: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*down: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*\},\s*\},/g;
+
+  const newSignRenderer = `function signRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
                 0: texture.withPrefix('entity/signs/').toString(),
@@ -84,27 +87,11 @@ if (fs.existsSync(targetPath)) {
                     },
                 },`;
 
-  const newSignPattern = `function signRenderer(texture) {
-        return (atlas) => {
-            return new BlockModel(undefined, {
-                0: texture.withPrefix('entity/signs/').toString(),
-            }, [
-                {
-                    from: [-4, 8, 7],
-                    to: [20, 20, 9],
-                    faces: {
-                        north: { uv: [1, 1, 7, 7], texture: '#0' },
-                        east: { uv: [0.5, 1, 1, 7], texture: '#0' },
-                        south: { uv: [7.5, 1, 13.5, 7], texture: '#0' },
-                        west: { uv: [7, 1, 7.5, 7], texture: '#0' },
-                        up: { uv: [7, 1, 1, 0], texture: '#0' },
-                        down: { uv: [13, 0, 7, 1], texture: '#0' },
-                    },
-                },`;
+  code = code.replace(signPattern, newSignRenderer);
 
-  code = code.replace(oldSignPattern, newSignPattern);
+  const wallSignPattern = /function wallSignRenderer\(texture\) \{\s*return \(atlas\) => \{\s*return new BlockModel\(undefined, \{\s*0: texture\.withPrefix\('entity\/signs\/'\)\.toString\(\),\s*\}, \[\s*\{\s*from: \[-4, 4, 17\],\s*to: \[20, 16, 19\],\s*faces: \{\s*north: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*east: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*south: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*west: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*up: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*down: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*\},\s*\},/g;
 
-  const oldWallSignPattern = `function wallSignRenderer(texture) {
+  const newWallSignRenderer = `function wallSignRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
                 0: texture.withPrefix('entity/signs/').toString(),
@@ -122,25 +109,7 @@ if (fs.existsSync(targetPath)) {
                     },
                 },`;
 
-  const newWallSignPattern = `function wallSignRenderer(texture) {
-        return (atlas) => {
-            return new BlockModel(undefined, {
-                0: texture.withPrefix('entity/signs/').toString(),
-            }, [
-                {
-                    from: [-4, 4, 17],
-                    to: [20, 16, 19],
-                    faces: {
-                        north: { uv: [1, 1, 7, 7], texture: '#0' },
-                        east: { uv: [0.5, 1, 1, 7], texture: '#0' },
-                        south: { uv: [7.5, 1, 13.5, 7], texture: '#0' },
-                        west: { uv: [7, 1, 7.5, 7], texture: '#0' },
-                        up: { uv: [7, 1, 1, 0], texture: '#0' },
-                        down: { uv: [13, 0, 7, 1], texture: '#0' },
-                    },
-                },`;
-
-  code = code.replace(oldWallSignPattern, newWallSignPattern);
+  code = code.replace(wallSignPattern, newWallSignRenderer);
 
   // 6. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
   const mapRefreshCode = `
