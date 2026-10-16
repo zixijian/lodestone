@@ -29,53 +29,54 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
   );
 
-  // 3. Fix hanging sign board UV sampling (shift v from 7..12 to 6..11)
+  // 3. Fix hanging sign board UV sampling (shift v by -4 to 3..8)
   code = code.replace(
     /north:\s*\{\s*uv:\s*\[0\.5,\s*7,\s*4,\s*12\],\s*texture:\s*'#0'\s*\},\s*\n\s*east:\s*\{\s*uv:\s*\[0,\s*7,\s*0\.5,\s*12\],\s*texture:\s*'#0'\s*\},\s*\n\s*south:\s*\{\s*uv:\s*\[4\.5,\s*7,\s*8,\s*12\],\s*texture:\s*'#0'\s*\},\s*\n\s*west:\s*\{\s*uv:\s*\[4,\s*7,\s*4\.5,\s*12\],\s*texture:\s*'#0'\s*\},\s*\n\s*up:\s*\{\s*uv:\s*\[4,\s*7,\s*0\.5,\s*6\],\s*texture:\s*'#0'\s*\},\s*\n\s*down:\s*\{\s*uv:\s*\[7\.5,\s*6,\s*4,\s*7\],\s*texture:\s*'#0'\s*\}/g,
-    `north: { uv: [0.5, 6, 4, 11], texture: '#0' },
-                        east: { uv: [0, 6, 0.5, 11], texture: '#0' },
-                        south: { uv: [4.5, 6, 8, 11], texture: '#0' },
-                        west: { uv: [4, 6, 4.5, 11], texture: '#0' },
-                        up: { uv: [4, 6, 0.5, 5], texture: '#0' },
-                        down: { uv: [7.5, 5, 4, 5.5], texture: '#0' }`
+    `north: { uv: [0.5, 3, 4, 8], texture: '#0' },
+                        east: { uv: [0, 3, 0.5, 8], texture: '#0' },
+                        south: { uv: [4.5, 3, 8, 8], texture: '#0' },
+                        west: { uv: [4, 3, 4.5, 8], texture: '#0' },
+                        up: { uv: [4, 3, 0.5, 2], texture: '#0' },
+                        down: { uv: [7.5, 2, 4, 3], texture: '#0' }`
   );
 
-  // 4. Fix attached = true chain geometry (split single stretched quad into left and right chain quads)
-  code = code.replace(
-    /\{\s*\n\s*from:\s*\[2,\s*10,\s*8\],\s*\n\s*to:\s*\[14,\s*16,\s*8\],\s*\n\s*faces:\s*\{\s*\n\s*north:\s*\{\s*uv:\s*\[3\.5,\s*3,\s*6\.5,\s*6\],\s*texture:\s*'#0'\s*\},\s*\n\s*south:\s*\{\s*uv:\s*\[3\.5,\s*3,\s*6\.5,\s*6\],\s*texture:\s*'#0'\s*\},\s*\n\s*\},\s*\n\s*\},/g,
-    `{
-                        from: [3, 10, 8],
-                        to: [5, 16, 8],
+  // 4. Fix attached = true chain geometry (align quads to center x=3 and x=13)
+  const oldAttachedChainRegex = /\{\s*\n\s*from:\s*\[2,\s*10,\s*8\],\s*\n\s*to:\s*\[14,\s*16,\s*8\],\s*\n\s*faces:\s*\{\s*\n\s*north:\s*\{\s*uv:\s*\[3\.5,\s*3,\s*6\.5,\s*6\],\s*texture:\s*'#0'\s*\},\s*\n\s*south:\s*\{\s*uv:\s*\[3\.5,\s*3,\s*6\.5,\s*6\],\s*texture:\s*'#0'\s*\},\s*\n\s*\},\s*\n\s*\}/g;
+
+  const newAttachedChains = `{
+                        from: [2, 10, 8],
+                        to: [4, 16, 8],
                         faces: {
                             north: { uv: [14, 0, 16, 6], texture: '#0' },
                             south: { uv: [14, 0, 16, 6], texture: '#0' },
                         },
                     },
                     {
-                        from: [4, 10, 7],
-                        to: [4, 16, 9],
+                        from: [3, 10, 7],
+                        to: [3, 16, 9],
                         faces: {
                             east: { uv: [14, 0, 16, 6], texture: '#0' },
                             west: { uv: [14, 0, 16, 6], texture: '#0' },
                         },
                     },
                     {
-                        from: [11, 10, 8],
-                        to: [13, 16, 8],
+                        from: [12, 10, 8],
+                        to: [14, 16, 8],
                         faces: {
                             north: { uv: [14, 0, 16, 6], texture: '#0' },
                             south: { uv: [14, 0, 16, 6], texture: '#0' },
                         },
                     },
                     {
-                        from: [12, 10, 7],
-                        to: [12, 16, 9],
+                        from: [13, 10, 7],
+                        to: [13, 16, 9],
                         faces: {
                             east: { uv: [14, 0, 16, 6], texture: '#0' },
                             west: { uv: [14, 0, 16, 6], texture: '#0' },
                         },
-                    },`
-  );
+                    }`;
+
+  code = code.replace(oldAttachedChainRegex, newAttachedChains);
 
   // 5. Chain texture UV mapping for attached = false & wall hanging signs
   code = code.replace(/uv:\s*\[0,\s*3,\s*0\.75,\s*6\]/g, 'uv: [14, 0, 16, 6]');
