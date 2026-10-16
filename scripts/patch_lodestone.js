@@ -23,7 +23,7 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
   );
 
-  // 3. Replace entire hangingSignRenderer and wallHangingSignRenderer functions to fix horizontal texture mirroring and chain rotation ("麻花")
+  // 3. Replace hangingSignRenderer function
   const hangingSignRendererPattern = /function hangingSignRenderer\(texture\) \{\s*return \(attached, atlas\) => \{[\s\S]*?SpecialRenderers\.hangingSignRenderer = hangingSignRenderer;/g;
 
   const newHangingSignRenderer = `function hangingSignRenderer(texture) {
@@ -36,20 +36,20 @@ if (fs.existsSync(targetPath)) {
                         from: [1, 0, 7],
                         to: [15, 10, 9],
                         faces: {
-                            north: { uv: [4, 8, 0.5, 13], texture: '#0' },
-                            east: { uv: [0, 8, 0.5, 13], texture: '#0' },
-                            south: { uv: [8, 8, 4.5, 13], texture: '#0' },
-                            west: { uv: [4, 8, 4.5, 13], texture: '#0' },
-                            up: { uv: [0.5, 7, 4, 8], texture: '#0' },
-                            down: { uv: [4, 13, 7.5, 14], texture: '#0' },
+                            north: { uv: [4.0, 4.0, 0.5, 6.5], texture: '#0' },
+                            east: { uv: [0, 4.0, 0.5, 6.5], texture: '#0' },
+                            south: { uv: [7.5, 4.0, 11.0, 6.5], texture: '#0' },
+                            west: { uv: [4.0, 4.0, 4.5, 6.5], texture: '#0' },
+                            up: { uv: [0.5, 3.5, 4.0, 4.0], texture: '#0' },
+                            down: { uv: [4.0, 6.5, 7.5, 7.0], texture: '#0' },
                         },
                     },
                     {
                         from: [2, 10, 8],
                         to: [14, 16, 8],
                         faces: {
-                            north: { uv: [14, 0, 16, 6], texture: '#0' },
-                            south: { uv: [16, 0, 14, 6], texture: '#0' },
+                            north: { uv: [16, 0, 14, 6], texture: '#0' },
+                            south: { uv: [14, 0, 16, 6], texture: '#0' },
                         },
                     },
                 ]).getMesh(atlas, Cull.none());
@@ -61,28 +61,52 @@ if (fs.existsSync(targetPath)) {
                     from: [1, 0, 7],
                     to: [15, 10, 9],
                     faces: {
-                        north: { uv: [4, 8, 0.5, 13], texture: '#0' },
-                        east: { uv: [0, 8, 0.5, 13], texture: '#0' },
-                        south: { uv: [8, 8, 4.5, 13], texture: '#0' },
-                        west: { uv: [4, 8, 4.5, 13], texture: '#0' },
-                        up: { uv: [0.5, 7, 4, 8], texture: '#0' },
-                        down: { uv: [4, 13, 7.5, 14], texture: '#0' },
+                        north: { uv: [4.0, 4.0, 0.5, 6.5], texture: '#0' },
+                        east: { uv: [0, 4.0, 0.5, 6.5], texture: '#0' },
+                        south: { uv: [7.5, 4.0, 11.0, 6.5], texture: '#0' },
+                        west: { uv: [4.0, 4.0, 4.5, 6.5], texture: '#0' },
+                        up: { uv: [0.5, 3.5, 4.0, 4.0], texture: '#0' },
+                        down: { uv: [4.0, 6.5, 7.5, 7.0], texture: '#0' },
                     },
                 },
+                // Left chain - lower section (Y=10..13) rotated +45 deg
                 {
                     from: [1.5, 10, 8],
-                    to: [4.5, 16, 8],
+                    to: [4.5, 13, 8],
+                    rotation: { origin: [3, 11.5, 8], axis: 'y', angle: 45 },
                     faces: {
-                        north: { uv: [14, 0, 16, 6], texture: '#0' },
-                        south: { uv: [16, 0, 14, 6], texture: '#0' },
+                        north: { uv: [16, 3, 14, 6], texture: '#0' },
+                        south: { uv: [14, 3, 16, 6], texture: '#0' },
                     },
                 },
+                // Left chain - upper section (Y=13..16) rotated -45 deg
+                {
+                    from: [1.5, 13, 8],
+                    to: [4.5, 16, 8],
+                    rotation: { origin: [3, 14.5, 8], axis: 'y', angle: -45 },
+                    faces: {
+                        north: { uv: [16, 0, 14, 3], texture: '#0' },
+                        south: { uv: [14, 0, 16, 3], texture: '#0' },
+                    },
+                },
+                // Right chain - lower section (Y=10..13) rotated +45 deg
                 {
                     from: [11.5, 10, 8],
-                    to: [14.5, 16, 8],
+                    to: [14.5, 13, 8],
+                    rotation: { origin: [13, 11.5, 8], axis: 'y', angle: 45 },
                     faces: {
-                        north: { uv: [14, 0, 16, 6], texture: '#0' },
-                        south: { uv: [16, 0, 14, 6], texture: '#0' },
+                        north: { uv: [16, 3, 14, 6], texture: '#0' },
+                        south: { uv: [14, 3, 16, 6], texture: '#0' },
+                    },
+                },
+                // Right chain - upper section (Y=13..16) rotated -45 deg
+                {
+                    from: [11.5, 13, 8],
+                    to: [14.5, 16, 8],
+                    rotation: { origin: [13, 14.5, 8], axis: 'y', angle: -45 },
+                    faces: {
+                        north: { uv: [16, 0, 14, 3], texture: '#0' },
+                        south: { uv: [14, 0, 16, 3], texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
@@ -92,6 +116,7 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(hangingSignRendererPattern, newHangingSignRenderer);
 
+  // 4. Replace wallHangingSignRenderer
   const wallHangingSignRendererPattern = /function wallHangingSignRenderer\(woodType\) \{\s*return \(atlas\) => \{[\s\S]*?SpecialRenderers\.wallHangingSignRenderer = wallHangingSignRenderer;/g;
 
   const newWallHangingSignRenderer = `function wallHangingSignRenderer(woodType) {
@@ -103,12 +128,12 @@ if (fs.existsSync(targetPath)) {
                     from: [1, 0, 7],
                     to: [15, 10, 9],
                     faces: {
-                        north: { uv: [4, 8, 0.5, 13], texture: '#0' },
-                        east: { uv: [0, 8, 0.5, 13], texture: '#0' },
-                        south: { uv: [8, 8, 4.5, 13], texture: '#0' },
-                        west: { uv: [4, 8, 4.5, 13], texture: '#0' },
-                        up: { uv: [0.5, 7, 4, 8], texture: '#0' },
-                        down: { uv: [4, 13, 7.5, 14], texture: '#0' },
+                        north: { uv: [4.0, 4.0, 0.5, 6.5], texture: '#0' },
+                        east: { uv: [0, 4.0, 0.5, 6.5], texture: '#0' },
+                        south: { uv: [7.5, 4.0, 11.0, 6.5], texture: '#0' },
+                        west: { uv: [4.0, 4.0, 4.5, 6.5], texture: '#0' },
+                        up: { uv: [0.5, 3.5, 4.0, 4.0], texture: '#0' },
+                        down: { uv: [4.0, 6.5, 7.5, 7.0], texture: '#0' },
                     },
                 },
                 {
@@ -126,17 +151,19 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [1.5, 10, 8],
                     to: [4.5, 16, 8],
+                    rotation: { origin: [3, 13, 8], axis: 'y', angle: 45 },
                     faces: {
-                        north: { uv: [14, 0, 16, 6], texture: '#0' },
-                        south: { uv: [16, 0, 14, 6], texture: '#0' },
+                        north: { uv: [16, 0, 14, 6], texture: '#0' },
+                        south: { uv: [14, 0, 16, 6], texture: '#0' },
                     },
                 },
                 {
                     from: [11.5, 10, 8],
                     to: [14.5, 16, 8],
+                    rotation: { origin: [13, 13, 8], axis: 'y', angle: -45 },
                     faces: {
-                        north: { uv: [14, 0, 16, 6], texture: '#0' },
-                        south: { uv: [16, 0, 14, 6], texture: '#0' },
+                        north: { uv: [16, 0, 14, 6], texture: '#0' },
+                        south: { uv: [14, 0, 16, 6], texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
@@ -146,8 +173,8 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(wallHangingSignRendererPattern, newWallHangingSignRenderer);
 
-  // 4. Standing sign and Wall sign UV mapping (with horizontally flipped U coordinates for north and south faces):
-  const signPattern = /function signRenderer\(texture\) \{\s*return \(atlas\) => \{\s*return new BlockModel\(undefined, \{\s*0: texture\.withPrefix\('entity\/signs\/'\)\.toString\(\),\s*\}, \[\s*\{\s*from: \[-4, 8, 7\],\s*to: \[20, 20, 9\],\s*faces: \{\s*north: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*east: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*south: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*west: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*up: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*down: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*\},\s*\},/g;
+  // 5. Replace signRenderer & wallSignRenderer
+  const signPattern = /function signRenderer\(texture\) \{\s*return \(atlas\) => \{[\s\S]*?SpecialRenderers\.signRenderer = signRenderer;/g;
 
   const newSignRenderer = `function signRenderer(texture) {
         return (atlas) => {
@@ -158,18 +185,33 @@ if (fs.existsSync(targetPath)) {
                     from: [-4, 8, 7],
                     to: [20, 20, 9],
                     faces: {
-                        north: { uv: [6.5, 1, 0.5, 7], texture: '#0' },
+                        north: { uv: [7.0, 1.0, 1.0, 7.0], texture: '#0' },
                         east: { uv: [0, 1, 0.5, 7], texture: '#0' },
-                        south: { uv: [13, 1, 7, 7], texture: '#0' },
+                        south: { uv: [7.0, 1.0, 13.0, 7.0], texture: '#0' },
                         west: { uv: [6.5, 1, 7, 7], texture: '#0' },
                         up: { uv: [6.5, 1, 0.5, 0], texture: '#0' },
                         down: { uv: [12.5, 0, 6.5, 1], texture: '#0' },
                     },
-                },`;
+                },
+                {
+                    from: [-1, 0, 7],
+                    to: [1, 8, 9],
+                    faces: {
+                        north: { uv: [0.5, 7, 1, 9], texture: '#0' },
+                        east: { uv: [0, 7, 0.5, 9], texture: '#0' },
+                        south: { uv: [1.5, 7, 2, 9], texture: '#0' },
+                        west: { uv: [1, 7, 1.5, 9], texture: '#0' },
+                        down: { uv: [1, 9, 0.5, 9.5], texture: '#0' },
+                    },
+                },
+            ]).getMesh(atlas, Cull.none());
+        };
+    }
+    SpecialRenderers.signRenderer = signRenderer;`;
 
   code = code.replace(signPattern, newSignRenderer);
 
-  const wallSignPattern = /function wallSignRenderer\(texture\) \{\s*return \(atlas\) => \{\s*return new BlockModel\(undefined, \{\s*0: texture\.withPrefix\('entity\/signs\/'\)\.toString\(\),\s*\}, \[\s*\{\s*from: \[-4, 4, 17\],\s*to: \[20, 16, 19\],\s*faces: \{\s*north: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*east: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*south: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*west: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*up: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*down: \{ uv: \[\d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\], texture: '#0' \},\s*\},\s*\},/g;
+  const wallSignPattern = /function wallSignRenderer\(texture\) \{\s*return \(atlas\) => \{[\s\S]*?SpecialRenderers\.wallSignRenderer = wallSignRenderer;/g;
 
   const newWallSignRenderer = `function wallSignRenderer(texture) {
         return (atlas) => {
@@ -180,18 +222,22 @@ if (fs.existsSync(targetPath)) {
                     from: [-4, 4, 17],
                     to: [20, 16, 19],
                     faces: {
-                        north: { uv: [6.5, 1, 0.5, 7], texture: '#0' },
+                        north: { uv: [7.0, 1.0, 1.0, 7.0], texture: '#0' },
                         east: { uv: [0, 1, 0.5, 7], texture: '#0' },
-                        south: { uv: [13, 1, 7, 7], texture: '#0' },
+                        south: { uv: [7.0, 1.0, 13.0, 7.0], texture: '#0' },
                         west: { uv: [6.5, 1, 7, 7], texture: '#0' },
                         up: { uv: [6.5, 1, 0.5, 0], texture: '#0' },
                         down: { uv: [12.5, 0, 6.5, 1], texture: '#0' },
                     },
-                },`;
+                },
+            ]).getMesh(atlas, Cull.none());
+        };
+    }
+    SpecialRenderers.wallSignRenderer = wallSignRenderer;`;
 
   code = code.replace(wallSignPattern, newWallSignRenderer);
 
-  // 5. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
+  // 6. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
   const mapRefreshCode = `
     SignRenderers.clear();
     WallSignRenderers.clear();
