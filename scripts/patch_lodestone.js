@@ -33,35 +33,37 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallSignRenderer"
   );
 
-  // 3. Precise UV mapping for Standing Signs and Wall Signs
-  // Board: from [-4, 8, 7] to [20, 20, 9] (24x12x2)
-  // Standard MC entity sign texture UV mapping (32x32 atlas units = 64x64 pixels):
-  // north: [1, 1, 13, 7], south: [14, 1, 26, 7], east: [0, 1, 1, 7], west: [13, 1, 14, 7], up: [1, 0, 13, 1], down: [13, 0, 25, 1]
+  // 3. Precise 1:1 Scale Model & UV mapping for Standing Signs and Wall Signs
+  // Standard MC 1:1 Sign board: width 16 (0..16), height 8 (7..15 for standing, 4.5..12.5 for wall), depth 2
+  // Wall sign sits flush on wall: from [0, 4.5, 14] to [16, 12.5, 16] (Z=16 is wall surface)
+  // Standing sign: Board from [0, 7, 7] to [16, 15, 9], Post from [7, 0, 7] to [9, 7, 9]
+  // Entity sign texture UV mapping (32x32 atlas units):
+  // north (front): [1, 1, 15, 8], south (back): [16, 1, 30, 8], east: [0, 1, 1, 8], west: [15, 1, 16, 8], up: [1, 0, 15, 1], down: [15, 0, 29, 1]
   const newSignRendererFunc = `function signRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
                 0: texture.withPrefix('entity/signs/').toString(),
             }, [
                 {
-                    from: [-4, 8, 7],
-                    to: [20, 20, 9],
+                    from: [0, 7, 7],
+                    to: [16, 15, 9],
                     faces: {
-                        north: { uv: [1, 1, 13, 7], texture: '#0' },
-                        east: { uv: [0, 1, 1, 7], texture: '#0' },
-                        south: { uv: [14, 1, 26, 7], texture: '#0' },
-                        west: { uv: [13, 1, 14, 7], texture: '#0' },
-                        up: { uv: [1, 0, 13, 1], texture: '#0' },
-                        down: { uv: [13, 0, 25, 1], texture: '#0' },
+                        north: { uv: [1, 1, 15, 8], texture: '#0' },
+                        east: { uv: [0, 1, 1, 8], texture: '#0' },
+                        south: { uv: [16, 1, 30, 8], texture: '#0' },
+                        west: { uv: [15, 1, 16, 8], texture: '#0' },
+                        up: { uv: [1, 0, 15, 1], texture: '#0' },
+                        down: { uv: [15, 0, 29, 1], texture: '#0' },
                     },
                 },
                 {
                     from: [7, 0, 7],
-                    to: [9, 8, 9],
+                    to: [9, 7, 9],
                     faces: {
-                        north: { uv: [1, 8, 2, 12], texture: '#0' },
-                        east: { uv: [2, 8, 3, 12], texture: '#0' },
-                        south: { uv: [3, 8, 4, 12], texture: '#0' },
-                        west: { uv: [0, 8, 1, 12], texture: '#0' },
+                        north: { uv: [1, 8, 2, 15], texture: '#0' },
+                        east: { uv: [2, 8, 3, 15], texture: '#0' },
+                        south: { uv: [3, 8, 4, 15], texture: '#0' },
+                        west: { uv: [0, 8, 1, 15], texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
@@ -76,15 +78,15 @@ if (fs.existsSync(targetPath)) {
                 0: texture.withPrefix('entity/signs/').toString(),
             }, [
                 {
-                    from: [-4, 4, 17],
-                    to: [20, 16, 19],
+                    from: [0, 4.5, 14],
+                    to: [16, 12.5, 16],
                     faces: {
-                        north: { uv: [1, 1, 13, 7], texture: '#0' },
-                        east: { uv: [0, 1, 1, 7], texture: '#0' },
-                        south: { uv: [14, 1, 26, 7], texture: '#0' },
-                        west: { uv: [13, 1, 14, 7], texture: '#0' },
-                        up: { uv: [1, 0, 13, 1], texture: '#0' },
-                        down: { uv: [13, 0, 25, 1], texture: '#0' },
+                        north: { uv: [1, 1, 15, 8], texture: '#0' },
+                        east: { uv: [0, 1, 1, 8], texture: '#0' },
+                        south: { uv: [16, 1, 30, 8], texture: '#0' },
+                        west: { uv: [15, 1, 16, 8], texture: '#0' },
+                        up: { uv: [1, 0, 15, 1], texture: '#0' },
+                        down: { uv: [15, 0, 29, 1], texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
