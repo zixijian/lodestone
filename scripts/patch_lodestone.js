@@ -86,47 +86,7 @@ if (fs.existsSync(targetPath)) {
   // 5. Update hangingSignRenderer function for 32x32 hanging sign texture atlas
   const newHangingSignRenderer = `function hangingSignRenderer(texture) {
         return (attached, atlas) => {
-            if (attached) {
-                return new BlockModel(undefined, {
-                    0: texture.withPrefix('entity/signs/hanging/').toString(),
-                }, [
-                    {
-                        from: [1, 0, 7],
-                        to: [15, 10, 9],
-                        faces: {
-                            north: { uv: [0, 8, 8, 13], texture: '#0' },
-                            east: { uv: [0, 7, 1, 12], texture: '#0' },
-                            south: { uv: [8, 8, 16, 13], texture: '#0' },
-                            west: { uv: [7, 7, 8, 12], texture: '#0' },
-                            up: { uv: [1, 7, 8, 8], texture: '#0' },
-                            down: { uv: [1, 13, 8, 14], texture: '#0' },
-                        },
-                    },
-                    {
-                        from: [2, 10, 8],
-                        to: [14, 16, 8],
-                        faces: {
-                            north: { uv: [16, 0, 14, 6], texture: '#0' },
-                            south: { uv: [14, 0, 16, 6], texture: '#0' },
-                        },
-                    },
-                ]).getMesh(atlas, Cull.none());
-            }
-            return new BlockModel(undefined, {
-                0: texture.withPrefix('entity/signs/hanging/').toString(),
-            }, [
-                {
-                    from: [1, 0, 7],
-                    to: [15, 10, 9],
-                    faces: {
-                        north: { uv: [0, 8, 8, 13], texture: '#0' },
-                        east: { uv: [0, 7, 1, 12], texture: '#0' },
-                        south: { uv: [8, 8, 16, 13], texture: '#0' },
-                        west: { uv: [7, 7, 8, 12], texture: '#0' },
-                        up: { uv: [1, 7, 8, 8], texture: '#0' },
-                        down: { uv: [1, 13, 8, 14], texture: '#0' },
-                    },
-                },
+            const chainPlanes = [
                 {
                     from: [1.5, 10, 8],
                     to: [4.5, 16, 8],
@@ -163,6 +123,24 @@ if (fs.existsSync(targetPath)) {
                         west: { uv: [16, 0, 14, 6], texture: '#0' },
                     },
                 },
+            ];
+
+            return new BlockModel(undefined, {
+                0: texture.withPrefix('entity/signs/hanging/').toString(),
+            }, [
+                {
+                    from: [1, 0, 7],
+                    to: [15, 10, 9],
+                    faces: {
+                        north: { uv: [0, 8, 7, 13], texture: '#0' },
+                        east: { uv: [7, 8, 8, 13], texture: '#0' },
+                        south: { uv: [8, 8, 15, 13], texture: '#0' },
+                        west: { uv: [7, 8, 8, 13], texture: '#0' },
+                        up: { uv: [0, 7, 7, 8], texture: '#0' },
+                        down: { uv: [7, 7, 14, 8], texture: '#0' },
+                    },
+                },
+                ...chainPlanes
             ]).getMesh(atlas, Cull.none());
         };
     }`;
@@ -179,12 +157,12 @@ if (fs.existsSync(targetPath)) {
                     from: [1, 0, 7],
                     to: [15, 10, 9],
                     faces: {
-                        north: { uv: [0, 8, 8, 13], texture: '#0' },
-                        east: { uv: [0, 7, 1, 12], texture: '#0' },
-                        south: { uv: [8, 8, 16, 13], texture: '#0' },
-                        west: { uv: [7, 7, 8, 12], texture: '#0' },
-                        up: { uv: [1, 7, 8, 8], texture: '#0' },
-                        down: { uv: [1, 13, 8, 14], texture: '#0' },
+                        north: { uv: [0, 8, 7, 13], texture: '#0' },
+                        east: { uv: [7, 8, 8, 13], texture: '#0' },
+                        south: { uv: [8, 8, 15, 13], texture: '#0' },
+                        west: { uv: [7, 8, 8, 13], texture: '#0' },
+                        up: { uv: [0, 7, 7, 8], texture: '#0' },
+                        down: { uv: [7, 7, 14, 8], texture: '#0' },
                     },
                 },
                 {
@@ -195,44 +173,44 @@ if (fs.existsSync(targetPath)) {
                         east: { uv: [8, 0, 10, 1], texture: '#0' },
                         south: { uv: [0, 1, 8, 2], texture: '#0' },
                         west: { uv: [10, 0, 12, 1], texture: '#0' },
-                        up: { uv: [0, 2, 8, 3], texture: '#0' },
-                        down: { uv: [0, 3, 8, 4], texture: '#0' },
+                        up: { uv: [0, 2, 8, 4], texture: '#0' },
+                        down: { uv: [0, 4, 8, 6], texture: '#0' },
                     },
                 },
                 {
                     from: [1.5, 10, 8],
-                    to: [4.5, 16, 8],
+                    to: [4.5, 14, 8],
                     rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
                     faces: {
-                        north: { uv: [16, 0, 14, 6], texture: '#0' },
-                        south: { uv: [14, 0, 16, 6], texture: '#0' },
+                        north: { uv: [16, 2, 14, 6], texture: '#0' },
+                        south: { uv: [14, 2, 16, 6], texture: '#0' },
                     },
                 },
                 {
                     from: [3, 10, 6.5],
-                    to: [3, 16, 9.5],
+                    to: [3, 14, 9.5],
                     rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
                     faces: {
-                        east: { uv: [14, 0, 16, 6], texture: '#0' },
-                        west: { uv: [16, 0, 14, 6], texture: '#0' },
+                        east: { uv: [14, 2, 16, 6], texture: '#0' },
+                        west: { uv: [16, 2, 14, 6], texture: '#0' },
                     },
                 },
                 {
                     from: [11.5, 10, 8],
-                    to: [14.5, 16, 8],
+                    to: [14.5, 14, 8],
                     rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
                     faces: {
-                        north: { uv: [16, 0, 14, 6], texture: '#0' },
-                        south: { uv: [14, 0, 16, 6], texture: '#0' },
+                        north: { uv: [16, 2, 14, 6], texture: '#0' },
+                        south: { uv: [14, 2, 16, 6], texture: '#0' },
                     },
                 },
                 {
                     from: [13, 10, 6.5],
-                    to: [13, 16, 9.5],
+                    to: [13, 14, 9.5],
                     rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
                     faces: {
-                        east: { uv: [14, 0, 16, 6], texture: '#0' },
-                        west: { uv: [16, 0, 14, 6], texture: '#0' },
+                        east: { uv: [14, 2, 16, 6], texture: '#0' },
+                        west: { uv: [16, 2, 14, 6], texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
