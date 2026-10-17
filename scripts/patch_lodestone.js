@@ -90,7 +90,7 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [1.5, 10, 8],
                     to: [4.5, 16, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
+                    ...(attached ? {} : { rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] } }),
                     faces: {
                         north: { uv: [16, 0, 14, 6], texture: '#0' },
                         south: { uv: [14, 0, 16, 6], texture: '#0' },
@@ -99,7 +99,7 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [3, 10, 6.5],
                     to: [3, 16, 9.5],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
+                    ...(attached ? {} : { rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] } }),
                     faces: {
                         east: { uv: [14, 0, 16, 6], texture: '#0' },
                         west: { uv: [16, 0, 14, 6], texture: '#0' },
@@ -108,7 +108,7 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [11.5, 10, 8],
                     to: [14.5, 16, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
+                    ...(attached ? {} : { rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] } }),
                     faces: {
                         north: { uv: [16, 0, 14, 6], texture: '#0' },
                         south: { uv: [14, 0, 16, 6], texture: '#0' },
@@ -117,7 +117,7 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [13, 10, 6.5],
                     to: [13, 16, 9.5],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
+                    ...(attached ? {} : { rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] } }),
                     faces: {
                         east: { uv: [14, 0, 16, 6], texture: '#0' },
                         west: { uv: [16, 0, 14, 6], texture: '#0' },
@@ -133,11 +133,11 @@ if (fs.existsSync(targetPath)) {
                     to: [15, 10, 9],
                     faces: {
                         north: { uv: [0, 8, 7, 13], texture: '#0' },
-                        east: { uv: [7, 8, 8, 13], texture: '#0' },
-                        south: { uv: [8, 8, 15, 13], texture: '#0' },
-                        west: { uv: [7, 8, 8, 13], texture: '#0' },
-                        up: { uv: [0, 7, 7, 8], texture: '#0' },
-                        down: { uv: [7, 7, 14, 8], texture: '#0' },
+                        east: { uv: [7, 8, 7.5, 13], texture: '#0' },
+                        south: { uv: [7.5, 8, 14.5, 13], texture: '#0' },
+                        west: { uv: [14.5, 8, 15, 13], texture: '#0' },
+                        up: { uv: [0, 7, 7, 7.5], texture: '#0' },
+                        down: { uv: [7, 7, 14, 7.5], texture: '#0' },
                     },
                 },
                 ...chainPlanes
@@ -145,7 +145,7 @@ if (fs.existsSync(targetPath)) {
         };
     }`;
 
-  code = code.replace(/function hangingSignRenderer\(texture\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.hangingSignRenderer = hangingSignRenderer;/g, `${newHangingSignRenderer}\n    SpecialRenderers.hangingSignRenderer = hangingSignRenderer;`);
+  code = code.replace(/    function hangingSignRenderer\(texture\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.hangingSignRenderer = hangingSignRenderer;/g, `    ${newHangingSignRenderer}\n    SpecialRenderers.hangingSignRenderer = hangingSignRenderer;`);
 
   // 6. Update wallHangingSignRenderer function for 32x32 hanging sign texture atlas
   const newWallHangingSignRenderer = `function wallHangingSignRenderer(woodType) {
@@ -158,11 +158,11 @@ if (fs.existsSync(targetPath)) {
                     to: [15, 10, 9],
                     faces: {
                         north: { uv: [0, 8, 7, 13], texture: '#0' },
-                        east: { uv: [7, 8, 8, 13], texture: '#0' },
-                        south: { uv: [8, 8, 15, 13], texture: '#0' },
-                        west: { uv: [7, 8, 8, 13], texture: '#0' },
-                        up: { uv: [0, 7, 7, 8], texture: '#0' },
-                        down: { uv: [7, 7, 14, 8], texture: '#0' },
+                        east: { uv: [7, 8, 7.5, 13], texture: '#0' },
+                        south: { uv: [7.5, 8, 14.5, 13], texture: '#0' },
+                        west: { uv: [14.5, 8, 15, 13], texture: '#0' },
+                        up: { uv: [0, 7, 7, 7.5], texture: '#0' },
+                        down: { uv: [7, 7, 14, 7.5], texture: '#0' },
                     },
                 },
                 {
@@ -172,7 +172,7 @@ if (fs.existsSync(targetPath)) {
                         north: { uv: [0, 0, 8, 1], texture: '#0' },
                         east: { uv: [8, 0, 10, 1], texture: '#0' },
                         south: { uv: [0, 1, 8, 2], texture: '#0' },
-                        west: { uv: [10, 0, 12, 1], texture: '#0' },
+                        west: { uv: [8, 1, 10, 2], texture: '#0' },
                         up: { uv: [0, 2, 8, 4], texture: '#0' },
                         down: { uv: [0, 4, 8, 6], texture: '#0' },
                     },
@@ -217,7 +217,7 @@ if (fs.existsSync(targetPath)) {
         };
     }`;
 
-  code = code.replace(/function wallHangingSignRenderer\(woodType\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.wallHangingSignRenderer = wallHangingSignRenderer;/g, `${newWallHangingSignRenderer}\n    SpecialRenderers.wallHangingSignRenderer = wallHangingSignRenderer;`);
+  code = code.replace(/    function wallHangingSignRenderer\(woodType\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.wallHangingSignRenderer = wallHangingSignRenderer;/g, `    ${newWallHangingSignRenderer}\n    SpecialRenderers.wallHangingSignRenderer = wallHangingSignRenderer;`);
 
   // 7. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
   const mapRefreshCode = `
