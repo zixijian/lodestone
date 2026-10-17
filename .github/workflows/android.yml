@@ -7,8 +7,6 @@ on:
       - dev
       - 'dev-*'
       - 'jules-*'
-      - 'fix-*'
-      - '*'
   workflow_dispatch:
 
 jobs:
