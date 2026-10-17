@@ -33,12 +33,12 @@ if (fs.existsSync(targetPath)) {
                     from: [-4, 8, 7],
                     to: [20, 20, 9],
                     faces: {
-                        north: { uv: [0, 0.5, 12, 6.5], texture: '#0' },
-                        east: { uv: [12, 0.5, 13, 6.5], texture: '#0' },
-                        south: { uv: [0, 8.5, 12, 14.5], texture: '#0' },
-                        west: { uv: [12, 8.5, 13, 14.5], texture: '#0' },
-                        up: { uv: [0, 0, 12, 0.5], texture: '#0' },
-                        down: { uv: [0, 6.5, 12, 7], texture: '#0' },
+                        north: { uv: [1, 1, 13, 7], texture: '#0' },
+                        east: { uv: [13, 1, 14, 7], texture: '#0' },
+                        south: { uv: [1, 8, 13, 14], texture: '#0' },
+                        west: { uv: [0, 1, 1, 7], texture: '#0' },
+                        up: { uv: [1, 0, 13, 1], texture: '#0' },
+                        down: { uv: [1, 7, 13, 8], texture: '#0' },
                     },
                 },
                 {
@@ -69,12 +69,12 @@ if (fs.existsSync(targetPath)) {
                     from: [-4, 4, 17],
                     to: [20, 16, 19],
                     faces: {
-                        north: { uv: [0, 0.5, 12, 6.5], texture: '#0' },
-                        east: { uv: [12, 0.5, 13, 6.5], texture: '#0' },
-                        south: { uv: [0, 8.5, 12, 14.5], texture: '#0' },
-                        west: { uv: [12, 8.5, 13, 14.5], texture: '#0' },
-                        up: { uv: [0, 0, 12, 0.5], texture: '#0' },
-                        down: { uv: [0, 6.5, 12, 7], texture: '#0' },
+                        north: { uv: [1, 1, 13, 7], texture: '#0' },
+                        east: { uv: [13, 1, 14, 7], texture: '#0' },
+                        south: { uv: [1, 8, 13, 14], texture: '#0' },
+                        west: { uv: [0, 1, 1, 7], texture: '#0' },
+                        up: { uv: [1, 0, 13, 1], texture: '#0' },
+                        down: { uv: [1, 7, 13, 8], texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
@@ -90,7 +90,7 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [1.5, 10, 8],
                     to: [4.5, 16, 8],
-                    ...(attached ? {} : { rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] } }),
+                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
                     faces: {
                         north: { uv: [16, 0, 14, 6], texture: '#0' },
                         south: { uv: [14, 0, 16, 6], texture: '#0' },
@@ -99,7 +99,7 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [3, 10, 6.5],
                     to: [3, 16, 9.5],
-                    ...(attached ? {} : { rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] } }),
+                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
                     faces: {
                         east: { uv: [14, 0, 16, 6], texture: '#0' },
                         west: { uv: [16, 0, 14, 6], texture: '#0' },
@@ -108,7 +108,7 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [11.5, 10, 8],
                     to: [14.5, 16, 8],
-                    ...(attached ? {} : { rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] } }),
+                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
                     faces: {
                         north: { uv: [16, 0, 14, 6], texture: '#0' },
                         south: { uv: [14, 0, 16, 6], texture: '#0' },
@@ -117,7 +117,7 @@ if (fs.existsSync(targetPath)) {
                 {
                     from: [13, 10, 6.5],
                     to: [13, 16, 9.5],
-                    ...(attached ? {} : { rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] } }),
+                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
                     faces: {
                         east: { uv: [14, 0, 16, 6], texture: '#0' },
                         west: { uv: [16, 0, 14, 6], texture: '#0' },
@@ -132,12 +132,12 @@ if (fs.existsSync(targetPath)) {
                     from: [1, 0, 7],
                     to: [15, 10, 9],
                     faces: {
-                        north: { uv: [0, 8, 7, 13], texture: '#0' },
-                        east: { uv: [7, 8, 7.5, 13], texture: '#0' },
-                        south: { uv: [7.5, 8, 14.5, 13], texture: '#0' },
-                        west: { uv: [14.5, 8, 15, 13], texture: '#0' },
-                        up: { uv: [0, 7, 7, 7.5], texture: '#0' },
-                        down: { uv: [7, 7, 14, 7.5], texture: '#0' },
+                        north: { uv: [1, 8, 8, 13], texture: '#0' },
+                        east: { uv: [0, 8, 1, 13], texture: '#0' },
+                        south: { uv: [9, 8, 16, 13], texture: '#0' },
+                        west: { uv: [8, 8, 9, 13], texture: '#0' },
+                        up: { uv: [1, 7, 8, 8], texture: '#0' },
+                        down: { uv: [8, 7, 15, 8], texture: '#0' },
                     },
                 },
                 ...chainPlanes
@@ -157,24 +157,24 @@ if (fs.existsSync(targetPath)) {
                     from: [1, 0, 7],
                     to: [15, 10, 9],
                     faces: {
-                        north: { uv: [0, 8, 7, 13], texture: '#0' },
-                        east: { uv: [7, 8, 7.5, 13], texture: '#0' },
-                        south: { uv: [7.5, 8, 14.5, 13], texture: '#0' },
-                        west: { uv: [14.5, 8, 15, 13], texture: '#0' },
-                        up: { uv: [0, 7, 7, 7.5], texture: '#0' },
-                        down: { uv: [7, 7, 14, 7.5], texture: '#0' },
+                        north: { uv: [1, 8, 8, 13], texture: '#0' },
+                        east: { uv: [0, 8, 1, 13], texture: '#0' },
+                        south: { uv: [9, 8, 16, 13], texture: '#0' },
+                        west: { uv: [8, 8, 9, 13], texture: '#0' },
+                        up: { uv: [1, 7, 8, 8], texture: '#0' },
+                        down: { uv: [8, 7, 15, 8], texture: '#0' },
                     },
                 },
                 {
                     from: [0, 14, 6],
                     to: [16, 16, 10],
                     faces: {
-                        north: { uv: [0, 0, 8, 1], texture: '#0' },
-                        east: { uv: [8, 0, 10, 1], texture: '#0' },
-                        south: { uv: [0, 1, 8, 2], texture: '#0' },
-                        west: { uv: [8, 1, 10, 2], texture: '#0' },
-                        up: { uv: [0, 2, 8, 4], texture: '#0' },
-                        down: { uv: [0, 4, 8, 6], texture: '#0' },
+                        north: { uv: [0, 4, 8, 5], texture: '#0' },
+                        east: { uv: [8, 4, 10, 5], texture: '#0' },
+                        south: { uv: [0, 5, 8, 6], texture: '#0' },
+                        west: { uv: [8, 5, 10, 6], texture: '#0' },
+                        up: { uv: [0, 0, 8, 2], texture: '#0' },
+                        down: { uv: [0, 2, 8, 4], texture: '#0' },
                     },
                 },
                 {
