@@ -88,93 +88,6 @@ if (fs.existsSync(targetPath)) {
         return (attached, atlas) => {
             const chainRingFull = [14, 4, 16, 6];
 
-            if (attached) {
-                return new BlockModel(undefined, {
-                    0: texture.withPrefix('entity/signs/hanging/').toString(),
-                }, [
-                    {
-                        from: [1, 0, 7],
-                        to: [15, 10, 9],
-                        faces: {
-                            south: { uv: [1, 8, 8, 13], texture: '#0' },
-                            west: { uv: [0, 8, 1, 13], texture: '#0' },
-                            north: { uv: [9, 8, 16, 13], texture: '#0' },
-                            east: { uv: [8, 8, 9, 13], texture: '#0' },
-                            up: { uv: [1, 7, 8, 8], texture: '#0' },
-                            down: { uv: [1, 7, 8, 8], texture: '#0' },
-                        },
-                    },
-                    // Left vertical chain: 3 45-degree crossed closed rings
-                    {
-                        from: [1.5, 9.5, 8],
-                        to: [4.5, 12, 8],
-                        rotation: { angle: -45, axis: 'y', origin: [3, 10.75, 8] },
-                        faces: {
-                            north: { uv: chainRingFull, texture: '#0' },
-                            south: { uv: chainRingFull, texture: '#0' },
-                            up: { uv: [14, 4, 16, 4.5], texture: '#0' },
-                            down: { uv: [14, 5.5, 16, 6], texture: '#0' },
-                        },
-                    },
-                    {
-                        from: [1.5, 11, 8],
-                        to: [4.5, 15, 8],
-                        rotation: { angle: 45, axis: 'y', origin: [3, 13, 8] },
-                        faces: {
-                            north: { uv: chainRingFull, texture: '#0' },
-                            south: { uv: chainRingFull, texture: '#0' },
-                            up: { uv: [14, 4, 16, 4.5], texture: '#0' },
-                            down: { uv: [14, 5.5, 16, 6], texture: '#0' },
-                        },
-                    },
-                    {
-                        from: [1.5, 14, 8],
-                        to: [4.5, 16.5, 8],
-                        rotation: { angle: -45, axis: 'y', origin: [3, 15.25, 8] },
-                        faces: {
-                            north: { uv: chainRingFull, texture: '#0' },
-                            south: { uv: chainRingFull, texture: '#0' },
-                            up: { uv: [14, 4, 16, 4.5], texture: '#0' },
-                            down: { uv: [14, 5.5, 16, 6], texture: '#0' },
-                        },
-                    },
-                    // Right vertical chain: 3 45-degree crossed closed rings
-                    {
-                        from: [11.5, 9.5, 8],
-                        to: [14.5, 12, 8],
-                        rotation: { angle: -45, axis: 'y', origin: [13, 10.75, 8] },
-                        faces: {
-                            north: { uv: chainRingFull, texture: '#0' },
-                            south: { uv: chainRingFull, texture: '#0' },
-                            up: { uv: [14, 4, 16, 4.5], texture: '#0' },
-                            down: { uv: [14, 5.5, 16, 6], texture: '#0' },
-                        },
-                    },
-                    {
-                        from: [11.5, 11, 8],
-                        to: [14.5, 15, 8],
-                        rotation: { angle: 45, axis: 'y', origin: [13, 13, 8] },
-                        faces: {
-                            north: { uv: chainRingFull, texture: '#0' },
-                            south: { uv: chainRingFull, texture: '#0' },
-                            up: { uv: [14, 4, 16, 4.5], texture: '#0' },
-                            down: { uv: [14, 5.5, 16, 6], texture: '#0' },
-                        },
-                    },
-                    {
-                        from: [11.5, 14, 8],
-                        to: [14.5, 16.5, 8],
-                        rotation: { angle: -45, axis: 'y', origin: [13, 15.25, 8] },
-                        faces: {
-                            north: { uv: chainRingFull, texture: '#0' },
-                            south: { uv: chainRingFull, texture: '#0' },
-                            up: { uv: [14, 4, 16, 4.5], texture: '#0' },
-                            down: { uv: [14, 5.5, 16, 6], texture: '#0' },
-                        },
-                    },
-                ]).getMesh(atlas, Cull.none());
-            }
-
             return new BlockModel(undefined, {
                 0: texture.withPrefix('entity/signs/hanging/').toString(),
             }, [
@@ -190,7 +103,7 @@ if (fs.existsSync(targetPath)) {
                         down: { uv: [1, 7, 8, 8], texture: '#0' },
                     },
                 },
-                // Left chain: 3 45-degree crossed 2D rectangles (Y=10..12, Y=12..14, Y=14..16)
+                // Left vertical chain: 3 45-degree crossed 2D rectangles
                 {
                     from: [1.5, 10, 8],
                     to: [4.5, 12, 8],
@@ -203,8 +116,8 @@ if (fs.existsSync(targetPath)) {
                     },
                 },
                 {
-                    from: [1.5, 12, 8],
-                    to: [4.5, 14, 8],
+                    from: [1.5, 11, 8],
+                    to: [4.5, 15, 8],
                     rotation: { angle: 45, axis: 'y', origin: [3, 13, 8] },
                     faces: {
                         north: { uv: chainRingFull, texture: '#0' },
@@ -224,7 +137,7 @@ if (fs.existsSync(targetPath)) {
                         down: { uv: [14, 5.5, 16, 6], texture: '#0' },
                     },
                 },
-                // Right chain: 3 45-degree crossed 2D rectangles (Y=10..12, Y=12..14, Y=14..16)
+                // Right vertical chain: 3 45-degree crossed 2D rectangles
                 {
                     from: [11.5, 10, 8],
                     to: [14.5, 12, 8],
@@ -237,8 +150,8 @@ if (fs.existsSync(targetPath)) {
                     },
                 },
                 {
-                    from: [11.5, 12, 8],
-                    to: [14.5, 14, 8],
+                    from: [11.5, 11, 8],
+                    to: [14.5, 15, 8],
                     rotation: { angle: 45, axis: 'y', origin: [13, 13, 8] },
                     faces: {
                         north: { uv: chainRingFull, texture: '#0' },
@@ -296,11 +209,11 @@ if (fs.existsSync(targetPath)) {
                         down: { uv: [0, 1, 8, 2], texture: '#0' },
                     },
                 },
-                // Left chain: Lower Y=10..11 at 45°, Upper Y=11..14 at -45°
+                // Left chain: Lower Y=10..12 at 45°, Upper Y=11..14 at -45°
                 {
                     from: [1.5, 10, 8],
-                    to: [4.5, 11, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 10.5, 8] },
+                    to: [4.5, 12, 8],
+                    rotation: { angle: 45, axis: 'y', origin: [3, 11, 8] },
                     faces: {
                         north: { uv: chainRingFull, texture: '#0' },
                         south: { uv: chainRingFull, texture: '#0' },
@@ -319,11 +232,11 @@ if (fs.existsSync(targetPath)) {
                         down: { uv: [14, 5.5, 16, 6], texture: '#0' },
                     },
                 },
-                // Right chain: Lower Y=10..11 at 45°, Upper Y=11..14 at -45°
+                // Right chain: Lower Y=10..12 at 45°, Upper Y=11..14 at -45°
                 {
                     from: [11.5, 10, 8],
-                    to: [14.5, 11, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 10.5, 8] },
+                    to: [14.5, 12, 8],
+                    rotation: { angle: 45, axis: 'y', origin: [13, 11, 8] },
                     faces: {
                         north: { uv: chainRingFull, texture: '#0' },
                         south: { uv: chainRingFull, texture: '#0' },
