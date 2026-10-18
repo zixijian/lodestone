@@ -267,9 +267,9 @@ if (fs.existsSync(targetPath)) {
                     to: [16, 16, 10],
                     faces: {
                         north: { uv: [0, 2, 8, 3], texture: '#0' },
-                        east: { uv: [8, 2, 10, 3], texture: '#0' },
+                        east: { uv: [8, 2, 12, 3], texture: '#0' },
                         south: { uv: [0, 2, 8, 3], texture: '#0' },
-                        west: { uv: [8, 2, 10, 3], texture: '#0' },
+                        west: { uv: [8, 2, 12, 3], texture: '#0' },
                         up: { uv: [0, 0, 8, 1], texture: '#0' },
                         down: { uv: [0, 1, 8, 2], texture: '#0' },
                     },
