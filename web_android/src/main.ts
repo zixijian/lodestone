@@ -608,6 +608,106 @@ async function init() {
     loaded.assets.models['block/item_frame'] = createItemFrameModel();
     loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
 
+    const sanitizeModelElements = (elements: any[]) => {
+      if (!Array.isArray(elements)) return elements;
+      const newElems: any[] = [];
+      const seenPillars = new Set<string>();
+
+      for (const elem of elements) {
+        if (!elem || typeof elem !== 'object') {
+          newElems.push(elem);
+          continue;
+        }
+
+        const f = elem.from;
+        const t = elem.to;
+        if (!Array.isArray(f) || !Array.isArray(t) || f.length !== 3 || t.length !== 3) {
+          newElems.push(elem);
+          continue;
+        }
+
+        const isCross = (f[0] === t[0] || f[2] === t[2]);
+        if (isCross) {
+          let texRef = '#torch';
+          if (elem.faces && typeof elem.faces === 'object') {
+            for (const faceData of Object.values(elem.faces) as any[]) {
+              if (faceData && typeof faceData === 'object' && faceData.texture) {
+                texRef = faceData.texture;
+                break;
+              }
+            }
+          }
+
+          const y0 = f[1];
+          const y1 = t[1];
+          const h = Math.round(y1 - y0);
+          if (h <= 0) continue;
+
+          let rawXc = f[0] === t[0] ? f[0] : (f[0] + t[0]) / 2.0;
+          let rawZc = f[2] === t[2] ? f[2] : (f[2] + t[2]) / 2.0;
+
+          let xc = Math.round(rawXc);
+          let zc = Math.round(rawZc);
+
+          if (Math.abs(xc - 8) <= 2 && Math.abs(zc - 8) <= 2) {
+            xc = 8;
+            zc = 8;
+          }
+
+          const rot = elem.rotation;
+          const rotKey = rot ? JSON.stringify(rot) : '';
+          const pillarKey = `${xc},${y0},${zc},${y1},${rotKey}`;
+          if (seenPillars.has(pillarKey)) {
+            continue;
+          }
+          seenPillars.add(pillarKey);
+
+          let xFrom = xc - 1;
+          let xTo = xc + 1;
+          let zFrom = zc - 1;
+          let zTo = zc + 1;
+
+          if (y0 === 0 && xc === 8 && zc === 8 && h >= 8) {
+            xFrom = 7; xTo = 9;
+            zFrom = 7; zTo = 9;
+          }
+
+          const newElem: any = {
+            from: [xFrom, y0, zFrom],
+            to: [xTo, y1, zTo],
+            shade: false,
+            faces: {
+              up: { texture: texRef, uv: [7, 6, 9, 8] },
+              down: { texture: texRef, uv: [7, 13, 9, 15] },
+              north: { texture: texRef, uv: [7, 6, 9, 6 + h] },
+              south: { texture: texRef, uv: [7, 6, 9, 6 + h] },
+              east: { texture: texRef, uv: [7, 6, 9, 6 + h] },
+              west: { texture: texRef, uv: [7, 6, 9, 6 + h] }
+            }
+          };
+
+          if (rot) {
+            newElem.rotation = rot;
+          }
+          newElems.push(newElem);
+        } else {
+          newElems.push(elem);
+        }
+      }
+
+      return newElems;
+    };
+
+    // Sanitize all model geometries (converting 2D cross planes for torches/repeaters/comparators to 3D box pillars)
+    if (loaded.assets && loaded.assets.models) {
+      Object.keys(loaded.assets.models).forEach(modelKey => {
+        const modelObj = loaded.assets.models[modelKey];
+        if (modelObj && Array.isArray(modelObj.elements)) {
+          modelObj.elements = sanitizeModelElements(modelObj.elements);
+        }
+      });
+    }
+
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
     const nonSelfCullingText = nonSelfCullingRes && nonSelfCullingRes.ok ? await nonSelfCullingRes.text() : '';
