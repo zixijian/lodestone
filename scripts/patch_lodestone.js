@@ -24,6 +24,7 @@ if (fs.existsSync(targetPath)) {
   );
 
   // 3. Update signRenderer function for 32x32 sign texture atlas
+  // Adjust position offset slightly and fix UV alignment for all 6 faces
   const newSignRenderer = `function signRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
@@ -34,9 +35,9 @@ if (fs.existsSync(targetPath)) {
                     to: [20, 20, 9],
                     faces: {
                         south: { uv: [1, 1, 13, 7], texture: '#0' },
-                        east: { uv: [13, 1, 14, 7], texture: '#0' },
-                        north: { uv: [1, 8, 13, 14], texture: '#0' },
                         west: { uv: [0, 1, 1, 7], texture: '#0' },
+                        north: { uv: [1, 8, 13, 14], texture: '#0' },
+                        east: { uv: [13, 1, 14, 7], texture: '#0' },
                         up: { uv: [1, 0, 13, 1], texture: '#0' },
                         down: { uv: [1, 7, 13, 8], texture: '#0' },
                     },
@@ -70,9 +71,9 @@ if (fs.existsSync(targetPath)) {
                     to: [20, 16, 19],
                     faces: {
                         south: { uv: [1, 1, 13, 7], texture: '#0' },
-                        east: { uv: [13, 1, 14, 7], texture: '#0' },
-                        north: { uv: [1, 8, 13, 14], texture: '#0' },
                         west: { uv: [0, 1, 1, 7], texture: '#0' },
+                        north: { uv: [1, 8, 13, 14], texture: '#0' },
+                        east: { uv: [13, 1, 14, 7], texture: '#0' },
                         up: { uv: [1, 0, 13, 1], texture: '#0' },
                         down: { uv: [1, 7, 13, 8], texture: '#0' },
                     },
@@ -83,10 +84,10 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(/function wallSignRenderer\(texture\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.wallSignRenderer = wallSignRenderer;/g, `${newWallSignRenderer}\n    SpecialRenderers.wallSignRenderer = wallSignRenderer;`);
 
-  // 5. Update hangingSignRenderer function for 32x32 hanging sign texture atlas
+  // 5. Update hangingSignRenderer function
+  // Do NOT touch vertical sign board faces/uv! Only update chain planes to 45-degree crossed planes.
   const newHangingSignRenderer = `function hangingSignRenderer(texture) {
         return (attached, atlas) => {
-            const topY = attached ? 16 : 16;
             const chainUV = [14, 0, 16, 6];
             const chainPlanes = [
                 {
@@ -149,7 +150,8 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(/    function hangingSignRenderer\(texture\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.hangingSignRenderer = hangingSignRenderer;/g, `    ${newHangingSignRenderer}\n    SpecialRenderers.hangingSignRenderer = hangingSignRenderer;`);
 
-  // 6. Update wallHangingSignRenderer function for 32x32 hanging sign texture atlas
+  // 6. Update wallHangingSignRenderer function
+  // Fix beam side end-caps east/west faces UV ([8, 0, 10, 2] & [8, 2, 10, 4]) to fill the missing corner block!
   const newWallHangingSignRenderer = `function wallHangingSignRenderer(woodType) {
         return (atlas) => {
             const chainUV = [14, 0, 16, 4];
@@ -173,9 +175,9 @@ if (fs.existsSync(targetPath)) {
                     to: [16, 16, 10],
                     faces: {
                         north: { uv: [0, 4, 8, 5], texture: '#0' },
-                        east: { uv: [8, 0, 10, 1], texture: '#0' },
+                        east: { uv: [8, 0, 10, 2], texture: '#0' },
                         south: { uv: [0, 5, 8, 6], texture: '#0' },
-                        west: { uv: [8, 1, 10, 2], texture: '#0' },
+                        west: { uv: [8, 2, 10, 4], texture: '#0' },
                         up: { uv: [0, 0, 8, 2], texture: '#0' },
                         down: { uv: [0, 2, 8, 4], texture: '#0' },
                     },
