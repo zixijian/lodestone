@@ -1,18 +1,31 @@
 const fs = require('fs');
 const path = require('path');
 
+// 1. Patch BlockModel.js to fix down-face winding order so WebGL CULL_FACE does not cull bottom faces
+const blockModelPath = path.join(__dirname, '../web_android/node_modules/@mattzh72/lodestone/lib/render/BlockModel.js');
+if (fs.existsSync(blockModelPath)) {
+  let bmCode = fs.readFileSync(blockModelPath, 'utf-8');
+  bmCode = bmCode.replace(
+    /addFace\(e\.faces\.down,\s*\[16 - z1,\s*16 - x1,\s*16 - z0,\s*16 - x0\],\s*\[x0,\s*y0,\s*z0,\s*x1,\s*y0,\s*z0,\s*x1,\s*y0,\s*z1,\s*x0,\s*y0,\s*z1\]\);/g,
+    'addFace(e.faces.down, [16 - z1, 16 - x1, 16 - z0, 16 - x0], [x0, y0, z1, x1, y0, z1, x1, y0, z0, x0, y0, z0]);'
+  );
+  fs.writeFileSync(blockModelPath, bmCode);
+  console.log('Successfully patched BlockModel.js down face winding order!');
+}
+
+// 2. Patch SpecialRenderer.js
 const targetPath = path.join(__dirname, '../web_android/node_modules/@mattzh72/lodestone/lib/render/SpecialRenderer.js');
 
 if (fs.existsSync(targetPath)) {
   let code = fs.readFileSync(targetPath, 'utf-8');
 
-  // 1. Add pale_oak and poplar to WoodTypes
+  // Add pale_oak and poplar to WoodTypes
   code = code.replace(
     /const WoodTypes = \[\s*[\s\S]*?\s*\];/g,
     "const WoodTypes = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'crimson', 'warped', 'mangrove', 'bamboo', 'cherry', 'pale_oak', 'poplar'];"
   );
 
-  // 2. Remove 2/3 scale in ceiling hangingSignRenderer & wallHangingSignRenderer inside getBlockMesh if present
+  // Remove 2/3 scale in ceiling hangingSignRenderer & wallHangingSignRenderer inside getBlockMesh if present
   code = code.replace(
     /mat4\.scale\(t,\s*t,\s*\[2\s*\/\s*3,\s*2\s*\/\s*3,\s*2\s*\/\s*3\]\);\s*\n\s*mat4\.translate\(t,\s*t,\s*\[-8,\s*-8,\s*-8\]\);\s*\n\s*mesh\.merge\(hangingSignRenderer/g,
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(hangingSignRenderer"
@@ -23,8 +36,7 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
   );
 
-  // 3. Update signRenderer function for 32x32 sign texture atlas
-  // Adjust position offset slightly and fix UV alignment for all 6 faces
+  // Update signRenderer function for 32x32 sign texture atlas
   const newSignRenderer = `function signRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
@@ -60,7 +72,7 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(/function signRenderer\(texture\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.signRenderer = signRenderer;/g, `${newSignRenderer}\n    SpecialRenderers.signRenderer = signRenderer;`);
 
-  // 4. Update wallSignRenderer function for 32x32 sign texture atlas
+  // Update wallSignRenderer function for 32x32 sign texture atlas
   const newWallSignRenderer = `function wallSignRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
@@ -84,8 +96,7 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(/function wallSignRenderer\(texture\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.wallSignRenderer = wallSignRenderer;/g, `${newWallSignRenderer}\n    SpecialRenderers.wallSignRenderer = wallSignRenderer;`);
 
-  // 5. Update hangingSignRenderer function
-  // Do NOT touch vertical sign board faces/uv! Only update chain planes to 45-degree crossed planes.
+  // Update hangingSignRenderer function
   const newHangingSignRenderer = `function hangingSignRenderer(texture) {
         return (attached, atlas) => {
             const chainUV = [14, 0, 16, 6];
@@ -140,7 +151,7 @@ if (fs.existsSync(targetPath)) {
                         north: { uv: [9, 8, 16, 13], texture: '#0' },
                         east: { uv: [8, 8, 9, 13], texture: '#0' },
                         up: { uv: [1, 7, 8, 8], texture: '#0' },
-                        down: { uv: [8, 7, 15, 8], texture: '#0' },
+                        down: { uv: [1, 7, 8, 8], texture: '#0' },
                     },
                 },
                 ...chainPlanes
@@ -150,8 +161,7 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(/    function hangingSignRenderer\(texture\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.hangingSignRenderer = hangingSignRenderer;/g, `    ${newHangingSignRenderer}\n    SpecialRenderers.hangingSignRenderer = hangingSignRenderer;`);
 
-  // 6. Update wallHangingSignRenderer function
-  // Fix beam side end-caps east/west faces UV ([8, 0, 10, 2] & [8, 2, 10, 4]) to fill the missing corner block!
+  // Update wallHangingSignRenderer function
   const newWallHangingSignRenderer = `function wallHangingSignRenderer(woodType) {
         return (atlas) => {
             const chainUV = [14, 0, 16, 4];
@@ -167,7 +177,7 @@ if (fs.existsSync(targetPath)) {
                         north: { uv: [9, 8, 16, 13], texture: '#0' },
                         east: { uv: [8, 8, 9, 13], texture: '#0' },
                         up: { uv: [1, 7, 8, 8], texture: '#0' },
-                        down: { uv: [8, 7, 15, 8], texture: '#0' },
+                        down: { uv: [1, 7, 8, 8], texture: '#0' },
                     },
                 },
                 {
@@ -224,7 +234,7 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(/    function wallHangingSignRenderer\(woodType\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.wallHangingSignRenderer = wallHangingSignRenderer;/g, `    ${newWallHangingSignRenderer}\n    SpecialRenderers.wallHangingSignRenderer = wallHangingSignRenderer;`);
 
-  // 7. Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
+  // Force re-population of Sign and HangingSign maps to bind patched renderer functions and include pale_oak/poplar
   const mapRefreshCode = `
     SignRenderers.clear();
     WallSignRenderers.clear();
