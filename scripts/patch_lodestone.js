@@ -23,7 +23,7 @@ if (fs.existsSync(targetPath)) {
     "mat4.translate(t, t, [-8, -8, -8]);\n            mesh.merge(wallHangingSignRenderer"
   );
 
-  // 3. Update signRenderer function for 32x32 sign texture atlas
+  // 3. Update signRenderer function for 32x32 sign texture atlas (Standing sign: shifted 1px / 0.5 UV down)
   const newSignRenderer = `function signRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
@@ -33,12 +33,12 @@ if (fs.existsSync(targetPath)) {
                     from: [-4, 8, 7],
                     to: [20, 20, 9],
                     faces: {
-                        north: { uv: [0, 0.5, 12, 6.5], texture: '#0' },
-                        east: { uv: [12, 0.5, 13, 6.5], texture: '#0' },
-                        south: { uv: [0, 8.5, 12, 14.5], texture: '#0' },
-                        west: { uv: [12, 8.5, 13, 14.5], texture: '#0' },
-                        up: { uv: [0, 0, 12, 0.5], texture: '#0' },
-                        down: { uv: [0, 6.5, 12, 7], texture: '#0' },
+                        north: { uv: [0, 1.0, 12, 7.0], texture: '#0' },
+                        east: { uv: [12, 1.0, 13, 7.0], texture: '#0' },
+                        south: { uv: [0, 9.0, 12, 15.0], texture: '#0' },
+                        west: { uv: [12, 9.0, 13, 15.0], texture: '#0' },
+                        up: { uv: [0, 0.5, 12, 1.0], texture: '#0' },
+                        down: { uv: [0, 7.0, 12, 7.5], texture: '#0' },
                     },
                 },
                 {
@@ -59,7 +59,7 @@ if (fs.existsSync(targetPath)) {
 
   code = code.replace(/    function signRenderer\(texture\) \{[\s\S]*?\n    \}\n    SpecialRenderers\.signRenderer = signRenderer;/g, `    ${newSignRenderer}\n    SpecialRenderers.signRenderer = signRenderer;`);
 
-  // 4. Update wallSignRenderer function for 32x32 sign texture atlas
+  // 4. Update wallSignRenderer function for 32x32 sign texture atlas (Wall sign: shifted 1px / 0.5 UV up)
   const newWallSignRenderer = `function wallSignRenderer(texture) {
         return (atlas) => {
             return new BlockModel(undefined, {
@@ -69,12 +69,12 @@ if (fs.existsSync(targetPath)) {
                     from: [-4, 4, 17],
                     to: [20, 16, 19],
                     faces: {
-                        north: { uv: [0, 0.5, 12, 6.5], texture: '#0' },
-                        east: { uv: [12, 0.5, 13, 6.5], texture: '#0' },
-                        south: { uv: [0, 8.5, 12, 14.5], texture: '#0' },
-                        west: { uv: [12, 8.5, 13, 14.5], texture: '#0' },
-                        up: { uv: [0, 0, 12, 0.5], texture: '#0' },
-                        down: { uv: [0, 6.5, 12, 7], texture: '#0' },
+                        north: { uv: [0, 0.0, 12, 6.0], texture: '#0' },
+                        east: { uv: [12, 0.0, 13, 6.0], texture: '#0' },
+                        south: { uv: [0, 8.0, 12, 14.0], texture: '#0' },
+                        west: { uv: [12, 8.0, 13, 14.0], texture: '#0' },
+                        up: { uv: [0, 0.0, 12, 0.5], texture: '#0' },
+                        down: { uv: [0, 6.0, 12, 6.5], texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
@@ -86,8 +86,9 @@ if (fs.existsSync(targetPath)) {
   // 5. Update hangingSignRenderer function for 32x32 hanging sign texture atlas
   const newHangingSignRenderer = `function hangingSignRenderer(texture) {
         return (attached, atlas) => {
-            const chainUV2 = [14, 0, 16, 2];
-            const chainUV3 = [14, 0, 16, 3];
+            const chainUVFull = [14, 0, 16, 4];
+            const chainUVTop2 = [14, 0, 16, 2];
+            const chainUVBot2 = [14, 2, 16, 4];
 
             if (attached) {
                 return new BlockModel(undefined, {
@@ -105,54 +106,54 @@ if (fs.existsSync(targetPath)) {
                             down: { uv: [1, 7, 8, 8], texture: '#0' },
                         },
                     },
-                    // Left vertical chain: 3 orthogonal planar rings (y=14..16, y=12..14, y=10..12)
-                    {
-                        from: [2, 14, 8],
-                        to: [4, 16, 8],
-                        faces: {
-                            north: { uv: chainUV2, texture: '#0' },
-                            south: { uv: chainUV2, texture: '#0' },
-                        },
-                    },
-                    {
-                        from: [3, 12, 7],
-                        to: [3, 14, 9],
-                        faces: {
-                            east: { uv: chainUV2, texture: '#0' },
-                            west: { uv: chainUV2, texture: '#0' },
-                        },
-                    },
+                    // Left vertical chain: 3 orthogonal planar rings (Bottom y=10..12, Middle y=11..15 full rectangle, Top y=14..16)
                     {
                         from: [2, 10, 8],
                         to: [4, 12, 8],
                         faces: {
-                            north: { uv: chainUV2, texture: '#0' },
-                            south: { uv: chainUV2, texture: '#0' },
-                        },
-                    },
-                    // Right vertical chain: 3 orthogonal planar rings (y=14..16, y=12..14, y=10..12)
-                    {
-                        from: [12, 14, 8],
-                        to: [14, 16, 8],
-                        faces: {
-                            north: { uv: chainUV2, texture: '#0' },
-                            south: { uv: chainUV2, texture: '#0' },
+                            north: { uv: chainUVBot2, texture: '#0' },
+                            south: { uv: chainUVBot2, texture: '#0' },
                         },
                     },
                     {
-                        from: [13, 12, 7],
-                        to: [13, 14, 9],
+                        from: [3, 11, 7],
+                        to: [3, 15, 9],
                         faces: {
-                            east: { uv: chainUV2, texture: '#0' },
-                            west: { uv: chainUV2, texture: '#0' },
+                            east: { uv: chainUVFull, texture: '#0' },
+                            west: { uv: chainUVFull, texture: '#0' },
                         },
                     },
+                    {
+                        from: [2, 14, 8],
+                        to: [4, 16, 8],
+                        faces: {
+                            north: { uv: chainUVTop2, texture: '#0' },
+                            south: { uv: chainUVTop2, texture: '#0' },
+                        },
+                    },
+                    // Right vertical chain: 3 orthogonal planar rings (Bottom y=10..12, Middle y=11..15 full rectangle, Top y=14..16)
                     {
                         from: [12, 10, 8],
                         to: [14, 12, 8],
                         faces: {
-                            north: { uv: chainUV2, texture: '#0' },
-                            south: { uv: chainUV2, texture: '#0' },
+                            north: { uv: chainUVBot2, texture: '#0' },
+                            south: { uv: chainUVBot2, texture: '#0' },
+                        },
+                    },
+                    {
+                        from: [13, 11, 7],
+                        to: [13, 15, 9],
+                        faces: {
+                            east: { uv: chainUVFull, texture: '#0' },
+                            west: { uv: chainUVFull, texture: '#0' },
+                        },
+                    },
+                    {
+                        from: [12, 14, 8],
+                        to: [14, 16, 8],
+                        faces: {
+                            north: { uv: chainUVTop2, texture: '#0' },
+                            south: { uv: chainUVTop2, texture: '#0' },
                         },
                     },
                 ]).getMesh(atlas, Cull.none());
@@ -173,42 +174,42 @@ if (fs.existsSync(targetPath)) {
                         down: { uv: [1, 7, 8, 8], texture: '#0' },
                     },
                 },
-                // Left chain: 2 orthogonal planar rings (upper y=13..16, lower y=10..13)
-                {
-                    from: [1.5, 13, 8],
-                    to: [4.5, 16, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 14.5, 8] },
-                    faces: {
-                        north: { uv: chainUV3, texture: '#0' },
-                        south: { uv: chainUV3, texture: '#0' },
-                    },
-                },
+                // Left chain: 2 orthogonal planar rings (lower y=10..14, upper y=12..16)
                 {
                     from: [3, 10, 6.5],
-                    to: [3, 13, 9.5],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 11.5, 8] },
+                    to: [3, 14, 9.5],
+                    rotation: { angle: 45, axis: 'y', origin: [3, 12, 8] },
                     faces: {
-                        east: { uv: chainUV3, texture: '#0' },
-                        west: { uv: chainUV3, texture: '#0' },
+                        east: { uv: chainUVFull, texture: '#0' },
+                        west: { uv: chainUVFull, texture: '#0' },
                     },
                 },
-                // Right chain: 2 orthogonal planar rings (upper y=13..16, lower y=10..13)
                 {
-                    from: [11.5, 13, 8],
-                    to: [14.5, 16, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 14.5, 8] },
+                    from: [1.5, 12, 8],
+                    to: [4.5, 16, 8],
+                    rotation: { angle: 45, axis: 'y', origin: [3, 14, 8] },
                     faces: {
-                        north: { uv: chainUV3, texture: '#0' },
-                        south: { uv: chainUV3, texture: '#0' },
+                        north: { uv: chainUVFull, texture: '#0' },
+                        south: { uv: chainUVFull, texture: '#0' },
                     },
                 },
+                // Right chain: 2 orthogonal planar rings (lower y=10..14, upper y=12..16)
                 {
                     from: [13, 10, 6.5],
-                    to: [13, 13, 9.5],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 11.5, 8] },
+                    to: [13, 14, 9.5],
+                    rotation: { angle: 45, axis: 'y', origin: [13, 12, 8] },
                     faces: {
-                        east: { uv: chainUV3, texture: '#0' },
-                        west: { uv: chainUV3, texture: '#0' },
+                        east: { uv: chainUVFull, texture: '#0' },
+                        west: { uv: chainUVFull, texture: '#0' },
+                    },
+                },
+                {
+                    from: [11.5, 12, 8],
+                    to: [14.5, 16, 8],
+                    rotation: { angle: 45, axis: 'y', origin: [13, 14, 8] },
+                    faces: {
+                        north: { uv: chainUVFull, texture: '#0' },
+                        south: { uv: chainUVFull, texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
@@ -220,7 +221,9 @@ if (fs.existsSync(targetPath)) {
   // 6. Update wallHangingSignRenderer function for 32x32 hanging sign texture atlas
   const newWallHangingSignRenderer = `function wallHangingSignRenderer(woodType) {
         return (atlas) => {
-            const chainUV2 = [14, 0, 16, 2];
+            const chainUVTop3 = [14, 0, 16, 3];
+            const chainUVBot3 = [14, 1, 16, 4];
+
             return new BlockModel(undefined, {
                 0: \`entity/signs/hanging/\${woodType}\`,
             }, [
@@ -248,42 +251,38 @@ if (fs.existsSync(targetPath)) {
                         down: { uv: [0, 2, 8, 4], texture: '#0' },
                     },
                 },
-                // Left chain: 2 orthogonal planar rings (y=12..14 top, y=10..12 bottom)
-                {
-                    from: [1.5, 12, 8],
-                    to: [4.5, 14, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 13, 8] },
-                    faces: {
-                        north: { uv: chainUV2, texture: '#0' },
-                        south: { uv: chainUV2, texture: '#0' },
-                    },
-                },
+                // Left chain: 2 orthogonal planar rings (lower y=10..13, upper y=11..14)
                 {
                     from: [3, 10, 6.5],
-                    to: [3, 12, 9.5],
-                    rotation: { angle: 45, axis: 'y', origin: [3, 11, 8] },
+                    to: [3, 13, 9.5],
                     faces: {
-                        east: { uv: chainUV2, texture: '#0' },
-                        west: { uv: chainUV2, texture: '#0' },
+                        east: { uv: chainUVBot3, texture: '#0' },
+                        west: { uv: chainUVBot3, texture: '#0' },
                     },
                 },
-                // Right chain: 2 orthogonal planar rings (y=12..14 top, y=10..12 bottom)
                 {
-                    from: [11.5, 12, 8],
-                    to: [14.5, 14, 8],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 13, 8] },
+                    from: [1.5, 11, 8],
+                    to: [4.5, 14, 8],
                     faces: {
-                        north: { uv: chainUV2, texture: '#0' },
-                        south: { uv: chainUV2, texture: '#0' },
+                        north: { uv: chainUVTop3, texture: '#0' },
+                        south: { uv: chainUVTop3, texture: '#0' },
                     },
                 },
+                // Right chain: 2 orthogonal planar rings (lower y=10..13, upper y=11..14)
                 {
                     from: [13, 10, 6.5],
-                    to: [13, 12, 9.5],
-                    rotation: { angle: 45, axis: 'y', origin: [13, 11, 8] },
+                    to: [13, 13, 9.5],
                     faces: {
-                        east: { uv: chainUV2, texture: '#0' },
-                        west: { uv: chainUV2, texture: '#0' },
+                        east: { uv: chainUVBot3, texture: '#0' },
+                        west: { uv: chainUVBot3, texture: '#0' },
+                    },
+                },
+                {
+                    from: [11.5, 11, 8],
+                    to: [14.5, 14, 8],
+                    faces: {
+                        north: { uv: chainUVTop3, texture: '#0' },
+                        south: { uv: chainUVTop3, texture: '#0' },
                     },
                 },
             ]).getMesh(atlas, Cull.none());
