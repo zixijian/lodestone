@@ -36408,6 +36408,600 @@
           "model": "minecraft:block/skull"
         }
       }
+    },
+    "copper_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_torch"
+        }
+      }
+    },
+    "copper_wall_torch": {
+      "variants": {
+        "facing=east": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=north": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 270
+        },
+        "facing=south": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 90
+        },
+        "facing=west": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 180
+        }
+      }
+    },
+    "copper_chest": {
+      "variants": {
+        "type=left,facing=north": {
+          "model": "block/copper_chest_left",
+          "y": 0
+        },
+        "type=left,facing=south": {
+          "model": "block/copper_chest_left",
+          "y": 180
+        },
+        "type=left,facing=west": {
+          "model": "block/copper_chest_left",
+          "y": 270
+        },
+        "type=left,facing=east": {
+          "model": "block/copper_chest_left",
+          "y": 90
+        },
+        "type=right,facing=north": {
+          "model": "block/copper_chest_right",
+          "y": 0
+        },
+        "type=right,facing=south": {
+          "model": "block/copper_chest_right",
+          "y": 180
+        },
+        "type=right,facing=west": {
+          "model": "block/copper_chest_right",
+          "y": 270
+        },
+        "type=right,facing=east": {
+          "model": "block/copper_chest_right",
+          "y": 90
+        },
+        "type=single,facing=north": {
+          "model": "block/copper_chest",
+          "y": 0
+        },
+        "type=single,facing=south": {
+          "model": "block/copper_chest",
+          "y": 180
+        },
+        "type=single,facing=west": {
+          "model": "block/copper_chest",
+          "y": 270
+        },
+        "type=single,facing=east": {
+          "model": "block/copper_chest",
+          "y": 90
+        },
+        "facing=north": {
+          "model": "block/copper_chest",
+          "y": 0
+        },
+        "facing=south": {
+          "model": "block/copper_chest",
+          "y": 180
+        },
+        "facing=west": {
+          "model": "block/copper_chest",
+          "y": 270
+        },
+        "facing=east": {
+          "model": "block/copper_chest",
+          "y": 90
+        },
+        "": {
+          "model": "block/copper_chest"
+        }
+      }
+    },
+    "exposed_copper_chest": {
+      "variants": {
+        "type=left,facing=north": {
+          "model": "block/exposed_copper_chest_left",
+          "y": 0
+        },
+        "type=left,facing=south": {
+          "model": "block/exposed_copper_chest_left",
+          "y": 180
+        },
+        "type=left,facing=west": {
+          "model": "block/exposed_copper_chest_left",
+          "y": 270
+        },
+        "type=left,facing=east": {
+          "model": "block/exposed_copper_chest_left",
+          "y": 90
+        },
+        "type=right,facing=north": {
+          "model": "block/exposed_copper_chest_right",
+          "y": 0
+        },
+        "type=right,facing=south": {
+          "model": "block/exposed_copper_chest_right",
+          "y": 180
+        },
+        "type=right,facing=west": {
+          "model": "block/exposed_copper_chest_right",
+          "y": 270
+        },
+        "type=right,facing=east": {
+          "model": "block/exposed_copper_chest_right",
+          "y": 90
+        },
+        "type=single,facing=north": {
+          "model": "block/exposed_copper_chest",
+          "y": 0
+        },
+        "type=single,facing=south": {
+          "model": "block/exposed_copper_chest",
+          "y": 180
+        },
+        "type=single,facing=west": {
+          "model": "block/exposed_copper_chest",
+          "y": 270
+        },
+        "type=single,facing=east": {
+          "model": "block/exposed_copper_chest",
+          "y": 90
+        },
+        "facing=north": {
+          "model": "block/exposed_copper_chest",
+          "y": 0
+        },
+        "facing=south": {
+          "model": "block/exposed_copper_chest",
+          "y": 180
+        },
+        "facing=west": {
+          "model": "block/exposed_copper_chest",
+          "y": 270
+        },
+        "facing=east": {
+          "model": "block/exposed_copper_chest",
+          "y": 90
+        },
+        "": {
+          "model": "block/exposed_copper_chest"
+        }
+      }
+    },
+    "weathered_copper_chest": {
+      "variants": {
+        "type=left,facing=north": {
+          "model": "block/weathered_copper_chest_left",
+          "y": 0
+        },
+        "type=left,facing=south": {
+          "model": "block/weathered_copper_chest_left",
+          "y": 180
+        },
+        "type=left,facing=west": {
+          "model": "block/weathered_copper_chest_left",
+          "y": 270
+        },
+        "type=left,facing=east": {
+          "model": "block/weathered_copper_chest_left",
+          "y": 90
+        },
+        "type=right,facing=north": {
+          "model": "block/weathered_copper_chest_right",
+          "y": 0
+        },
+        "type=right,facing=south": {
+          "model": "block/weathered_copper_chest_right",
+          "y": 180
+        },
+        "type=right,facing=west": {
+          "model": "block/weathered_copper_chest_right",
+          "y": 270
+        },
+        "type=right,facing=east": {
+          "model": "block/weathered_copper_chest_right",
+          "y": 90
+        },
+        "type=single,facing=north": {
+          "model": "block/weathered_copper_chest",
+          "y": 0
+        },
+        "type=single,facing=south": {
+          "model": "block/weathered_copper_chest",
+          "y": 180
+        },
+        "type=single,facing=west": {
+          "model": "block/weathered_copper_chest",
+          "y": 270
+        },
+        "type=single,facing=east": {
+          "model": "block/weathered_copper_chest",
+          "y": 90
+        },
+        "facing=north": {
+          "model": "block/weathered_copper_chest",
+          "y": 0
+        },
+        "facing=south": {
+          "model": "block/weathered_copper_chest",
+          "y": 180
+        },
+        "facing=west": {
+          "model": "block/weathered_copper_chest",
+          "y": 270
+        },
+        "facing=east": {
+          "model": "block/weathered_copper_chest",
+          "y": 90
+        },
+        "": {
+          "model": "block/weathered_copper_chest"
+        }
+      }
+    },
+    "oxidized_copper_chest": {
+      "variants": {
+        "type=left,facing=north": {
+          "model": "block/oxidized_copper_chest_left",
+          "y": 0
+        },
+        "type=left,facing=south": {
+          "model": "block/oxidized_copper_chest_left",
+          "y": 180
+        },
+        "type=left,facing=west": {
+          "model": "block/oxidized_copper_chest_left",
+          "y": 270
+        },
+        "type=left,facing=east": {
+          "model": "block/oxidized_copper_chest_left",
+          "y": 90
+        },
+        "type=right,facing=north": {
+          "model": "block/oxidized_copper_chest_right",
+          "y": 0
+        },
+        "type=right,facing=south": {
+          "model": "block/oxidized_copper_chest_right",
+          "y": 180
+        },
+        "type=right,facing=west": {
+          "model": "block/oxidized_copper_chest_right",
+          "y": 270
+        },
+        "type=right,facing=east": {
+          "model": "block/oxidized_copper_chest_right",
+          "y": 90
+        },
+        "type=single,facing=north": {
+          "model": "block/oxidized_copper_chest",
+          "y": 0
+        },
+        "type=single,facing=south": {
+          "model": "block/oxidized_copper_chest",
+          "y": 180
+        },
+        "type=single,facing=west": {
+          "model": "block/oxidized_copper_chest",
+          "y": 270
+        },
+        "type=single,facing=east": {
+          "model": "block/oxidized_copper_chest",
+          "y": 90
+        },
+        "facing=north": {
+          "model": "block/oxidized_copper_chest",
+          "y": 0
+        },
+        "facing=south": {
+          "model": "block/oxidized_copper_chest",
+          "y": 180
+        },
+        "facing=west": {
+          "model": "block/oxidized_copper_chest",
+          "y": 270
+        },
+        "facing=east": {
+          "model": "block/oxidized_copper_chest",
+          "y": 90
+        },
+        "": {
+          "model": "block/oxidized_copper_chest"
+        }
+      }
+    },
+    "waxed_copper_chest": {
+      "variants": {
+        "type=left,facing=north": {
+          "model": "block/waxed_copper_chest_left",
+          "y": 0
+        },
+        "type=left,facing=south": {
+          "model": "block/waxed_copper_chest_left",
+          "y": 180
+        },
+        "type=left,facing=west": {
+          "model": "block/waxed_copper_chest_left",
+          "y": 270
+        },
+        "type=left,facing=east": {
+          "model": "block/waxed_copper_chest_left",
+          "y": 90
+        },
+        "type=right,facing=north": {
+          "model": "block/waxed_copper_chest_right",
+          "y": 0
+        },
+        "type=right,facing=south": {
+          "model": "block/waxed_copper_chest_right",
+          "y": 180
+        },
+        "type=right,facing=west": {
+          "model": "block/waxed_copper_chest_right",
+          "y": 270
+        },
+        "type=right,facing=east": {
+          "model": "block/waxed_copper_chest_right",
+          "y": 90
+        },
+        "type=single,facing=north": {
+          "model": "block/waxed_copper_chest",
+          "y": 0
+        },
+        "type=single,facing=south": {
+          "model": "block/waxed_copper_chest",
+          "y": 180
+        },
+        "type=single,facing=west": {
+          "model": "block/waxed_copper_chest",
+          "y": 270
+        },
+        "type=single,facing=east": {
+          "model": "block/waxed_copper_chest",
+          "y": 90
+        },
+        "facing=north": {
+          "model": "block/waxed_copper_chest",
+          "y": 0
+        },
+        "facing=south": {
+          "model": "block/waxed_copper_chest",
+          "y": 180
+        },
+        "facing=west": {
+          "model": "block/waxed_copper_chest",
+          "y": 270
+        },
+        "facing=east": {
+          "model": "block/waxed_copper_chest",
+          "y": 90
+        },
+        "": {
+          "model": "block/waxed_copper_chest"
+        }
+      }
+    },
+    "waxed_exposed_copper_chest": {
+      "variants": {
+        "type=left,facing=north": {
+          "model": "block/waxed_exposed_copper_chest_left",
+          "y": 0
+        },
+        "type=left,facing=south": {
+          "model": "block/waxed_exposed_copper_chest_left",
+          "y": 180
+        },
+        "type=left,facing=west": {
+          "model": "block/waxed_exposed_copper_chest_left",
+          "y": 270
+        },
+        "type=left,facing=east": {
+          "model": "block/waxed_exposed_copper_chest_left",
+          "y": 90
+        },
+        "type=right,facing=north": {
+          "model": "block/waxed_exposed_copper_chest_right",
+          "y": 0
+        },
+        "type=right,facing=south": {
+          "model": "block/waxed_exposed_copper_chest_right",
+          "y": 180
+        },
+        "type=right,facing=west": {
+          "model": "block/waxed_exposed_copper_chest_right",
+          "y": 270
+        },
+        "type=right,facing=east": {
+          "model": "block/waxed_exposed_copper_chest_right",
+          "y": 90
+        },
+        "type=single,facing=north": {
+          "model": "block/waxed_exposed_copper_chest",
+          "y": 0
+        },
+        "type=single,facing=south": {
+          "model": "block/waxed_exposed_copper_chest",
+          "y": 180
+        },
+        "type=single,facing=west": {
+          "model": "block/waxed_exposed_copper_chest",
+          "y": 270
+        },
+        "type=single,facing=east": {
+          "model": "block/waxed_exposed_copper_chest",
+          "y": 90
+        },
+        "facing=north": {
+          "model": "block/waxed_exposed_copper_chest",
+          "y": 0
+        },
+        "facing=south": {
+          "model": "block/waxed_exposed_copper_chest",
+          "y": 180
+        },
+        "facing=west": {
+          "model": "block/waxed_exposed_copper_chest",
+          "y": 270
+        },
+        "facing=east": {
+          "model": "block/waxed_exposed_copper_chest",
+          "y": 90
+        },
+        "": {
+          "model": "block/waxed_exposed_copper_chest"
+        }
+      }
+    },
+    "waxed_weathered_copper_chest": {
+      "variants": {
+        "type=left,facing=north": {
+          "model": "block/waxed_weathered_copper_chest_left",
+          "y": 0
+        },
+        "type=left,facing=south": {
+          "model": "block/waxed_weathered_copper_chest_left",
+          "y": 180
+        },
+        "type=left,facing=west": {
+          "model": "block/waxed_weathered_copper_chest_left",
+          "y": 270
+        },
+        "type=left,facing=east": {
+          "model": "block/waxed_weathered_copper_chest_left",
+          "y": 90
+        },
+        "type=right,facing=north": {
+          "model": "block/waxed_weathered_copper_chest_right",
+          "y": 0
+        },
+        "type=right,facing=south": {
+          "model": "block/waxed_weathered_copper_chest_right",
+          "y": 180
+        },
+        "type=right,facing=west": {
+          "model": "block/waxed_weathered_copper_chest_right",
+          "y": 270
+        },
+        "type=right,facing=east": {
+          "model": "block/waxed_weathered_copper_chest_right",
+          "y": 90
+        },
+        "type=single,facing=north": {
+          "model": "block/waxed_weathered_copper_chest",
+          "y": 0
+        },
+        "type=single,facing=south": {
+          "model": "block/waxed_weathered_copper_chest",
+          "y": 180
+        },
+        "type=single,facing=west": {
+          "model": "block/waxed_weathered_copper_chest",
+          "y": 270
+        },
+        "type=single,facing=east": {
+          "model": "block/waxed_weathered_copper_chest",
+          "y": 90
+        },
+        "facing=north": {
+          "model": "block/waxed_weathered_copper_chest",
+          "y": 0
+        },
+        "facing=south": {
+          "model": "block/waxed_weathered_copper_chest",
+          "y": 180
+        },
+        "facing=west": {
+          "model": "block/waxed_weathered_copper_chest",
+          "y": 270
+        },
+        "facing=east": {
+          "model": "block/waxed_weathered_copper_chest",
+          "y": 90
+        },
+        "": {
+          "model": "block/waxed_weathered_copper_chest"
+        }
+      }
+    },
+    "waxed_oxidized_copper_chest": {
+      "variants": {
+        "type=left,facing=north": {
+          "model": "block/waxed_oxidized_copper_chest_left",
+          "y": 0
+        },
+        "type=left,facing=south": {
+          "model": "block/waxed_oxidized_copper_chest_left",
+          "y": 180
+        },
+        "type=left,facing=west": {
+          "model": "block/waxed_oxidized_copper_chest_left",
+          "y": 270
+        },
+        "type=left,facing=east": {
+          "model": "block/waxed_oxidized_copper_chest_left",
+          "y": 90
+        },
+        "type=right,facing=north": {
+          "model": "block/waxed_oxidized_copper_chest_right",
+          "y": 0
+        },
+        "type=right,facing=south": {
+          "model": "block/waxed_oxidized_copper_chest_right",
+          "y": 180
+        },
+        "type=right,facing=west": {
+          "model": "block/waxed_oxidized_copper_chest_right",
+          "y": 270
+        },
+        "type=right,facing=east": {
+          "model": "block/waxed_oxidized_copper_chest_right",
+          "y": 90
+        },
+        "type=single,facing=north": {
+          "model": "block/waxed_oxidized_copper_chest",
+          "y": 0
+        },
+        "type=single,facing=south": {
+          "model": "block/waxed_oxidized_copper_chest",
+          "y": 180
+        },
+        "type=single,facing=west": {
+          "model": "block/waxed_oxidized_copper_chest",
+          "y": 270
+        },
+        "type=single,facing=east": {
+          "model": "block/waxed_oxidized_copper_chest",
+          "y": 90
+        },
+        "facing=north": {
+          "model": "block/waxed_oxidized_copper_chest",
+          "y": 0
+        },
+        "facing=south": {
+          "model": "block/waxed_oxidized_copper_chest",
+          "y": 180
+        },
+        "facing=west": {
+          "model": "block/waxed_oxidized_copper_chest",
+          "y": 270
+        },
+        "facing=east": {
+          "model": "block/waxed_oxidized_copper_chest",
+          "y": 90
+        },
+        "": {
+          "model": "block/waxed_oxidized_copper_chest"
+        }
+      }
     }
   },
   "models": {
@@ -102741,7 +103335,7 @@
         {
           "model": "item/bundle_filled",
           "predicate": {
-            "filled": 1e-7
+            "filled": 1e-07
           }
         }
       ],
@@ -115035,6 +115629,58 @@
     },
     "item/zombified_piglin_spawn_egg": {
       "parent": "minecraft:item/template_spawn_egg"
+    },
+    "block/copper_torch": {
+      "parent": "minecraft:block/template_torch",
+      "textures": {
+        "torch": "minecraft:block/copper_torch"
+      }
+    },
+    "block/copper_wall_torch": {
+      "parent": "minecraft:block/template_torch_wall",
+      "textures": {
+        "torch": "minecraft:block/copper_torch"
+      }
+    },
+    "block/copper_chest": {
+      "textures": {
+        "particle": "minecraft:block/copper_block"
+      }
+    },
+    "block/exposed_copper_chest": {
+      "textures": {
+        "particle": "minecraft:block/copper_block"
+      }
+    },
+    "block/weathered_copper_chest": {
+      "textures": {
+        "particle": "minecraft:block/copper_block"
+      }
+    },
+    "block/oxidized_copper_chest": {
+      "textures": {
+        "particle": "minecraft:block/copper_block"
+      }
+    },
+    "block/waxed_copper_chest": {
+      "textures": {
+        "particle": "minecraft:block/copper_block"
+      }
+    },
+    "block/waxed_exposed_copper_chest": {
+      "textures": {
+        "particle": "minecraft:block/copper_block"
+      }
+    },
+    "block/waxed_weathered_copper_chest": {
+      "textures": {
+        "particle": "minecraft:block/copper_block"
+      }
+    },
+    "block/waxed_oxidized_copper_chest": {
+      "textures": {
+        "particle": "minecraft:block/copper_block"
+      }
     }
   },
   "textures": {

@@ -121,7 +121,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
     const name = block.getName().toString();
-    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+    if (name.includes('chest') && !name.includes('ender_chest') && !name.includes('boat')) {
       let type = 'single';
       if (typeof block.getProperties === 'function') {
         const props = block.getProperties();
@@ -197,8 +197,7 @@ if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
     const blockName = block.state.getName().toString();
     if (
-      blockName === 'minecraft:chest' ||
-      blockName === 'minecraft:trapped_chest' ||
+      blockName.includes('chest') ||
       blockName.includes('sign') ||
       blockName.includes('frame')
     ) {
@@ -439,6 +438,21 @@ async function init() {
     loaded.assets.blockstates['chest'] = createChestBlockState('block/chest', 'block/chest_left', 'block/chest_right');
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
 
+    const copperChestTypes = [
+      { name: 'copper_chest', tex: 'copper' },
+      { name: 'exposed_copper_chest', tex: 'copper_exposed' },
+      { name: 'weathered_copper_chest', tex: 'copper_weathered' },
+      { name: 'oxidized_copper_chest', tex: 'copper_oxidized' },
+      { name: 'waxed_copper_chest', tex: 'copper' },
+      { name: 'waxed_exposed_copper_chest', tex: 'copper_exposed' },
+      { name: 'waxed_weathered_copper_chest', tex: 'copper_weathered' },
+      { name: 'waxed_oxidized_copper_chest', tex: 'copper_oxidized' }
+    ];
+
+    for (const c of copperChestTypes) {
+      loaded.assets.blockstates[c.name] = createChestBlockState(`block/${c.name}`, `block/${c.name}_left`, `block/${c.name}_right`);
+    }
+
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
       // isLeft = type=left (Left half of double chest from viewer perspective):
       // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
@@ -504,6 +518,11 @@ async function init() {
     loaded.assets.models['block/chest_right'] = createChestHalfModel(false, 'entity/chest/normal_right');
     loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
+
+    for (const c of copperChestTypes) {
+      loaded.assets.models[`block/${c.name}_left`] = createChestHalfModel(true, `entity/chest/${c.tex}_left`);
+      loaded.assets.models[`block/${c.name}_right`] = createChestHalfModel(false, `entity/chest/${c.tex}_right`);
+    }
 
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
