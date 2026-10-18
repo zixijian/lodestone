@@ -1,16 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. Patch BlockModel.js to fix down-face winding order so WebGL CULL_FACE does not cull bottom faces
+// Revert BlockModel.js down face winding order if it was modified
 const blockModelPath = path.join(__dirname, '../web_android/node_modules/@mattzh72/lodestone/lib/render/BlockModel.js');
 if (fs.existsSync(blockModelPath)) {
   let bmCode = fs.readFileSync(blockModelPath, 'utf-8');
   bmCode = bmCode.replace(
-    /addFace\(e\.faces\.down,\s*\[16 - z1,\s*16 - x1,\s*16 - z0,\s*16 - x0\],\s*\[x0,\s*y0,\s*z0,\s*x1,\s*y0,\s*z0,\s*x1,\s*y0,\s*z1,\s*x0,\s*y0,\s*z1\]\);/g,
-    'addFace(e.faces.down, [16 - z1, 16 - x1, 16 - z0, 16 - x0], [x0, y0, z1, x1, y0, z1, x1, y0, z0, x0, y0, z0]);'
+    /addFace\(e\.faces\.down,\s*\[16 - z1,\s*16 - x1,\s*16 - z0,\s*16 - x0\],\s*\[x0,\s*y0,\s*z1,\s*x1,\s*y0,\s*z1,\s*x1,\s*y0,\s*z0,\s*x0,\s*y0,\s*z0\]\);/g,
+    'addFace(e.faces.down, [16 - z1, 16 - x1, 16 - z0, 16 - x0], [x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1]);'
   );
   fs.writeFileSync(blockModelPath, bmCode);
-  console.log('Successfully patched BlockModel.js down face winding order!');
 }
 
 // 2. Patch SpecialRenderer.js
@@ -185,9 +184,9 @@ if (fs.existsSync(targetPath)) {
                     to: [16, 16, 10],
                     faces: {
                         north: { uv: [0, 4, 8, 5], texture: '#0' },
-                        east: { uv: [8, 0, 10, 2], texture: '#0' },
+                        east: { uv: [8, 0, 10, 1], texture: '#0' },
                         south: { uv: [0, 5, 8, 6], texture: '#0' },
-                        west: { uv: [8, 2, 10, 4], texture: '#0' },
+                        west: { uv: [8, 1, 10, 2], texture: '#0' },
                         up: { uv: [0, 0, 8, 2], texture: '#0' },
                         down: { uv: [0, 2, 8, 4], texture: '#0' },
                     },
