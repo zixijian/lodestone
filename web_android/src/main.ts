@@ -661,8 +661,8 @@ async function init() {
           }
         }
 
-        const isTorchRef = texRef.includes('torch') || texRef === '#torch' || modelKey.includes('torch');
-        const isTorch = isCross && isTorchRef;
+        const isRedstoneTorch = texRef.includes('redstone') || modelKey.includes('redstone');
+        const isTorch = isCross && isRedstoneTorch;
 
         if (isTorch) {
           const y0 = f[1];
@@ -689,22 +689,19 @@ async function init() {
           }
           seenPillars.add(pillarKey);
 
-          // Standard closed 2x2 box pillar for stand-alone torches (torch, redstone_torch, soul_torch, copper_torch)
+          // Standard closed 2x2 box pillar for redstone torches
           const vStart = Math.max(0, 16 - h);
-          const isRedstone = texRef.includes('redstone') || modelKey.includes('redstone');
-          const u0 = isRedstone ? 6 : 7;
-          const u1 = isRedstone ? 10 : 9;
           const newElem: any = {
             from: [xc - 1, y0, zc - 1],
             to: [xc + 1, y1, zc + 1],
             shade: false,
             faces: {
-              up: { texture: texRef, uv: [u0, 6, u1, isRedstone ? 10 : 8] },
-              down: { texture: texRef, uv: [u0, 14, u1, 16] },
-              north: { texture: texRef, uv: [u0, vStart, u1, 16] },
-              south: { texture: texRef, uv: [u0, vStart, u1, 16] },
-              east: { texture: texRef, uv: [u0, vStart, u1, 16] },
-              west: { texture: texRef, uv: [u0, vStart, u1, 16] }
+              up: { texture: texRef, uv: [7, 6, 9, 8] },
+              down: { texture: texRef, uv: [7, 13, 9, 15] },
+              north: { texture: texRef, uv: [7, vStart, 9, 16] },
+              south: { texture: texRef, uv: [7, vStart, 9, 16] },
+              east: { texture: texRef, uv: [7, vStart, 9, 16] },
+              west: { texture: texRef, uv: [7, vStart, 9, 16] }
             }
           };
           if (rot) newElem.rotation = rot;
@@ -717,35 +714,13 @@ async function init() {
       return newElems;
     };
 
-    // Sanitize all model geometries (converting 2D cross planes for torches/repeaters/comparators to 3D box pillars)
+    // Ensure all model geometries and UVs use clean closed 3D elements for redstone torches, repeaters, and comparators
     if (loaded.assets && loaded.assets.models) {
       Object.keys(loaded.assets.models).forEach(modelKey => {
         const modelObj = loaded.assets.models[modelKey];
         if (modelObj && Array.isArray(modelObj.elements)) {
           modelObj.elements = sanitizeModelElements(modelObj.elements, modelKey);
         }
-      });
-
-      // Update redstone torch UVs on repeater/comparator/torch models so the outer glow ring (x=6..10) is sampled
-      Object.keys(loaded.assets.models).forEach(modelKey => {
-        const m = loaded.assets.models[modelKey];
-        if (!m || !Array.isArray(m.elements)) return;
-        m.elements.forEach((elem: any) => {
-          if (!elem || !elem.faces) return;
-          Object.keys(elem.faces).forEach((faceKey: string) => {
-            const f = elem.faces[faceKey];
-            if (!f || !Array.isArray(f.uv) || f.uv.length !== 4) return;
-            const tex = f.texture || '';
-            const isRedstone = tex.includes('lit') || tex.includes('unlit') || tex.includes('redstone') || modelKey.includes('repeater') || modelKey.includes('comparator');
-            if (isRedstone && f.uv[0] === 7 && f.uv[2] === 9) {
-              f.uv[0] = 6;
-              f.uv[2] = 10;
-              if (faceKey === 'up' && f.uv[1] === 6 && f.uv[3] === 8) {
-                f.uv[3] = 10;
-              }
-            }
-          });
-        });
       });
     }
 
