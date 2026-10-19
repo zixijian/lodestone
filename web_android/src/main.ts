@@ -629,6 +629,11 @@ async function init() {
 
     const sanitizeModelElements = (elements: any[], modelKey: string = '') => {
       if (!Array.isArray(elements)) return elements;
+      // Do not convert repeater/comparator models as they already possess valid 3D base slabs and redstone torch elements
+      if (modelKey.includes('repeater') || modelKey.includes('comparator')) {
+        return elements;
+      }
+
       const newElems: any[] = [];
       const seenPillars = new Set<string>();
 
@@ -656,17 +661,14 @@ async function init() {
           }
         }
 
-        const isTorchOrRedstoneTex = (
+        const isTorch = (
+          isCross ||
           texRef.includes('torch') ||
-          texRef === '#lit' ||
-          texRef === '#unlit' ||
           texRef === '#torch' ||
-          modelKey.includes('torch') ||
-          modelKey.includes('repeater') ||
-          modelKey.includes('comparator')
+          modelKey.includes('torch')
         );
 
-        if (isCross || isTorchOrRedstoneTex) {
+        if (isTorch) {
           const y0 = f[1];
           const y1 = t[1];
           const h = Math.round(y1 - y0);
@@ -691,7 +693,7 @@ async function init() {
           }
           seenPillars.add(pillarKey);
 
-          // Standard closed 2x2 box pillar for all torches (torch, redstone_torch, soul_torch, copper_torch, repeater, comparator)
+          // Standard closed 2x2 box pillar for stand-alone torches (torch, redstone_torch, soul_torch, copper_torch)
           const vStart = Math.max(0, 16 - h);
           const newElem: any = {
             from: [xc - 1, y0, zc - 1],
