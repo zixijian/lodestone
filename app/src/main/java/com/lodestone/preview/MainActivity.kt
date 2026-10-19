@@ -81,7 +81,7 @@ class MainActivity : AppCompatActivity() {
                     var entry = zipIn.nextEntry
                     while (entry != null) {
                         val entryName = entry.name
-                        if (entryName.startsWith("assets/") || entryName == "pack.mcmeta" || entryName.endsWith("assets.json")) {
+                        if (entryName.contains("assets/") || entryName.endsWith("pack.mcmeta") || entryName.endsWith("assets.json")) {
                             hasValidStructure = true
                         }
                         val outFile = File(tempDir, entryName)
@@ -103,6 +103,23 @@ class MainActivity : AppCompatActivity() {
                     tempDir.deleteRecursively()
                     Toast.makeText(this, "无效的材质包格式 (未找到 assets 文件夹或 pack.mcmeta)", Toast.LENGTH_LONG).show()
                     return
+                }
+
+                // Unwrap single top-level wrapper directory if assets folder is nested
+                val assetsDir = File(tempDir, "assets")
+                if (!assetsDir.exists()) {
+                    val subDirs = tempDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
+                    for (sub in subDirs) {
+                        val subAssets = File(sub, "assets")
+                        if (subAssets.exists() && subAssets.isDirectory) {
+                            sub.listFiles()?.forEach { file ->
+                                val dest = File(tempDir, file.name)
+                                file.renameTo(dest)
+                            }
+                            sub.deleteRecursively()
+                            break
+                        }
+                    }
                 }
 
                 val targetDir = File(filesDir, "custom_resource_pack")

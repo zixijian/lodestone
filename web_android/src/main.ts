@@ -121,7 +121,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
     const name = block.getName().toString();
-    if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
+    if (name.includes('chest') && !name.includes('ender_chest') && !name.includes('boat')) {
       let type = 'single';
       if (typeof block.getProperties === 'function') {
         const props = block.getProperties();
@@ -197,8 +197,7 @@ if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
     const blockName = block.state.getName().toString();
     if (
-      blockName === 'minecraft:chest' ||
-      blockName === 'minecraft:trapped_chest' ||
+      blockName.includes('chest') ||
       blockName.includes('sign') ||
       blockName.includes('frame')
     ) {
@@ -439,6 +438,21 @@ async function init() {
     loaded.assets.blockstates['chest'] = createChestBlockState('block/chest', 'block/chest_left', 'block/chest_right');
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
 
+    const copperChestTypes = [
+      { name: 'copper_chest', tex: 'copper' },
+      { name: 'exposed_copper_chest', tex: 'copper_exposed' },
+      { name: 'weathered_copper_chest', tex: 'copper_weathered' },
+      { name: 'oxidized_copper_chest', tex: 'copper_oxidized' },
+      { name: 'waxed_copper_chest', tex: 'copper' },
+      { name: 'waxed_exposed_copper_chest', tex: 'copper_exposed' },
+      { name: 'waxed_weathered_copper_chest', tex: 'copper_weathered' },
+      { name: 'waxed_oxidized_copper_chest', tex: 'copper_oxidized' }
+    ];
+
+    for (const c of copperChestTypes) {
+      loaded.assets.blockstates[c.name] = createChestBlockState(`block/${c.name}`, `block/${c.name}_left`, `block/${c.name}_right`);
+    }
+
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
       // isLeft = type=left (Left half of double chest from viewer perspective):
       // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
@@ -504,6 +518,11 @@ async function init() {
     loaded.assets.models['block/chest_right'] = createChestHalfModel(false, 'entity/chest/normal_right');
     loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
+
+    for (const c of copperChestTypes) {
+      loaded.assets.models[`block/${c.name}_left`] = createChestHalfModel(true, `entity/chest/${c.tex}_left`);
+      loaded.assets.models[`block/${c.name}_right`] = createChestHalfModel(false, `entity/chest/${c.tex}_right`);
+    }
 
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
@@ -608,6 +627,103 @@ async function init() {
     loaded.assets.models['block/item_frame'] = createItemFrameModel();
     loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
 
+    const sanitizeModelElements = (elements: any[], modelKey: string = '') => {
+      if (!Array.isArray(elements)) return elements;
+      // Do not convert repeater/comparator models as they already possess valid 3D base slabs and redstone torch elements
+      if (modelKey.includes('repeater') || modelKey.includes('comparator')) {
+        return elements;
+      }
+
+      const newElems: any[] = [];
+      const seenPillars = new Set<string>();
+
+      for (const elem of elements) {
+        if (!elem || typeof elem !== 'object') {
+          newElems.push(elem);
+          continue;
+        }
+
+        const f = elem.from;
+        const t = elem.to;
+        if (!Array.isArray(f) || !Array.isArray(t) || f.length !== 3 || t.length !== 3) {
+          newElems.push(elem);
+          continue;
+        }
+
+        const isCross = (f[0] === t[0] || f[2] === t[2]);
+        let texRef = '#torch';
+        if (elem.faces && typeof elem.faces === 'object') {
+          for (const faceData of Object.values(elem.faces) as any[]) {
+            if (faceData && typeof faceData === 'object' && faceData.texture) {
+              texRef = faceData.texture;
+              break;
+            }
+          }
+        }
+
+        const isRedstoneTorch = texRef.includes('redstone') || modelKey.includes('redstone');
+        const isTorch = isCross && isRedstoneTorch;
+
+        if (isTorch) {
+          const y0 = f[1];
+          const y1 = t[1];
+          const h = Math.round(y1 - y0);
+          if (h <= 0) continue;
+
+          let rawXc = f[0] === t[0] ? f[0] : (f[0] + t[0]) / 2.0;
+          let rawZc = f[2] === t[2] ? f[2] : (f[2] + t[2]) / 2.0;
+
+          let xc = Math.round(rawXc);
+          let zc = Math.round(rawZc);
+
+          if (Math.abs(xc - 8) <= 2 && Math.abs(zc - 8) <= 2) {
+            xc = 8;
+            zc = 8;
+          }
+
+          const rot = elem.rotation;
+          const rotKey = rot ? JSON.stringify(rot) : '';
+          const pillarKey = `${xc},${y0},${zc},${y1},${rotKey}`;
+          if (seenPillars.has(pillarKey)) {
+            continue;
+          }
+          seenPillars.add(pillarKey);
+
+          // Standard closed 2x2 box pillar for redstone torches
+          const vStart = Math.max(0, 16 - h);
+          const newElem: any = {
+            from: [xc - 1, y0, zc - 1],
+            to: [xc + 1, y1, zc + 1],
+            shade: false,
+            faces: {
+              up: { texture: texRef, uv: [7, 6, 9, 8] },
+              down: { texture: texRef, uv: [7, 13, 9, 15] },
+              north: { texture: texRef, uv: [7, vStart, 9, 16] },
+              south: { texture: texRef, uv: [7, vStart, 9, 16] },
+              east: { texture: texRef, uv: [7, vStart, 9, 16] },
+              west: { texture: texRef, uv: [7, vStart, 9, 16] }
+            }
+          };
+          if (rot) newElem.rotation = rot;
+          newElems.push(newElem);
+        } else {
+          newElems.push(elem);
+        }
+      }
+
+      return newElems;
+    };
+
+    // Ensure all model geometries and UVs use clean closed 3D elements for redstone torches, repeaters, and comparators
+    if (loaded.assets && loaded.assets.models) {
+      Object.keys(loaded.assets.models).forEach(modelKey => {
+        const modelObj = loaded.assets.models[modelKey];
+        if (modelObj && Array.isArray(modelObj.elements)) {
+          modelObj.elements = sanitizeModelElements(modelObj.elements, modelKey);
+        }
+      });
+    }
+
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
     const nonSelfCullingText = nonSelfCullingRes && nonSelfCullingRes.ok ? await nonSelfCullingRes.text() : '';
@@ -625,6 +741,18 @@ async function init() {
         parsedTransparent.add(id);
       }
     });
+
+    // Alias raw textures in loaded.assets.textures prior to createResourcesFromPack so atlas.idMap registers both prefixed and non-prefixed keys
+    if (loaded.assets && loaded.assets.textures) {
+      const rawTexMap = loaded.assets.textures;
+      Object.keys(rawTexMap).forEach(key => {
+        if (!key.startsWith('minecraft:')) {
+          rawTexMap['minecraft:' + key] = rawTexMap[key];
+        } else {
+          rawTexMap[key.replace('minecraft:', '')] = rawTexMap[key];
+        }
+      });
+    }
 
     const flags = {
       opaque: strictOpaque,
