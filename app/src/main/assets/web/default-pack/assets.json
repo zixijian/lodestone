@@ -36418,6 +36418,9 @@
     },
     "copper_wall_torch": {
       "variants": {
+        "": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
         "facing=east": {
           "model": "minecraft:block/copper_wall_torch"
         },
@@ -37000,6 +37003,209 @@
         },
         "": {
           "model": "block/waxed_oxidized_copper_chest"
+        }
+      }
+    },
+    "exposed_copper_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_torch"
+        }
+      }
+    },
+    "exposed_copper_wall_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=east": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=north": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 270
+        },
+        "facing=south": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 90
+        },
+        "facing=west": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 180
+        }
+      }
+    },
+    "weathered_copper_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_torch"
+        }
+      }
+    },
+    "weathered_copper_wall_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=east": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=north": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 270
+        },
+        "facing=south": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 90
+        },
+        "facing=west": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 180
+        }
+      }
+    },
+    "oxidized_copper_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_torch"
+        }
+      }
+    },
+    "oxidized_copper_wall_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=east": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=north": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 270
+        },
+        "facing=south": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 90
+        },
+        "facing=west": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 180
+        }
+      }
+    },
+    "waxed_copper_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_torch"
+        }
+      }
+    },
+    "waxed_copper_wall_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=east": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=north": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 270
+        },
+        "facing=south": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 90
+        },
+        "facing=west": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 180
+        }
+      }
+    },
+    "waxed_exposed_copper_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_torch"
+        }
+      }
+    },
+    "waxed_exposed_copper_wall_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=east": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=north": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 270
+        },
+        "facing=south": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 90
+        },
+        "facing=west": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 180
+        }
+      }
+    },
+    "waxed_weathered_copper_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_torch"
+        }
+      }
+    },
+    "waxed_weathered_copper_wall_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=east": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=north": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 270
+        },
+        "facing=south": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 90
+        },
+        "facing=west": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 180
+        }
+      }
+    },
+    "waxed_oxidized_copper_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_torch"
+        }
+      }
+    },
+    "waxed_oxidized_copper_wall_torch": {
+      "variants": {
+        "": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=east": {
+          "model": "minecraft:block/copper_wall_torch"
+        },
+        "facing=north": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 270
+        },
+        "facing=south": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 90
+        },
+        "facing=west": {
+          "model": "minecraft:block/copper_wall_torch",
+          "y": 180
         }
       }
     }
@@ -103335,7 +103541,7 @@
         {
           "model": "item/bundle_filled",
           "predicate": {
-            "filled": 1e-07
+            "filled": 1e-7
           }
         }
       ],
@@ -115680,6 +115886,12 @@
     "block/waxed_oxidized_copper_chest": {
       "textures": {
         "particle": "minecraft:block/copper_block"
+      }
+    },
+    "item/copper_torch": {
+      "parent": "minecraft:item/generated",
+      "textures": {
+        "layer0": "minecraft:block/copper_torch"
       }
     }
   },

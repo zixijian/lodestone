@@ -627,7 +627,7 @@ async function init() {
     loaded.assets.models['block/item_frame'] = createItemFrameModel();
     loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
 
-    const sanitizeModelElements = (elements: any[]) => {
+    const sanitizeModelElements = (elements: any[], modelKey: string = '') => {
       if (!Array.isArray(elements)) return elements;
       const newElems: any[] = [];
       const seenPillars = new Set<string>();
@@ -646,17 +646,24 @@ async function init() {
         }
 
         const isCross = (f[0] === t[0] || f[2] === t[2]);
-        if (isCross) {
-          let texRef = '#torch';
-          if (elem.faces && typeof elem.faces === 'object') {
-            for (const faceData of Object.values(elem.faces) as any[]) {
-              if (faceData && typeof faceData === 'object' && faceData.texture) {
-                texRef = faceData.texture;
-                break;
-              }
+        let texRef = '#torch';
+        if (elem.faces && typeof elem.faces === 'object') {
+          for (const faceData of Object.values(elem.faces) as any[]) {
+            if (faceData && typeof faceData === 'object' && faceData.texture) {
+              texRef = faceData.texture;
+              break;
             }
           }
+        }
 
+        const isRedstoneTorchTex = (
+          texRef.includes('redstone_torch') ||
+          texRef === '#lit' ||
+          texRef === '#unlit' ||
+          (texRef === '#torch' && (modelKey.includes('redstone_torch') || modelKey.includes('repeater') || modelKey.includes('comparator')))
+        );
+
+        if (isCross || isRedstoneTorchTex) {
           const y0 = f[1];
           const y1 = t[1];
           const h = Math.round(y1 - y0);
@@ -681,34 +688,68 @@ async function init() {
           }
           seenPillars.add(pillarKey);
 
-          let xFrom = xc - 1;
-          let xTo = xc + 1;
-          let zFrom = zc - 1;
-          let zTo = zc + 1;
+          if (isRedstoneTorchTex) {
+            const stemH = Math.max(1, h > 4 ? h - 4 : Math.floor(h / 2));
+            const headH = h - stemH;
 
-          if (y0 === 0 && xc === 8 && zc === 8 && h >= 8) {
-            xFrom = 7; xTo = 9;
-            zFrom = 7; zTo = 9;
-          }
+            // Stem (2x2)
+            const stemElem: any = {
+              from: [xc - 1, y0, zc - 1],
+              to: [xc + 1, y0 + stemH, zc + 1],
+              shade: false,
+              faces: {
+                down: { texture: texRef, uv: [7, 13, 9, 15] },
+                north: { texture: texRef, uv: [7, 16 - stemH, 9, 16] },
+                south: { texture: texRef, uv: [7, 16 - stemH, 9, 16] },
+                east: { texture: texRef, uv: [7, 16 - stemH, 9, 16] },
+                west: { texture: texRef, uv: [7, 16 - stemH, 9, 16] }
+              }
+            };
+            if (rot) stemElem.rotation = rot;
+            newElems.push(stemElem);
 
-          const newElem: any = {
-            from: [xFrom, y0, zFrom],
-            to: [xTo, y1, zTo],
-            shade: false,
-            faces: {
-              up: { texture: texRef, uv: [7, 6, 9, 8] },
-              down: { texture: texRef, uv: [7, 13, 9, 15] },
-              north: { texture: texRef, uv: [7, 6, 9, 6 + h] },
-              south: { texture: texRef, uv: [7, 6, 9, 6 + h] },
-              east: { texture: texRef, uv: [7, 6, 9, 6 + h] },
-              west: { texture: texRef, uv: [7, 6, 9, 6 + h] }
+            // Head (4x4 red outer head)
+            const headElem: any = {
+              from: [xc - 2, y0 + stemH, zc - 2],
+              to: [xc + 2, y0 + stemH + headH, zc + 2],
+              shade: false,
+              faces: {
+                up: { texture: texRef, uv: [6, 5, 10, 9] },
+                down: { texture: texRef, uv: [6, 5, 10, 9] },
+                north: { texture: texRef, uv: [6, 5, 10, 9] },
+                south: { texture: texRef, uv: [6, 5, 10, 9] },
+                east: { texture: texRef, uv: [6, 5, 10, 9] },
+                west: { texture: texRef, uv: [6, 5, 10, 9] }
+              }
+            };
+            if (rot) headElem.rotation = rot;
+            newElems.push(headElem);
+          } else {
+            // Standard 2x2 torch (for regular torch, soul torch, copper torch)
+            let xFrom = xc - 1, xTo = xc + 1;
+            let zFrom = zc - 1, zTo = zc + 1;
+
+            if (y0 === 0 && xc === 8 && zc === 8 && h >= 8) {
+              xFrom = 7; xTo = 9;
+              zFrom = 7; zTo = 9;
             }
-          };
 
-          if (rot) {
-            newElem.rotation = rot;
+            const newElem: any = {
+              from: [xFrom, y0, zFrom],
+              to: [xTo, y1, zTo],
+              shade: false,
+              faces: {
+                up: { texture: texRef, uv: [7, 6, 9, 8] },
+                down: { texture: texRef, uv: [7, 13, 9, 15] },
+                north: { texture: texRef, uv: [7, 6, 9, 6 + h] },
+                south: { texture: texRef, uv: [7, 6, 9, 6 + h] },
+                east: { texture: texRef, uv: [7, 6, 9, 6 + h] },
+                west: { texture: texRef, uv: [7, 6, 9, 6 + h] }
+              }
+            };
+            if (rot) newElem.rotation = rot;
+            newElems.push(newElem);
           }
-          newElems.push(newElem);
         } else {
           newElems.push(elem);
         }
@@ -722,7 +763,7 @@ async function init() {
       Object.keys(loaded.assets.models).forEach(modelKey => {
         const modelObj = loaded.assets.models[modelKey];
         if (modelObj && Array.isArray(modelObj.elements)) {
-          modelObj.elements = sanitizeModelElements(modelObj.elements);
+          modelObj.elements = sanitizeModelElements(modelObj.elements, modelKey);
         }
       });
     }
