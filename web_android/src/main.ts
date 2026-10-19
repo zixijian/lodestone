@@ -656,14 +656,17 @@ async function init() {
           }
         }
 
-        const isRedstoneTorchTex = (
-          texRef.includes('redstone_torch') ||
+        const isTorchOrRedstoneTex = (
+          texRef.includes('torch') ||
           texRef === '#lit' ||
           texRef === '#unlit' ||
-          (texRef === '#torch' && (modelKey.includes('redstone_torch') || modelKey.includes('repeater') || modelKey.includes('comparator')))
+          texRef === '#torch' ||
+          modelKey.includes('torch') ||
+          modelKey.includes('repeater') ||
+          modelKey.includes('comparator')
         );
 
-        if (isCross || isRedstoneTorchTex) {
+        if (isCross || isTorchOrRedstoneTex) {
           const y0 = f[1];
           const y1 = t[1];
           const h = Math.round(y1 - y0);
@@ -688,68 +691,23 @@ async function init() {
           }
           seenPillars.add(pillarKey);
 
-          if (isRedstoneTorchTex) {
-            const stemH = Math.max(1, h > 4 ? h - 4 : Math.floor(h / 2));
-            const headH = h - stemH;
-
-            // Stem (2x2)
-            const stemElem: any = {
-              from: [xc - 1, y0, zc - 1],
-              to: [xc + 1, y0 + stemH, zc + 1],
-              shade: false,
-              faces: {
-                down: { texture: texRef, uv: [7, 13, 9, 15] },
-                north: { texture: texRef, uv: [7, 16 - stemH, 9, 16] },
-                south: { texture: texRef, uv: [7, 16 - stemH, 9, 16] },
-                east: { texture: texRef, uv: [7, 16 - stemH, 9, 16] },
-                west: { texture: texRef, uv: [7, 16 - stemH, 9, 16] }
-              }
-            };
-            if (rot) stemElem.rotation = rot;
-            newElems.push(stemElem);
-
-            // Head (4x4 red outer head)
-            const headElem: any = {
-              from: [xc - 2, y0 + stemH, zc - 2],
-              to: [xc + 2, y0 + stemH + headH, zc + 2],
-              shade: false,
-              faces: {
-                up: { texture: texRef, uv: [6, 5, 10, 9] },
-                down: { texture: texRef, uv: [6, 5, 10, 9] },
-                north: { texture: texRef, uv: [6, 5, 10, 9] },
-                south: { texture: texRef, uv: [6, 5, 10, 9] },
-                east: { texture: texRef, uv: [6, 5, 10, 9] },
-                west: { texture: texRef, uv: [6, 5, 10, 9] }
-              }
-            };
-            if (rot) headElem.rotation = rot;
-            newElems.push(headElem);
-          } else {
-            // Standard 2x2 torch (for regular torch, soul torch, copper torch)
-            let xFrom = xc - 1, xTo = xc + 1;
-            let zFrom = zc - 1, zTo = zc + 1;
-
-            if (y0 === 0 && xc === 8 && zc === 8 && h >= 8) {
-              xFrom = 7; xTo = 9;
-              zFrom = 7; zTo = 9;
+          // Standard closed 2x2 box pillar for all torches (torch, redstone_torch, soul_torch, copper_torch, repeater, comparator)
+          const vStart = Math.max(0, 16 - h);
+          const newElem: any = {
+            from: [xc - 1, y0, zc - 1],
+            to: [xc + 1, y1, zc + 1],
+            shade: false,
+            faces: {
+              up: { texture: texRef, uv: [7, 6, 9, 8] },
+              down: { texture: texRef, uv: [7, 14, 9, 16] },
+              north: { texture: texRef, uv: [7, vStart, 9, 16] },
+              south: { texture: texRef, uv: [7, vStart, 9, 16] },
+              east: { texture: texRef, uv: [7, vStart, 9, 16] },
+              west: { texture: texRef, uv: [7, vStart, 9, 16] }
             }
-
-            const newElem: any = {
-              from: [xFrom, y0, zFrom],
-              to: [xTo, y1, zTo],
-              shade: false,
-              faces: {
-                up: { texture: texRef, uv: [7, 6, 9, 8] },
-                down: { texture: texRef, uv: [7, 13, 9, 15] },
-                north: { texture: texRef, uv: [7, 6, 9, 6 + h] },
-                south: { texture: texRef, uv: [7, 6, 9, 6 + h] },
-                east: { texture: texRef, uv: [7, 6, 9, 6 + h] },
-                west: { texture: texRef, uv: [7, 6, 9, 6 + h] }
-              }
-            };
-            if (rot) newElem.rotation = rot;
-            newElems.push(newElem);
-          }
+          };
+          if (rot) newElem.rotation = rot;
+          newElems.push(newElem);
         } else {
           newElems.push(elem);
         }
@@ -785,6 +743,18 @@ async function init() {
         parsedTransparent.add(id);
       }
     });
+
+    // Alias raw textures in loaded.assets.textures prior to createResourcesFromPack so atlas.idMap registers both prefixed and non-prefixed keys
+    if (loaded.assets && loaded.assets.textures) {
+      const rawTexMap = loaded.assets.textures;
+      Object.keys(rawTexMap).forEach(key => {
+        if (!key.startsWith('minecraft:')) {
+          rawTexMap['minecraft:' + key] = rawTexMap[key];
+        } else {
+          rawTexMap[key.replace('minecraft:', '')] = rawTexMap[key];
+        }
+      });
+    }
 
     const flags = {
       opaque: strictOpaque,
