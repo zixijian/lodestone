@@ -32,11 +32,17 @@ object ZipUtils {
             val texturesObj = jsonObject.optJSONObject("textures") ?: return
 
             val canvas = Canvas(baseAtlasBitmap)
+            val paint = android.graphics.Paint().apply {
+                isAntiAlias = true
+                isFilterBitmap = true
+            }
 
             val keys = texturesObj.keys()
             while (keys.hasNext()) {
-                val texKey = keys.next()
-                val coords = texturesObj.getJSONArray(texKey)
+                val texKeyRaw = keys.next()
+                val texKey = if (texKeyRaw.startsWith("minecraft:")) texKeyRaw.substring(10) else texKeyRaw
+
+                val coords = texturesObj.getJSONArray(texKeyRaw)
                 if (coords.length() < 4) continue
 
                 val u = coords.getInt(0)
@@ -52,6 +58,7 @@ object ZipUtils {
                 targetDir.listFiles()?.filter { it.isDirectory }?.forEach { subDir ->
                     candidateFiles.add(File(subDir, "assets/minecraft/textures/$texKey.png"))
                     candidateFiles.add(File(subDir, "textures/$texKey.png"))
+                    candidateFiles.add(File(subDir, "$texKey.png"))
                 }
 
                 val texFile = candidateFiles.firstOrNull { it.exists() && it.isFile }
@@ -61,7 +68,7 @@ object ZipUtils {
                         if (customBm != null) {
                             val srcRect = Rect(0, 0, customBm.width, customBm.height)
                             val dstRect = Rect(u, v, u + du, v + dv)
-                            canvas.drawBitmap(customBm, srcRect, dstRect, null)
+                            canvas.drawBitmap(customBm, srcRect, dstRect, paint)
                             customBm.recycle()
                         }
                     } catch (e: Exception) {

@@ -112,6 +112,12 @@ class PreviewActivity : AppCompatActivity() {
                     val rawSub = path.substringAfter("/default-pack/").substringBefore("?")
                     val subPath = rawSub
                     val customPackFile = File(filesDir, "custom_resource_pack/$subPath")
+                    val responseHeaders = mapOf(
+                        "Access-Control-Allow-Origin" to "*",
+                        "Cache-Control" to "no-cache, no-store, must-revalidate",
+                        "Pragma" to "no-cache",
+                        "Expires" to "0"
+                    )
                     if (customPackFile.exists() && customPackFile.isFile) {
                         try {
                             val mimeType = when {
@@ -125,11 +131,31 @@ class PreviewActivity : AppCompatActivity() {
                                 encoding,
                                 200,
                                 "OK",
-                                mapOf("Access-Control-Allow-Origin" to "*"),
+                                responseHeaders,
                                 FileInputStream(customPackFile)
                             )
                         } catch (e: Exception) {
                             Log.e("Lodestone", "Failed to serve custom resource pack file", e)
+                        }
+                    } else {
+                        try {
+                            val assetStream = assets.open("web/default-pack/$subPath")
+                            val mimeType = when {
+                                subPath.endsWith(".png", ignoreCase = true) -> "image/png"
+                                subPath.endsWith(".json", ignoreCase = true) -> "application/json"
+                                else -> "application/octet-stream"
+                            }
+                            val encoding = if (mimeType.startsWith("image/") || mimeType == "application/octet-stream") null else "UTF-8"
+                            return WebResourceResponse(
+                                mimeType,
+                                encoding,
+                                200,
+                                "OK",
+                                responseHeaders,
+                                assetStream
+                            )
+                        } catch (e: Exception) {
+                            // Fallback to assetLoader
                         }
                     }
                 }
