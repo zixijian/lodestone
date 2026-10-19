@@ -714,12 +714,81 @@ async function init() {
       return newElems;
     };
 
+    // Function to add lit red outer glow overlay elements to illuminated redstone torches, repeaters, and comparators
+    const addLitGlowOverlay = (elements: any[], modelKey: string = '') => {
+      if (!Array.isArray(elements) || elements.length === 0) return elements;
+
+      const updatedElems: any[] = [];
+
+      for (const elem of elements) {
+        updatedElems.push(elem);
+
+        if (!elem || typeof elem !== 'object') continue;
+        const f = elem.from;
+        const t = elem.to;
+        if (!Array.isArray(f) || !Array.isArray(t) || f.length !== 3 || t.length !== 3) continue;
+
+        // Check if element is a lit torch element or part of a lit redstone torch/repeater/comparator model
+        let isLitElement = false;
+        if (elem.faces && typeof elem.faces === 'object') {
+          for (const faceData of Object.values(elem.faces) as any[]) {
+            if (faceData && typeof faceData === 'object' && faceData.texture) {
+              const tex = String(faceData.texture);
+              if (tex.includes('redstone_torch') && !tex.includes('off')) {
+                isLitElement = true;
+                break;
+              }
+              if (tex === '#lit' || tex === '#torch') {
+                if (modelKey.includes('on') || (!modelKey.includes('off') && modelKey.includes('redstone_torch'))) {
+                  isLitElement = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        if (isLitElement) {
+          const x0 = Math.min(f[0], t[0]);
+          const x1 = Math.max(f[0], t[0]);
+          const y0 = Math.min(f[1], t[1]);
+          const y1 = Math.max(f[1], t[1]);
+          const z0 = Math.min(f[2], t[2]);
+          const z1 = Math.max(f[2], t[2]);
+
+          const isTorchBody = (x1 - x0 >= 1.5 && x1 - x0 <= 3.5) && (z1 - z0 >= 1.5 && z1 - z0 <= 3.5) && (y1 - y0 >= 2);
+          if (isTorchBody) {
+            // Expand the illuminated top portion (glow head overlay)
+            const topY0 = Math.max(y0, y1 - 3);
+            const overlayElem: any = {
+              from: [x0 - 0.5, topY0, z0 - 0.5],
+              to: [x1 + 0.5, y1 + 0.5, z1 + 0.5],
+              shade: false,
+              faces: {
+                up: { texture: 'block/redstone_dust_overlay', uv: [6, 6, 10, 10] },
+                down: { texture: 'block/redstone_dust_overlay', uv: [6, 6, 10, 10] },
+                north: { texture: 'block/redstone_dust_overlay', uv: [6, 6, 10, 10] },
+                south: { texture: 'block/redstone_dust_overlay', uv: [6, 6, 10, 10] },
+                east: { texture: 'block/redstone_dust_overlay', uv: [6, 6, 10, 10] },
+                west: { texture: 'block/redstone_dust_overlay', uv: [6, 6, 10, 10] }
+              }
+            };
+            if (elem.rotation) overlayElem.rotation = elem.rotation;
+            updatedElems.push(overlayElem);
+          }
+        }
+      }
+
+      return updatedElems;
+    };
+
     // Ensure all model geometries and UVs use clean closed 3D elements for redstone torches, repeaters, and comparators
     if (loaded.assets && loaded.assets.models) {
       Object.keys(loaded.assets.models).forEach(modelKey => {
         const modelObj = loaded.assets.models[modelKey];
         if (modelObj && Array.isArray(modelObj.elements)) {
           modelObj.elements = sanitizeModelElements(modelObj.elements, modelKey);
+          modelObj.elements = addLitGlowOverlay(modelObj.elements, modelKey);
         }
       });
     }
