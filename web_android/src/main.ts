@@ -782,7 +782,7 @@ async function init() {
       return updatedElems;
     };
 
-    // Function to resolve full model elements and texture variables across parent inheritance trees
+    // Function to resolve full model elements and texture variables across parent inheritance trees safely
     const resolveFullModelElements = (modelKey: string, assetsModels: Record<string, any>) => {
       let currKey = modelKey.replace(/^minecraft:/, '');
       if (!currKey.startsWith('block/') && !currKey.startsWith('item/')) {
@@ -790,8 +790,10 @@ async function init() {
       }
       let mergedTex: Record<string, string> = {};
       let elements: any[] | null = null;
+      const visitedParents = new Set<string>();
 
-      while (currKey && assetsModels[currKey]) {
+      while (currKey && assetsModels[currKey] && !visitedParents.has(currKey)) {
+        visitedParents.add(currKey);
         const m = assetsModels[currKey];
         if (m.textures) {
           mergedTex = { ...m.textures, ...mergedTex };
@@ -817,10 +819,13 @@ async function init() {
           Object.keys(elem.faces).forEach((faceKey) => {
             let tex = elem.faces[faceKey]?.texture;
             if (tex && typeof tex === 'string') {
-              while (tex.startsWith('#')) {
+              let varResolveDepth = 0;
+              while (tex.startsWith('#') && varResolveDepth < 10) {
+                varResolveDepth++;
                 const varName = tex.slice(1);
-                if (mergedTex[varName]) {
-                  tex = mergedTex[varName];
+                const nextTex = mergedTex[varName];
+                if (nextTex && nextTex !== tex) {
+                  tex = nextTex;
                 } else {
                   break;
                 }
@@ -834,10 +839,13 @@ async function init() {
       return elements;
     };
 
-    // Ensure all model geometries and UVs use clean closed 3D elements for redstone torches, repeaters, and comparators
+    // Target ONLY redstone torch, repeater, and comparator models to prevent affecting other blocks
     if (loaded.assets && loaded.assets.models) {
-      // First resolve flattened elements for parent-dependent models like redstone_torch
-      Object.keys(loaded.assets.models).forEach(modelKey => {
+      const redstoneTargetKeys = Object.keys(loaded.assets.models).filter(key =>
+        key.includes('redstone_torch') || key.includes('repeater') || key.includes('comparator')
+      );
+
+      redstoneTargetKeys.forEach(modelKey => {
         const modelObj = loaded.assets.models[modelKey];
         if (modelObj) {
           const resolved = resolveFullModelElements(modelKey, loaded.assets.models);
@@ -847,7 +855,7 @@ async function init() {
         }
       });
 
-      Object.keys(loaded.assets.models).forEach(modelKey => {
+      redstoneTargetKeys.forEach(modelKey => {
         const modelObj = loaded.assets.models[modelKey];
         if (modelObj && Array.isArray(modelObj.elements)) {
           modelObj.elements = sanitizeModelElements(modelObj.elements, modelKey);
