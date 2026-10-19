@@ -782,8 +782,71 @@ async function init() {
       return updatedElems;
     };
 
+    // Function to resolve full model elements and texture variables across parent inheritance trees
+    const resolveFullModelElements = (modelKey: string, assetsModels: Record<string, any>) => {
+      let currKey = modelKey.replace(/^minecraft:/, '');
+      if (!currKey.startsWith('block/') && !currKey.startsWith('item/')) {
+        currKey = 'block/' + currKey;
+      }
+      let mergedTex: Record<string, string> = {};
+      let elements: any[] | null = null;
+
+      while (currKey && assetsModels[currKey]) {
+        const m = assetsModels[currKey];
+        if (m.textures) {
+          mergedTex = { ...m.textures, ...mergedTex };
+        }
+        if (!elements && Array.isArray(m.elements)) {
+          elements = JSON.parse(JSON.stringify(m.elements));
+        }
+        if (m.parent) {
+          let pKey = String(m.parent).replace(/^minecraft:/, '');
+          if (!pKey.startsWith('block/') && !pKey.startsWith('item/')) {
+            pKey = 'block/' + pKey;
+          }
+          currKey = pKey;
+        } else {
+          break;
+        }
+      }
+
+      if (!elements) return null;
+
+      elements.forEach((elem: any) => {
+        if (elem && elem.faces && typeof elem.faces === 'object') {
+          Object.keys(elem.faces).forEach((faceKey) => {
+            let tex = elem.faces[faceKey]?.texture;
+            if (tex && typeof tex === 'string') {
+              while (tex.startsWith('#')) {
+                const varName = tex.slice(1);
+                if (mergedTex[varName]) {
+                  tex = mergedTex[varName];
+                } else {
+                  break;
+                }
+              }
+              elem.faces[faceKey].texture = tex;
+            }
+          });
+        }
+      });
+
+      return elements;
+    };
+
     // Ensure all model geometries and UVs use clean closed 3D elements for redstone torches, repeaters, and comparators
     if (loaded.assets && loaded.assets.models) {
+      // First resolve flattened elements for parent-dependent models like redstone_torch
+      Object.keys(loaded.assets.models).forEach(modelKey => {
+        const modelObj = loaded.assets.models[modelKey];
+        if (modelObj) {
+          const resolved = resolveFullModelElements(modelKey, loaded.assets.models);
+          if (resolved) {
+            modelObj.elements = resolved;
+          }
+        }
+      });
+
       Object.keys(loaded.assets.models).forEach(modelKey => {
         const modelObj = loaded.assets.models[modelKey];
         if (modelObj && Array.isArray(modelObj.elements)) {
