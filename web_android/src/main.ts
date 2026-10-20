@@ -627,6 +627,30 @@ async function init() {
     loaded.assets.models['block/item_frame'] = createItemFrameModel();
     loaded.assets.models['block/glow_item_frame'] = createItemFrameModel();
 
+    const resolveFullModelElements = (modelKey: string, assetsModels: any, visitedParents = new Set<string>()): { elements: any[] | null, textures: Record<string, string> } => {
+      const cleanKey = modelKey.replace(/^minecraft:/, '');
+      if (visitedParents.has(cleanKey)) {
+        return { elements: null, textures: {} };
+      }
+      visitedParents.add(cleanKey);
+
+      const model = assetsModels[cleanKey];
+      if (!model) return { elements: null, textures: {} };
+
+      let elements = model.elements ? JSON.parse(JSON.stringify(model.elements)) : null;
+      let textures = model.textures ? { ...model.textures } : {};
+
+      if (model.parent) {
+        const parentRes = resolveFullModelElements(model.parent, assetsModels, visitedParents);
+        if (!elements && parentRes.elements) {
+          elements = parentRes.elements;
+        }
+        textures = { ...parentRes.textures, ...textures };
+      }
+
+      return { elements, textures };
+    };
+
     const sanitizeModelElements = (elements: any[], modelKey: string = '') => {
       if (!Array.isArray(elements)) return elements;
       // Do not convert repeater/comparator models as they already possess valid 3D base slabs and redstone torch elements
@@ -714,15 +738,108 @@ async function init() {
       return newElems;
     };
 
+    const addLitGlowOverlay = (elements: any[], textures: Record<string, string>, modelKey: string): any[] => {
+      if (!Array.isArray(elements)) return elements;
+
+      const isLitModel = (modelKey.includes('redstone_torch') && !modelKey.includes('off')) ||
+                         (modelKey.includes('repeater') && modelKey.includes('_on')) ||
+                         (modelKey.includes('comparator') && modelKey.includes('_on'));
+
+      if (!isLitModel) return elements;
+
+      const result: any[] = [];
+      for (const elem of elements) {
+        result.push(elem);
+
+        let usesLitTexture = false;
+        if (elem && elem.faces && typeof elem.faces === 'object') {
+          for (const faceKey of Object.keys(elem.faces)) {
+            const faceObj = elem.faces[faceKey];
+            if (!faceObj || typeof faceObj !== 'object') continue;
+            const tex = faceObj.texture;
+            if (typeof tex === 'string') {
+              if (tex.startsWith('#')) {
+                let varName = tex.substring(1);
+                let resolvedTex = textures[varName];
+                let maxDepth = 10;
+                while (resolvedTex && resolvedTex.startsWith('#') && maxDepth-- > 0) {
+                  resolvedTex = textures[resolvedTex.substring(1)];
+                }
+                if (resolvedTex) {
+                  if (resolvedTex.includes('redstone_torch') && !resolvedTex.includes('off')) {
+                    usesLitTexture = true;
+                    break;
+                  }
+                } else if (varName === 'lit' || varName === 'torch') {
+                  usesLitTexture = true;
+                  break;
+                }
+              } else if (tex.includes('redstone_torch') && !tex.includes('off')) {
+                usesLitTexture = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (usesLitTexture && elem.from && elem.to) {
+          const d = 0.15;
+          const overlayElem: any = {
+            from: [elem.from[0] - d, elem.from[1] - d, elem.from[2] - d],
+            to: [elem.to[0] + d, elem.to[1] + d, elem.to[2] + d],
+            shade: false,
+            faces: {
+              up: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
+              down: { texture: 'block/redstone_dust_overlay', uv: [0, 16, 16, 0] },
+              north: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
+              south: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
+              east: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
+              west: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] }
+            }
+          };
+          if (elem.rotation) {
+            overlayElem.rotation = JSON.parse(JSON.stringify(elem.rotation));
+          }
+          result.push(overlayElem);
+        }
+      }
+      return result;
+    };
+
     // Ensure all model geometries and UVs use clean closed 3D elements for redstone torches, repeaters, and comparators
     if (loaded.assets && loaded.assets.models) {
       Object.keys(loaded.assets.models).forEach(modelKey => {
         const modelObj = loaded.assets.models[modelKey];
-        if (modelObj && Array.isArray(modelObj.elements)) {
+        if (!modelObj) return;
+
+        const resolved = resolveFullModelElements(modelKey, loaded.assets.models);
+        if (resolved.elements) {
+          modelObj.elements = resolved.elements;
+        }
+        if (resolved.textures) {
+          modelObj.textures = { ...resolved.textures, ...(modelObj.textures || {}) };
+        }
+
+        if (Array.isArray(modelObj.elements)) {
           modelObj.elements = sanitizeModelElements(modelObj.elements, modelKey);
+          modelObj.elements = addLitGlowOverlay(modelObj.elements, modelObj.textures || {}, modelKey);
         }
       });
     }
+
+    // Provide default fallback blockstate properties for repeaters and comparators
+    const origGetDefaultProps = loaded.getDefaultBlockProperties ? loaded.getDefaultBlockProperties.bind(loaded) : () => null;
+    loaded.getDefaultBlockProperties = (id: any) => {
+      const nameStr = id && id.toString ? id.toString() : String(id);
+      const base = origGetDefaultProps(id) || {};
+      if (nameStr.includes('repeater')) {
+        return { delay: '1', facing: 'north', locked: 'false', powered: 'false', ...base };
+      }
+      if (nameStr.includes('comparator')) {
+        return { facing: 'north', mode: 'compare', powered: 'false', ...base };
+      }
+      return base;
+    };
 
     const opaqueText = opaqueRes && opaqueRes.ok ? await opaqueRes.text() : '';
     const transparentText = transparentRes && transparentRes.ok ? await transparentRes.text() : '';
@@ -731,6 +848,11 @@ async function init() {
 
     const parsedOpaque = parseBlockList(opaqueText);
     const parsedTransparent = parseBlockList(transparentText);
+
+    parsedTransparent.add('minecraft:redstone_torch');
+    parsedTransparent.add('minecraft:redstone_wall_torch');
+    parsedTransparent.add('minecraft:repeater');
+    parsedTransparent.add('minecraft:comparator');
 
     // Filter opaque flags so ONLY true 1x1x1 solid cubes are opaque
     const strictOpaque = new Set<string>();
