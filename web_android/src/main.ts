@@ -901,11 +901,34 @@ async function init() {
       emissive: emissiveJson
     };
 
+    const defaultBlockPropertiesMap: Record<string, Record<string, string>> = {
+      'minecraft:repeater': { delay: '1', facing: 'north', locked: 'false', powered: 'false' },
+      'repeater': { delay: '1', facing: 'north', locked: 'false', powered: 'false' },
+      'minecraft:comparator': { facing: 'north', mode: 'compare', powered: 'false' },
+      'comparator': { facing: 'north', mode: 'compare', powered: 'false' },
+      'minecraft:redstone_torch': { lit: 'true' },
+      'redstone_torch': { lit: 'true' },
+      'minecraft:redstone_wall_torch': { facing: 'north', lit: 'true' },
+      'redstone_wall_torch': { facing: 'north', lit: 'true' }
+    };
+
     currentResources = createResourcesFromPack({
       assets: loaded.assets,
       atlas: loaded.atlas,
       flags
     });
+
+    if (currentResources) {
+      const origGetDefaultBlockProps = currentResources.getDefaultBlockProperties;
+      currentResources.getDefaultBlockProperties = function (id: any) {
+        const idStr = String(id);
+        const customDefaults = defaultBlockPropertiesMap[idStr];
+        if (customDefaults) {
+          return { ...customDefaults };
+        }
+        return origGetDefaultBlockProps ? origGetDefaultBlockProps.call(this, id) : null;
+      };
+    }
 
     // Alias all texture keys in atlas to include minecraft: namespace prefix for BlockModel lookup compatibility
     if (currentResources && currentResources.textures) {
