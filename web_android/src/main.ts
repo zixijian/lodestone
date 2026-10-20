@@ -783,24 +783,38 @@ async function init() {
         }
 
         if (usesLitTexture && elem.from && elem.to) {
-          const d = 0.15;
-          const overlayElem: any = {
-            from: [elem.from[0] - d, elem.from[1] - d, elem.from[2] - d],
-            to: [elem.to[0] + d, elem.to[1] + d, elem.to[2] + d],
+          const cx = (elem.from[0] + elem.to[0]) / 2;
+          const cz = (elem.from[2] + elem.to[2]) / 2;
+          const expandX = 1;
+          const expandZ = 1;
+
+          const plane1: any = {
+            from: [elem.from[0] - expandX, elem.from[1], cz],
+            to: [elem.to[0] + expandX, elem.to[1], cz],
             shade: false,
             faces: {
-              up: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
-              down: { texture: 'block/redstone_dust_overlay', uv: [0, 16, 16, 0] },
               north: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
-              south: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
+              south: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] }
+            }
+          };
+
+          const plane2: any = {
+            from: [cx, elem.from[1], elem.from[2] - expandZ],
+            to: [cx, elem.to[1], elem.to[2] + expandZ],
+            shade: false,
+            faces: {
               east: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
               west: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] }
             }
           };
+
           if (elem.rotation) {
-            overlayElem.rotation = JSON.parse(JSON.stringify(elem.rotation));
+            plane1.rotation = JSON.parse(JSON.stringify(elem.rotation));
+            plane2.rotation = JSON.parse(JSON.stringify(elem.rotation));
           }
-          result.push(overlayElem);
+
+          result.push(plane1);
+          result.push(plane2);
         }
       }
       return result;

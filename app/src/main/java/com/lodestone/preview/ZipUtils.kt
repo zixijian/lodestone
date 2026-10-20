@@ -64,8 +64,33 @@ object ZipUtils {
                 val texFile = candidateFiles.firstOrNull { it.exists() && it.isFile }
                 if (texFile != null) {
                     try {
-                        val customBm = BitmapFactory.decodeFile(texFile.absolutePath)
+                        var customBm = BitmapFactory.decodeFile(texFile.absolutePath)
                         if (customBm != null) {
+                            if (texKey.startsWith("block/redstone_dust_line") || texKey == "block/redstone_dust_dot") {
+                                val mutableBm = customBm.copy(Bitmap.Config.ARGB_8888, true)
+                                customBm.recycle()
+                                val width = mutableBm.width
+                                val height = mutableBm.height
+                                for (px in 0 until width) {
+                                    for (py in 0 until height) {
+                                        val pixel = mutableBm.getPixel(px, py)
+                                        val alpha = (pixel shr 24) and 0xff
+                                        if (alpha > 0) {
+                                            val r = (pixel shr 16) and 0xff
+                                            val g = (pixel shr 8) and 0xff
+                                            val b = pixel and 0xff
+                                            if (Math.abs(r - g) < 20 && Math.abs(r - b) < 20) {
+                                                val newG = (g * 0.15).toInt()
+                                                val newPixel = (alpha shl 24) or (r shl 16) or (newG shl 8) or 0
+                                                mutableBm.setPixel(px, py, newPixel)
+                                            }
+                                        }
+                                    }
+                                }
+                                customBm = mutableBm
+                            }
+
+
                             val srcRect = Rect(0, 0, customBm.width, customBm.height)
                             val dstRect = Rect(u, v, u + du, v + dv)
                             canvas.drawBitmap(customBm, srcRect, dstRect, paint)
