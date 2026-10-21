@@ -129,27 +129,58 @@ function createWaterMesh(
   const tint = (Lodestone as any).BlockColors?.[type]?.({}) ?? [0.247, 0.462, 0.894];
   const heightsTable = [14.2, 12.5, 10.5, 9.0, 7.0, 5.3, 3.7, 1.9];
 
-  // Check if block at pos is a waterlogged stair
+  // Fluid neighbor check: 100% cull faces between water/water, water/waterlogged, or waterlogged/waterlogged
+  const neighborHasFluid = (nx: number, ny: number, nz: number) => {
+    if (!structure) return false;
+    const nb = structure.getBlock([nx, ny, nz])?.state;
+    if (!nb) return false;
+    const nbName = nb.getName().toString();
+    if (nbName === 'minecraft:water' || nbName === 'minecraft:lava') return true;
+    if (nb.isWaterlogged && nb.isWaterlogged()) return true;
+    return false;
+  };
+
+  const [bx, by, bz] = pos || [0, 0, 0];
+  const cullUpFinal = cull['up'] || (structure && pos ? neighborHasFluid(bx, by + 1, bz) : false);
+  const cullDownFinal = cull['down'] || (structure && pos ? neighborHasFluid(bx, by - 1, bz) : false);
+  const cullNorthFinal = cull['north'] || (structure && pos ? neighborHasFluid(bx, by, bz - 1) : false);
+  const cullSouthFinal = cull['south'] || (structure && pos ? neighborHasFluid(bx, by, bz + 1) : false);
+  const cullWestFinal = cull['west'] || (structure && pos ? neighborHasFluid(bx - 1, by, bz) : false);
+  const cullEastFinal = cull['east'] || (structure && pos ? neighborHasFluid(bx + 1, by, bz) : false);
+
+  // Check self block type and properties
   let isWaterloggedStair = false;
   let stairFacing = 'north';
   let stairHalf = 'bottom';
   let stairShape = 'straight';
 
+  let isWaterloggedSlab = false;
+  let slabType = 'bottom';
+
+  let isWaterloggedTrapdoor = false;
+  let trapdoorHalf = 'bottom';
+  let trapdoorOpen = 'false';
+  let trapdoorFacing = 'north';
+
   if (structure && pos) {
     const selfBlock = structure.getBlock(pos)?.state;
     if (selfBlock) {
       const selfName = selfBlock.getName().toString();
+      const getProp = (k: string) => typeof selfBlock.getProperty === 'function' ? selfBlock.getProperty(k) : selfBlock.properties?.[k];
+
       if (selfName.includes('stair')) {
         isWaterloggedStair = true;
-        if (typeof selfBlock.getProperty === 'function') {
-          stairFacing = selfBlock.getProperty('facing') || 'north';
-          stairHalf = selfBlock.getProperty('half') || 'bottom';
-          stairShape = selfBlock.getProperty('shape') || 'straight';
-        } else if (selfBlock.properties) {
-          stairFacing = selfBlock.properties.facing || 'north';
-          stairHalf = selfBlock.properties.half || 'bottom';
-          stairShape = selfBlock.properties.shape || 'straight';
-        }
+        stairFacing = getProp('facing') || 'north';
+        stairHalf = getProp('half') || 'bottom';
+        stairShape = getProp('shape') || 'straight';
+      } else if (selfName.includes('slab') && !selfName.includes('double')) {
+        isWaterloggedSlab = true;
+        slabType = getProp('type') || 'bottom';
+      } else if (selfName.includes('trapdoor')) {
+        isWaterloggedTrapdoor = true;
+        trapdoorHalf = getProp('half') || 'bottom';
+        trapdoorOpen = getProp('open') || 'false';
+        trapdoorFacing = getProp('facing') || 'north';
       }
     }
   }
@@ -171,14 +202,11 @@ function createWaterMesh(
 
   let y_nw = defaultH, y_ne = defaultH, y_se = defaultH, y_sw = defaultH;
 
-  if (cull['up'] || isAboveWater) {
+  if (cullUpFinal || isAboveWater) {
     y_nw = y_ne = y_se = y_sw = 16.0;
-  } else if (isWaterloggedStair) {
-    // Waterlogged stairs use default source height directly for high performance
+  } else if (isWaterloggedStair || isWaterloggedSlab || isWaterloggedTrapdoor) {
     y_nw = y_ne = y_se = y_sw = defaultH;
   } else if (structure && pos) {
-    const [bx, by, bz] = pos;
-
     const getWaterLevelHeight = (lx: number, ly: number, lz: number) => {
       const b = structure.getBlock([lx, ly, lz])?.state;
       if (!b) return -1;
@@ -229,6 +257,135 @@ function createWaterMesh(
   const [u0_f, v0_f, u1_f, v1_f] = atlas.getTextureUV(textureFlow);
   const du_f = (u1_f - u0_f) / 16, dv_f = (v1_f - v0_f) / 16;
 
+  const addWaterBox = (
+    x0: number, y0: number, z0: number,
+    x1: number, z1: number,
+    y1_NW: number, y1_NE: number, y1_SE: number, y1_SW: number,
+    renderUp: boolean, renderDown: boolean,
+    renderNorth: boolean, renderSouth: boolean,
+    renderWest: boolean, renderEast: boolean
+  ) => {
+    // UP face
+    if (renderUp) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x0, y1_SW, z1),
+        new (Lodestone as any).Vector(x1, y1_SE, z1),
+        new (Lodestone as any).Vector(x1, y1_NE, z0),
+        new (Lodestone as any).Vector(x0, y1_NW, z0)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_s + x0 * du_s, v0_s + z1 * dv_s];
+      q.v2.texture = [u0_s + x1 * du_s, v0_s + z1 * dv_s];
+      q.v3.texture = [u0_s + x1 * du_s, v0_s + z0 * dv_s];
+      q.v4.texture = [u0_s + x0 * du_s, v0_s + z0 * dv_s];
+      q.v1.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v2.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v3.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v4.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      mesh.quads.push(q);
+    }
+
+    // DOWN face
+    if (renderDown) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x0, y0, z0),
+        new (Lodestone as any).Vector(x1, y0, z0),
+        new (Lodestone as any).Vector(x1, y0, z1),
+        new (Lodestone as any).Vector(x0, y0, z1)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_s + x0 * du_s, v0_s + z0 * dv_s];
+      q.v2.texture = [u0_s + x1 * du_s, v0_s + z0 * dv_s];
+      q.v3.texture = [u0_s + x1 * du_s, v0_s + z1 * dv_s];
+      q.v4.texture = [u0_s + x0 * du_s, v0_s + z1 * dv_s];
+      q.v1.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v2.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v3.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v4.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      mesh.quads.push(q);
+    }
+
+    // NORTH face
+    if (renderNorth) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x1, y0, z0),
+        new (Lodestone as any).Vector(x0, y0, z0),
+        new (Lodestone as any).Vector(x0, y1_NW, z0),
+        new (Lodestone as any).Vector(x1, y1_NE, z0)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_f + x1 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v2.texture = [u0_f + x0 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v3.texture = [u0_f + x0 * du_f, v0_f + (16 - y1_NW) * dv_f];
+      q.v4.texture = [u0_f + x1 * du_f, v0_f + (16 - y1_NE) * dv_f];
+      q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      mesh.quads.push(q);
+    }
+
+    // SOUTH face
+    if (renderSouth) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x0, y0, z1),
+        new (Lodestone as any).Vector(x1, y0, z1),
+        new (Lodestone as any).Vector(x1, y1_SE, z1),
+        new (Lodestone as any).Vector(x0, y1_SW, z1)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_f + x0 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v2.texture = [u0_f + x1 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v3.texture = [u0_f + x1 * du_f, v0_f + (16 - y1_SE) * dv_f];
+      q.v4.texture = [u0_f + x0 * du_f, v0_f + (16 - y1_SW) * dv_f];
+      q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      mesh.quads.push(q);
+    }
+
+    // WEST face
+    if (renderWest) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x0, y0, z0),
+        new (Lodestone as any).Vector(x0, y0, z1),
+        new (Lodestone as any).Vector(x0, y1_SW, z1),
+        new (Lodestone as any).Vector(x0, y1_NW, z0)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_f + z0 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v2.texture = [u0_f + z1 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v3.texture = [u0_f + z1 * du_f, v0_f + (16 - y1_SW) * dv_f];
+      q.v4.texture = [u0_f + z0 * du_f, v0_f + (16 - y1_NW) * dv_f];
+      q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      mesh.quads.push(q);
+    }
+
+    // EAST face
+    if (renderEast) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x1, y0, z1),
+        new (Lodestone as any).Vector(x1, y0, z0),
+        new (Lodestone as any).Vector(x1, y1_NE, z0),
+        new (Lodestone as any).Vector(x1, y1_SE, z1)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_f + (16 - z1) * du_f, v0_f + (16 - y0) * dv_f];
+      q.v2.texture = [u0_f + (16 - z0) * du_f, v0_f + (16 - y0) * dv_f];
+      q.v3.texture = [u0_f + (16 - z0) * du_f, v0_f + (16 - y1_NE) * dv_f];
+      q.v4.texture = [u0_f + (16 - z1) * du_f, v0_f + (16 - y1_SE) * dv_f];
+      q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      mesh.quads.push(q);
+    }
+  };
+
   if (isWaterloggedStair) {
     const straightCutouts: Record<string, number[]> = { north: [2, 3], south: [0, 1], east: [0, 3], west: [1, 2] };
     const outerLeftCutouts: Record<string, number[]> = { north: [0, 2, 3], south: [0, 1, 2], east: [0, 1, 3], west: [1, 2, 3] };
@@ -253,158 +410,6 @@ function createWaterMesh(
 
     const isTopHalf = stairHalf === 'top';
     const subY0 = isTopHalf ? 0 : 8;
-    const [bx, by, bz] = pos || [0, 0, 0];
-
-    const isCullNeighbor = (nx: number, ny: number, nz: number) => {
-      if (!structure) return false;
-      const neighbor = structure.getBlock([nx, ny, nz])?.state;
-      if (!neighbor) return false;
-      const nName = neighbor.getName().toString();
-      if (nName === 'minecraft:water' || nName === 'minecraft:lava' || (neighbor.isWaterlogged && neighbor.isWaterlogged())) {
-        return true;
-      }
-      if (isGlassBlock(nName)) {
-        return false;
-      }
-      const flags = atlas?.getBlockFlags?.(neighbor.getName());
-      if (flags?.opaque && !isNonFullBlock(nName)) {
-        return true;
-      }
-      return false;
-    };
-
-    const cullNorthOuter = isCullNeighbor(bx, by, bz - 1);
-    const cullSouthOuter = isCullNeighbor(bx, by, bz + 1);
-    const cullWestOuter = isCullNeighbor(bx - 1, by, bz);
-    const cullEastOuter = isCullNeighbor(bx + 1, by, bz);
-    const cullUpOuter = isCullNeighbor(bx, by + 1, bz);
-    const cullDownOuter = isCullNeighbor(bx, by - 1, bz);
-
-    // Helper to add a sub-box for a cutout quadrant without internal overlapping faces (0..16 grid scale)
-    const addSubBox = (
-      qx0: number, qz0: number, qx1: number, qz1: number,
-      hNW: number, hNE: number, hSE: number, hSW: number
-    ) => {
-      // UP (Water surface)
-      if (!cullUpOuter && !isTopHalf) {
-        const q = (Lodestone as any).Quad.fromPoints(
-          new (Lodestone as any).Vector(qx0, hSW, qz1),
-          new (Lodestone as any).Vector(qx1, hSE, qz1),
-          new (Lodestone as any).Vector(qx1, hNE, qz0),
-          new (Lodestone as any).Vector(qx0, hNW, qz0)
-        );
-        q.setColor(tint);
-        q.v1.texture = [u0_s + qx0 * du_s, v0_s + qz1 * dv_s];
-        q.v2.texture = [u0_s + qx1 * du_s, v0_s + qz1 * dv_s];
-        q.v3.texture = [u0_s + qx1 * du_s, v0_s + qz0 * dv_s];
-        q.v4.texture = [u0_s + qx0 * du_s, v0_s + qz0 * dv_s];
-        q.v1.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-        q.v2.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-        q.v3.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-        q.v4.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-        mesh.quads.push(q);
-      }
-
-      // DOWN (Only if bottom of block is facing open air/transparent in top-half stair)
-      if (!cullDownOuter && qz0 === 0 && isTopHalf) {
-        const q = (Lodestone as any).Quad.fromPoints(
-          new (Lodestone as any).Vector(qx0, subY0, qz0),
-          new (Lodestone as any).Vector(qx1, subY0, qz0),
-          new (Lodestone as any).Vector(qx1, subY0, qz1),
-          new (Lodestone as any).Vector(qx0, subY0, qz1)
-        );
-        q.setColor(tint);
-        q.v1.texture = [u0_s + qx0 * du_s, v0_s + qz0 * dv_s];
-        q.v2.texture = [u0_s + qx1 * du_s, v0_s + qz0 * dv_s];
-        q.v3.texture = [u0_s + qx1 * du_s, v0_s + qz1 * dv_s];
-        q.v4.texture = [u0_s + qx0 * du_s, v0_s + qz1 * dv_s];
-        q.v1.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-        q.v2.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-        q.v3.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-        q.v4.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-        mesh.quads.push(q);
-      }
-
-      // NORTH (Outer block face only)
-      if (!cullNorthOuter && qz0 === 0) {
-        const q = (Lodestone as any).Quad.fromPoints(
-          new (Lodestone as any).Vector(qx1, subY0, qz0),
-          new (Lodestone as any).Vector(qx0, subY0, qz0),
-          new (Lodestone as any).Vector(qx0, hNW, qz0),
-          new (Lodestone as any).Vector(qx1, hNE, qz0)
-        );
-        q.setColor(tint);
-        q.v1.texture = [u0_f + qx1 * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v2.texture = [u0_f + qx0 * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v3.texture = [u0_f + qx0 * du_f, v0_f + (16 - hNW) * dv_f];
-        q.v4.texture = [u0_f + qx1 * du_f, v0_f + (16 - hNE) * dv_f];
-        q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        mesh.quads.push(q);
-      }
-
-      // SOUTH (Outer block face only)
-      if (!cullSouthOuter && qz1 === 16) {
-        const q = (Lodestone as any).Quad.fromPoints(
-          new (Lodestone as any).Vector(qx0, subY0, qz1),
-          new (Lodestone as any).Vector(qx1, subY0, qz1),
-          new (Lodestone as any).Vector(qx1, hSE, qz1),
-          new (Lodestone as any).Vector(qx0, hSW, qz1)
-        );
-        q.setColor(tint);
-        q.v1.texture = [u0_f + qx0 * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v2.texture = [u0_f + qx1 * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v3.texture = [u0_f + qx1 * du_f, v0_f + (16 - hSE) * dv_f];
-        q.v4.texture = [u0_f + qx0 * du_f, v0_f + (16 - hSW) * dv_f];
-        q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        mesh.quads.push(q);
-      }
-
-      // WEST (Outer block face only)
-      if (!cullWestOuter && qx0 === 0) {
-        const q = (Lodestone as any).Quad.fromPoints(
-          new (Lodestone as any).Vector(qx0, subY0, qz0),
-          new (Lodestone as any).Vector(qx0, subY0, qz1),
-          new (Lodestone as any).Vector(qx0, hSW, qz1),
-          new (Lodestone as any).Vector(qx0, hNW, qz0)
-        );
-        q.setColor(tint);
-        q.v1.texture = [u0_f + qz0 * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v2.texture = [u0_f + qz1 * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v3.texture = [u0_f + qz1 * du_f, v0_f + (16 - hSW) * dv_f];
-        q.v4.texture = [u0_f + qz0 * du_f, v0_f + (16 - hNW) * dv_f];
-        q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        mesh.quads.push(q);
-      }
-
-      // EAST (Outer block face only)
-      if (!cullEastOuter && qx1 === 16) {
-        const q = (Lodestone as any).Quad.fromPoints(
-          new (Lodestone as any).Vector(qx1, subY0, qz1),
-          new (Lodestone as any).Vector(qx1, subY0, qz0),
-          new (Lodestone as any).Vector(qx1, hNE, qz0),
-          new (Lodestone as any).Vector(qx1, hSE, qz1)
-        );
-        q.setColor(tint);
-        q.v1.texture = [u0_f + (16 - qz1) * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v2.texture = [u0_f + (16 - qz0) * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v3.texture = [u0_f + (16 - qz0) * du_f, v0_f + (16 - hNE) * dv_f];
-        q.v4.texture = [u0_f + (16 - qz1) * du_f, v0_f + (16 - hSE) * dv_f];
-        q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-        mesh.quads.push(q);
-      }
-    };
 
     const midNW_N = (y_nw + y_ne) / 2;
     const midNW_W = (y_nw + y_sw) / 2;
@@ -413,6 +418,24 @@ function createWaterMesh(
     const centerH = (y_nw + y_ne + y_se + y_sw) / 4;
 
     const hasQ = (qIdx: number) => cutoutQuads.includes(qIdx);
+
+    // Helper for quadrant box cutout rendering
+    const addSubBox = (
+      qx0: number, qz0: number, qx1: number, qz1: number,
+      hNW: number, hNE: number, hSE: number, hSW: number
+    ) => {
+      addWaterBox(
+        qx0, subY0, qz0,
+        qx1, qz1,
+        hNW, hNE, hSE, hSW,
+        !cullUpFinal && !isTopHalf,
+        !cullDownFinal && qz0 === 0 && isTopHalf,
+        !cullNorthFinal && qz0 === 0,
+        !cullSouthFinal && qz1 === 16,
+        !cullWestFinal && qx0 === 0,
+        !cullEastFinal && qx1 === 16
+      );
+    };
 
     // NW (Quad 0): x: 0..8, z: 0..8
     if (hasQ(0)) {
@@ -434,125 +457,101 @@ function createWaterMesh(
     return mesh;
   }
 
-  // UP
-  if (!cull['up']) {
-    const q = (Lodestone as any).Quad.fromPoints(
-      new (Lodestone as any).Vector(0, y_sw, 16),
-      new (Lodestone as any).Vector(16, y_se, 16),
-      new (Lodestone as any).Vector(16, y_ne, 0),
-      new (Lodestone as any).Vector(0, y_nw, 0)
-    );
-    q.setColor(tint);
-    q.v1.texture = [u0_s + 0 * du_s, v0_s + 16 * dv_s];
-    q.v2.texture = [u0_s + 16 * du_s, v0_s + 16 * dv_s];
-    q.v3.texture = [u0_s + 16 * du_s, v0_s + 0 * dv_s];
-    q.v4.texture = [u0_s + 0 * du_s, v0_s + 0 * dv_s];
-    q.v1.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-    q.v2.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-    q.v3.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-    q.v4.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-    mesh.quads.push(q);
+  if (isWaterloggedSlab) {
+    if (slabType === 'bottom') {
+      addWaterBox(
+        0, 8, 0,
+        16, 16,
+        y_nw, y_ne, y_se, y_sw,
+        !cullUpFinal, false,
+        !cullNorthFinal, !cullSouthFinal,
+        !cullWestFinal, !cullEastFinal
+      );
+    } else {
+      addWaterBox(
+        0, 0, 0,
+        16, 16,
+        8, 8, 8, 8,
+        false, !cullDownFinal,
+        !cullNorthFinal, !cullSouthFinal,
+        !cullWestFinal, !cullEastFinal
+      );
+    }
+    return mesh;
   }
 
-  // DOWN
-  if (!cull['down']) {
-    const q = (Lodestone as any).Quad.fromPoints(
-      new (Lodestone as any).Vector(0, 0, 0),
-      new (Lodestone as any).Vector(16, 0, 0),
-      new (Lodestone as any).Vector(16, 0, 16),
-      new (Lodestone as any).Vector(0, 0, 16)
-    );
-    q.setColor(tint);
-    q.v1.texture = [u0_s + 0 * du_s, v0_s + 0 * dv_s];
-    q.v2.texture = [u0_s + 16 * du_s, v0_s + 0 * dv_s];
-    q.v3.texture = [u0_s + 16 * du_s, v0_s + 16 * dv_s];
-    q.v4.texture = [u0_s + 0 * du_s, v0_s + 16 * dv_s];
-    q.v1.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-    q.v2.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-    q.v3.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-    q.v4.textureLimit = [u0_s, v0_s, u1_s, v1_s];
-    mesh.quads.push(q);
+  if (isWaterloggedTrapdoor) {
+    if (trapdoorOpen === 'true') {
+      if (trapdoorFacing === 'north') {
+        addWaterBox(
+          0, 0, 3,
+          16, 16,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, !cullDownFinal,
+          false, !cullSouthFinal,
+          !cullWestFinal, !cullEastFinal
+        );
+      } else if (trapdoorFacing === 'south') {
+        addWaterBox(
+          0, 0, 0,
+          16, 13,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, !cullDownFinal,
+          !cullNorthFinal, false,
+          !cullWestFinal, !cullEastFinal
+        );
+      } else if (trapdoorFacing === 'west') {
+        addWaterBox(
+          3, 0, 0,
+          16, 16,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, !cullDownFinal,
+          !cullNorthFinal, !cullSouthFinal,
+          false, !cullEastFinal
+        );
+      } else {
+        addWaterBox(
+          0, 0, 0,
+          13, 16,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, !cullDownFinal,
+          !cullNorthFinal, !cullSouthFinal,
+          !cullWestFinal, false
+        );
+      }
+    } else {
+      if (trapdoorHalf === 'bottom') {
+        addWaterBox(
+          0, 3, 0,
+          16, 16,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, false,
+          !cullNorthFinal, !cullSouthFinal,
+          !cullWestFinal, !cullEastFinal
+        );
+      } else {
+        addWaterBox(
+          0, 0, 0,
+          16, 16,
+          13, 13, 13, 13,
+          false, !cullDownFinal,
+          !cullNorthFinal, !cullSouthFinal,
+          !cullWestFinal, !cullEastFinal
+        );
+      }
+    }
+    return mesh;
   }
 
-  // NORTH
-  if (!cull['north']) {
-    const q = (Lodestone as any).Quad.fromPoints(
-      new (Lodestone as any).Vector(16, 0, 0),
-      new (Lodestone as any).Vector(0, 0, 0),
-      new (Lodestone as any).Vector(0, y_nw, 0),
-      new (Lodestone as any).Vector(16, y_ne, 0)
-    );
-    q.setColor(tint);
-    q.v1.texture = [u0_f + 16 * du_f, v0_f + 16 * dv_f];
-    q.v2.texture = [u0_f + 0 * du_f, v0_f + 16 * dv_f];
-    q.v3.texture = [u0_f + 0 * du_f, v0_f + (16 - y_nw) * dv_f];
-    q.v4.texture = [u0_f + 16 * du_f, v0_f + (16 - y_ne) * dv_f];
-    q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    mesh.quads.push(q);
-  }
-
-  // SOUTH
-  if (!cull['south']) {
-    const q = (Lodestone as any).Quad.fromPoints(
-      new (Lodestone as any).Vector(0, 0, 16),
-      new (Lodestone as any).Vector(16, 0, 16),
-      new (Lodestone as any).Vector(16, y_se, 16),
-      new (Lodestone as any).Vector(0, y_sw, 16)
-    );
-    q.setColor(tint);
-    q.v1.texture = [u0_f + 0 * du_f, v0_f + 16 * dv_f];
-    q.v2.texture = [u0_f + 16 * du_f, v0_f + 16 * dv_f];
-    q.v3.texture = [u0_f + 16 * du_f, v0_f + (16 - y_se) * dv_f];
-    q.v4.texture = [u0_f + 0 * du_f, v0_f + (16 - y_sw) * dv_f];
-    q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    mesh.quads.push(q);
-  }
-
-  // EAST
-  if (!cull['east']) {
-    const q = (Lodestone as any).Quad.fromPoints(
-      new (Lodestone as any).Vector(16, 0, 16),
-      new (Lodestone as any).Vector(16, 0, 0),
-      new (Lodestone as any).Vector(16, y_ne, 0),
-      new (Lodestone as any).Vector(16, y_se, 16)
-    );
-    q.setColor(tint);
-    q.v1.texture = [u0_f + 16 * du_f, v0_f + 16 * dv_f];
-    q.v2.texture = [u0_f + 0 * du_f, v0_f + 16 * dv_f];
-    q.v3.texture = [u0_f + 0 * du_f, v0_f + (16 - y_ne) * dv_f];
-    q.v4.texture = [u0_f + 16 * du_f, v0_f + (16 - y_se) * dv_f];
-    q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    mesh.quads.push(q);
-  }
-
-  // WEST
-  if (!cull['west']) {
-    const q = (Lodestone as any).Quad.fromPoints(
-      new (Lodestone as any).Vector(0, 0, 0),
-      new (Lodestone as any).Vector(0, 0, 16),
-      new (Lodestone as any).Vector(0, y_sw, 16),
-      new (Lodestone as any).Vector(0, y_nw, 0)
-    );
-    q.setColor(tint);
-    q.v1.texture = [u0_f + 0 * du_f, v0_f + 16 * dv_f];
-    q.v2.texture = [u0_f + 16 * du_f, v0_f + 16 * dv_f];
-    q.v3.texture = [u0_f + 16 * du_f, v0_f + (16 - y_sw) * dv_f];
-    q.v4.texture = [u0_f + 0 * du_f, v0_f + (16 - y_nw) * dv_f];
-    q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
-    mesh.quads.push(q);
-  }
+  // Standard Water Block / Default Waterlogged Block
+  addWaterBox(
+    0, 0, 0,
+    16, 16,
+    y_nw, y_ne, y_se, y_sw,
+    !cullUpFinal, !cullDownFinal,
+    !cullNorthFinal, !cullSouthFinal,
+    !cullWestFinal, !cullEastFinal
+  );
 
   return mesh;
 }
