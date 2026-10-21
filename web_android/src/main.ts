@@ -257,6 +257,32 @@ function createWaterMesh(
 
     const isTopHalf = stairHalf === 'top';
     const subY0 = isTopHalf ? 0 : 8;
+    const [bx, by, bz] = pos || [0, 0, 0];
+
+    const isCullNeighbor = (nx: number, ny: number, nz: number) => {
+      if (!structure) return false;
+      const neighbor = structure.getBlock([nx, ny, nz])?.state;
+      if (!neighbor) return false;
+      const nName = neighbor.getName().toString();
+      if (nName === 'minecraft:water' || nName === 'minecraft:lava' || (neighbor.isWaterlogged && neighbor.isWaterlogged())) {
+        return true;
+      }
+      if (isGlassBlock(nName)) {
+        return false;
+      }
+      const flags = atlas?.getBlockFlags?.(neighbor.getName());
+      if (flags?.opaque && !isNonFullBlock(nName)) {
+        return true;
+      }
+      return false;
+    };
+
+    const cullNorthOuter = isCullNeighbor(bx, by, bz - 1);
+    const cullSouthOuter = isCullNeighbor(bx, by, bz + 1);
+    const cullWestOuter = isCullNeighbor(bx - 1, by, bz);
+    const cullEastOuter = isCullNeighbor(bx + 1, by, bz);
+    const cullUpOuter = isCullNeighbor(bx, by + 1, bz);
+    const cullDownOuter = isCullNeighbor(bx, by - 1, bz);
 
     // Helper to add a sub-box for a cutout quadrant without internal overlapping faces (0..16 grid scale)
     const addSubBox = (
@@ -264,7 +290,7 @@ function createWaterMesh(
       hNW: number, hNE: number, hSE: number, hSW: number
     ) => {
       // UP (Water surface)
-      if (!cull['up'] && !isTopHalf) {
+      if (!cullUpOuter && !isTopHalf) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx0, hSW, qz1),
           new (Lodestone as any).Vector(qx1, hSE, qz1),
@@ -283,8 +309,8 @@ function createWaterMesh(
         mesh.quads.push(q);
       }
 
-      // DOWN (Only if bottom of block is facing open air in top-half stair)
-      if (!cull['down'] && qz0 === 0 && isTopHalf) {
+      // DOWN (Only if bottom of block is facing open air/transparent in top-half stair)
+      if (!cullDownOuter && qz0 === 0 && isTopHalf) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx0, subY0, qz0),
           new (Lodestone as any).Vector(qx1, subY0, qz0),
@@ -304,7 +330,7 @@ function createWaterMesh(
       }
 
       // NORTH (Outer block face only)
-      if (!cull['north'] && qz0 === 0) {
+      if (!cullNorthOuter && qz0 === 0) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx1, subY0, qz0),
           new (Lodestone as any).Vector(qx0, subY0, qz0),
@@ -324,7 +350,7 @@ function createWaterMesh(
       }
 
       // SOUTH (Outer block face only)
-      if (!cull['south'] && qz1 === 16) {
+      if (!cullSouthOuter && qz1 === 16) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx0, subY0, qz1),
           new (Lodestone as any).Vector(qx1, subY0, qz1),
@@ -344,7 +370,7 @@ function createWaterMesh(
       }
 
       // WEST (Outer block face only)
-      if (!cull['west'] && qx0 === 0) {
+      if (!cullWestOuter && qx0 === 0) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx0, subY0, qz0),
           new (Lodestone as any).Vector(qx0, subY0, qz1),
@@ -364,7 +390,7 @@ function createWaterMesh(
       }
 
       // EAST (Outer block face only)
-      if (!cull['east'] && qx1 === 16) {
+      if (!cullEastOuter && qx1 === 16) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx1, subY0, qz1),
           new (Lodestone as any).Vector(qx1, subY0, qz0),
