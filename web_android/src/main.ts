@@ -230,29 +230,25 @@ function createWaterMesh(
   const du_f = (u1_f - u0_f) / 16, dv_f = (v1_f - v0_f) / 16;
 
   if (isWaterloggedStair) {
-    const straightSteps: Record<string, number[]> = { north: [2, 3], south: [0, 1], east: [0, 3], west: [1, 2] };
-    const outerLeftSteps: Record<string, number[]> = { north: [2], south: [0], east: [3], west: [1] };
-    const outerRightSteps: Record<string, number[]> = { north: [3], south: [1], east: [0], west: [2] };
-    const innerLeftCutouts: Record<string, number[]> = { north: [1], south: [3], east: [2], west: [0] };
-    const innerRightCutouts: Record<string, number[]> = { north: [0], south: [2], east: [1], west: [3] };
+    const straightCutouts: Record<string, number[]> = { north: [2, 3], south: [0, 1], east: [0, 3], west: [1, 2] };
+    const outerLeftCutouts: Record<string, number[]> = { north: [0, 2, 3], south: [0, 1, 2], east: [0, 1, 3], west: [1, 2, 3] };
+    const outerRightCutouts: Record<string, number[]> = { north: [1, 2, 3], south: [0, 1, 3], east: [0, 2, 3], west: [0, 1, 2] };
+    const innerLeftCutouts: Record<string, number[]> = { north: [2], south: [0], east: [3], west: [1] };
+    const innerRightCutouts: Record<string, number[]> = { north: [3], south: [1], east: [0], west: [2] };
 
     let cutoutQuads: number[] = [];
     if (stairShape === 'straight') {
-      const steps = straightSteps[stairFacing] || straightSteps.north;
-      cutoutQuads = [0, 1, 2, 3].filter(q => !steps.includes(q));
+      cutoutQuads = straightCutouts[stairFacing] || straightCutouts.north;
     } else if (stairShape === 'outer_left') {
-      const steps = outerLeftSteps[stairFacing] || outerLeftSteps.north;
-      cutoutQuads = [0, 1, 2, 3].filter(q => !steps.includes(q));
+      cutoutQuads = outerLeftCutouts[stairFacing] || outerLeftCutouts.north;
     } else if (stairShape === 'outer_right') {
-      const steps = outerRightSteps[stairFacing] || outerRightSteps.north;
-      cutoutQuads = [0, 1, 2, 3].filter(q => !steps.includes(q));
+      cutoutQuads = outerRightCutouts[stairFacing] || outerRightCutouts.north;
     } else if (stairShape === 'inner_left') {
       cutoutQuads = innerLeftCutouts[stairFacing] || innerLeftCutouts.north;
     } else if (stairShape === 'inner_right') {
       cutoutQuads = innerRightCutouts[stairFacing] || innerRightCutouts.north;
     } else {
-      const steps = straightSteps[stairFacing] || straightSteps.north;
-      cutoutQuads = [0, 1, 2, 3].filter(q => !steps.includes(q));
+      cutoutQuads = straightCutouts[stairFacing] || straightCutouts.north;
     }
 
     const isTopHalf = stairHalf === 'top';
@@ -689,6 +685,11 @@ const isFullLeavesBlock = (name: string) => {
   return true;
 };
 
+const isObserverBlock = (name: string) => {
+  if (!name) return false;
+  return name.toLowerCase().includes('observer');
+};
+
 // Comprehensive Face Culling & Special Block Processing
 if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.needsCull = function (block: any, dir: any) {
@@ -711,6 +712,11 @@ if (Lodestone.ChunkBuilder) {
     // 3. Full leaves: cull connection faces between full leaf blocks
     if (isFullLeavesBlock(blockName)) {
       return isFullLeavesBlock(neighborName);
+    }
+
+    // 4. Observer: cull connection faces between observer blocks
+    if (isObserverBlock(blockName)) {
+      return isObserverBlock(neighborName);
     }
 
     // 4. Fluid block (standalone water/lava or waterlogged block)
