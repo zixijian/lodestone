@@ -315,10 +315,10 @@ function createWaterMesh(
           new (Lodestone as any).Vector(qx1, hNE, qz0)
         );
         q.setColor(tint);
-        q.v1.texture = [u0_f + (16 - qx0) * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v2.texture = [u0_f + (16 - qx1) * du_f, v0_f + (16 - subY0) * dv_f];
-        q.v3.texture = [u0_f + (16 - qx1) * du_f, v0_f + (16 - hNW) * dv_f];
-        q.v4.texture = [u0_f + (16 - qx0) * du_f, v0_f + (16 - hNE) * dv_f];
+        q.v1.texture = [u0_f + qx1 * du_f, v0_f + (16 - subY0) * dv_f];
+        q.v2.texture = [u0_f + qx0 * du_f, v0_f + (16 - subY0) * dv_f];
+        q.v3.texture = [u0_f + qx0 * du_f, v0_f + (16 - hNW) * dv_f];
+        q.v4.texture = [u0_f + qx1 * du_f, v0_f + (16 - hNE) * dv_f];
         q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
         q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
         q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
@@ -571,10 +571,11 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any, structure?: any, pos?: any) {
     const name = block.getName().toString();
-    if (name === 'minecraft:water') {
+    if (name === 'minecraft:water' || name === 'minecraft:lava') {
+      const liquidType = name.replace('minecraft:', '');
       const levelStr = typeof block.getProperty === 'function' ? block.getProperty('level') : (block.properties?.level ?? '0');
       const level = parseInt(levelStr || '0', 10);
-      return createWaterMesh('water', level, atlas, cull, 0, structure, pos);
+      return createWaterMesh(liquidType, level, atlas, cull, 0, structure, pos);
     }
     if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
       let type = 'single';
@@ -694,11 +695,11 @@ if (Lodestone.ChunkBuilder) {
       return isFullLeavesBlock(neighborName);
     }
 
-    // 4. Water block (standalone water or waterlogged block)
-    const selfIsWater = blockName === 'minecraft:water' || (block.state.isWaterlogged && block.state.isWaterlogged());
-    if (selfIsWater) {
-      const neighborIsWater = neighborName === 'minecraft:water' || (neighbor.isWaterlogged && neighbor.isWaterlogged());
-      if (neighborIsWater) return true;
+    // 4. Fluid block (standalone water/lava or waterlogged block)
+    const selfIsFluid = blockName === 'minecraft:water' || blockName === 'minecraft:lava' || (block.state.isWaterlogged && block.state.isWaterlogged());
+    if (selfIsFluid) {
+      const neighborIsFluid = neighborName === 'minecraft:water' || neighborName === 'minecraft:lava' || (neighbor.isWaterlogged && neighbor.isWaterlogged());
+      if (neighborIsFluid) return true;
       if (isGlassBlock(neighborName)) return false;
       const flags = this.resources.getBlockFlags(neighbor.getName());
       if (!flags?.opaque) return false;
