@@ -722,12 +722,12 @@ if (Lodestone.ChunkBuilder) {
     // 5. Pure fluid block (standalone water or lava)
     const selfIsPureFluid = blockName === 'minecraft:water' || blockName === 'minecraft:lava';
     if (selfIsPureFluid) {
-      const neighborIsPureFluid = neighborName === 'minecraft:water' || neighborName === 'minecraft:lava';
-      if (neighborIsPureFluid) return true;
+      const neighborIsWater = neighborName === 'minecraft:water' || neighborName === 'minecraft:lava' || (neighbor.isWaterlogged && neighbor.isWaterlogged());
+      if (neighborIsWater) return true;
       if (isGlassBlock(neighborName)) return false;
+      if (isNonFullBlock(neighborName)) return false;
       const flags = this.resources.getBlockFlags(neighbor.getName());
       if (!flags?.opaque) return false;
-      if (isNonFullBlock(neighborName)) return false;
       return true;
     }
 
