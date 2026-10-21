@@ -223,6 +223,9 @@ function createWaterMesh(
   const textureStill = `block/${type}_still`;
   const textureFlow = `block/${type}_flow`;
   const [u0_s, v0_s, u1_s, v1_s] = atlas.getTextureUV(textureStill);
+  const du_s = (u1_s - u0_s) / 16, dv_s = (v1_s - v0_s) / 16;
+  const [u0_f, v0_f, u1_f, v1_f] = atlas.getTextureUV(textureFlow);
+  const du_f = (u1_f - u0_f) / 16, dv_f = (v1_f - v0_f) / 16;
 
   if (isWaterloggedStair) {
     const straightSteps: Record<string, number[]> = { north: [2, 3], south: [0, 1], east: [0, 3], west: [1, 2] };
@@ -427,9 +430,6 @@ function createWaterMesh(
 
     return mesh;
   }
-  const du_s = (u1_s - u0_s) / 16, dv_s = (v1_s - v0_s) / 16;
-  const [u0_f, v0_f, u1_f, v1_f] = atlas.getTextureUV(textureFlow);
-  const du_f = (u1_f - u0_f) / 16, dv_f = (v1_f - v0_f) / 16;
 
   // UP
   if (!cull['up']) {
@@ -550,6 +550,14 @@ function createWaterMesh(
     q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
     mesh.quads.push(q);
   }
+
+  const scaleMat = new Float32Array([
+    0.0625, 0, 0, 0,
+    0, 0.0625, 0, 0,
+    0, 0, 0.0625, 0,
+    0, 0, 0, 1
+  ]);
+  mesh.transform(scaleMat);
 
   return mesh;
 }
@@ -784,48 +792,9 @@ if (Lodestone.ChunkBuilder) {
         }
       }
 
-      // Add double-sided glow overlay for active redstone torches, repeaters, and comparators
-      const isLitTorch = nameStr.includes('redstone_torch') || nameStr.includes('redstone_wall_torch');
-      const isPoweredRepeater = nameStr.includes('repeater') && blockProps['powered'] === 'true';
-      const isPoweredComparator = nameStr.includes('comparator') && blockProps['powered'] === 'true';
-      const isLit = (isLitTorch && blockProps['lit'] !== 'false') || isPoweredRepeater || isPoweredComparator;
-
-      if (isLit) {
-        const overlayMesh = new (Lodestone as any).Mesh();
-        const [u0, v0, u1, v1] = this.resources.getTextureUV('block/redstone_dust_overlay');
-
-        const addDoubleSidedQuad = (p1: any, p2: any, p3: any, p4: any) => {
-          const q1 = (Lodestone as any).Quad.fromPoints(p1, p2, p3, p4);
-          q1.setColor([1, 1, 1]);
-          q1.v1.texture = [u0, v1]; q1.v2.texture = [u1, v1]; q1.v3.texture = [u1, v0]; q1.v4.texture = [u0, v0];
-          q1.v1.textureLimit = [u0, v0, u1, v1]; q1.v2.textureLimit = [u0, v0, u1, v1];
-          q1.v3.textureLimit = [u0, v0, u1, v1]; q1.v4.textureLimit = [u0, v0, u1, v1];
-
-          const q2 = (Lodestone as any).Quad.fromPoints(p1, p2, p3, p4);
-          q2.setColor([1, 1, 1]);
-          q2.v1.texture = [u0, v1]; q2.v2.texture = [u1, v1]; q2.v3.texture = [u1, v0]; q2.v4.texture = [u0, v0];
-          q2.v1.textureLimit = [u0, v0, u1, v1]; q2.v2.textureLimit = [u0, v0, u1, v1];
-          q2.v3.textureLimit = [u0, v0, u1, v1]; q2.v4.textureLimit = [u0, v0, u1, v1];
-          q2.reverse();
-
-          overlayMesh.quads.push(q1, q2);
-        };
-
-        const minY = (isPoweredRepeater || isPoweredComparator) ? 3 : 6;
-        const maxY = (isPoweredRepeater || isPoweredComparator) ? 7 : 10;
-
-        const planes = [
-          [new (Lodestone as any).Vector(6, minY, 8), new (Lodestone as any).Vector(10, minY, 8), new (Lodestone as any).Vector(10, maxY, 8), new (Lodestone as any).Vector(6, maxY, 8)],
-          [new (Lodestone as any).Vector(8, minY, 6), new (Lodestone as any).Vector(8, minY, 10), new (Lodestone as any).Vector(8, maxY, 10), new (Lodestone as any).Vector(8, maxY, 6)]
-        ];
-        planes.forEach(([p1, p2, p3, p4]) => addDoubleSidedQuad(p1, p2, p3, p4));
-
-        mesh.merge(overlayMesh);
-      }
-
       if (!mesh.isEmpty()) {
         this.finishChunkMesh(mesh, block.pos, blockName, blockProps, chunkKey);
-        if (isLit || this.resources.getBlockFlags(block.state.getName())?.semi_transparent) {
+        if (this.resources.getBlockFlags(block.state.getName())?.semi_transparent) {
           chunk.transparentMesh.merge(mesh);
         } else {
           chunk.mesh.merge(mesh);
