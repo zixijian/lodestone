@@ -137,6 +137,14 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         }
         return emptyMesh;
       }
+    } else if (name.includes('copper_chest')) {
+      // Copper chests: delegate entirely to BlockDefinition (custom blockstates & models)
+      const emptyMesh = new (Lodestone as any).Mesh();
+      if (block.isWaterlogged && block.isWaterlogged()) {
+        const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
+        if (waterMesh) emptyMesh.merge(waterMesh);
+      }
+      return emptyMesh;
     }
     return origGetBlockMesh.call(this, block, nbt, atlas, cull);
   };
@@ -197,10 +205,10 @@ if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
     const blockName = block.state.getName().toString();
     if (
-      blockName === 'minecraft:chest' ||
-      blockName === 'minecraft:trapped_chest' ||
+      blockName.includes('chest') ||
       blockName.includes('sign') ||
-      blockName.includes('frame')
+      blockName.includes('frame') ||
+      blockName.includes('torch')
     ) {
       return false;
     }
@@ -504,6 +512,103 @@ async function init() {
     loaded.assets.models['block/chest_right'] = createChestHalfModel(false, 'entity/chest/normal_right');
     loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
+
+    // Copper torch models and blockstates
+    loaded.assets.models['block/copper_torch'] = {
+      parent: 'minecraft:block/template_torch',
+      textures: { torch: 'minecraft:block/copper_torch' }
+    };
+    loaded.assets.models['block/copper_wall_torch'] = {
+      parent: 'minecraft:block/template_torch_wall',
+      textures: { torch: 'minecraft:block/copper_torch' }
+    };
+
+    const copperTorchVariants = [
+      'copper_torch', 'exposed_copper_torch', 'weathered_copper_torch', 'oxidized_copper_torch',
+      'waxed_copper_torch', 'waxed_exposed_copper_torch', 'waxed_weathered_copper_torch', 'waxed_oxidized_copper_torch'
+    ];
+
+    const groundTorchBS = {
+      variants: { '': { model: 'minecraft:block/copper_torch' } }
+    };
+
+    const wallTorchBS = {
+      variants: {
+        'facing=east': { model: 'minecraft:block/copper_wall_torch' },
+        'facing=north': { model: 'minecraft:block/copper_wall_torch', y: 270 },
+        'facing=south': { model: 'minecraft:block/copper_wall_torch', y: 90 },
+        'facing=west': { model: 'minecraft:block/copper_wall_torch', y: 180 }
+      }
+    };
+
+    copperTorchVariants.forEach(variant => {
+      loaded.assets.blockstates[variant] = groundTorchBS;
+      loaded.assets.blockstates[variant.replace('_torch', '_wall_torch')] = wallTorchBS;
+    });
+
+    // Copper chest models and blockstates
+    const createChestSingleModel = (texPath: string) => ({
+      textures: { '0': texPath },
+      elements: [
+        {
+          from: [1, 0, 1],
+          to: [15, 10, 15],
+          faces: {
+            north: { uv: [10.5, 8.25, 14, 10.75], rotation: 180, texture: '#0' },
+            east: { uv: [7, 8.25, 10.5, 10.75], rotation: 180, texture: '#0' },
+            south: { uv: [3.5, 8.25, 7, 10.75], rotation: 180, texture: '#0' },
+            west: { uv: [0, 8.25, 3.5, 10.75], rotation: 180, texture: '#0' },
+            up: { uv: [7, 4.75, 10.5, 8.25], texture: '#0' },
+            down: { uv: [3.5, 4.75, 7, 8.25], texture: '#0' }
+          }
+        },
+        {
+          from: [1, 10, 1],
+          to: [15, 14, 15],
+          faces: {
+            north: { uv: [10.5, 3.75, 14, 4.75], rotation: 180, texture: '#0' },
+            east: { uv: [7, 3.75, 10.5, 4.75], rotation: 180, texture: '#0' },
+            south: { uv: [3.5, 3.75, 7, 4.75], rotation: 180, texture: '#0' },
+            west: { uv: [0, 3.75, 3.5, 4.75], rotation: 180, texture: '#0' },
+            up: { uv: [7, 0, 10.5, 3.5], texture: '#0' },
+            down: { uv: [3.5, 0, 7, 3.5], texture: '#0' }
+          }
+        },
+        {
+          from: [7, 7, 0],
+          to: [9, 11, 2],
+          faces: {
+            north: { uv: [0.25, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' },
+            east: { uv: [0, 0.25, 0.25, 1.25], rotation: 180, texture: '#0' },
+            south: { uv: [1, 0.25, 1.5, 1.25], rotation: 180, texture: '#0' },
+            west: { uv: [0.75, 0.25, 1, 1.25], rotation: 180, texture: '#0' },
+            up: { uv: [0.25, 0, 0.75, 0.25], texture: '#0' },
+            down: { uv: [0.75, 0, 1.25, 0.25], texture: '#0' }
+          }
+        }
+      ]
+    });
+
+    const chestBases = [
+      { name: 'copper_chest', tex: 'entity/chest/copper' },
+      { name: 'exposed_copper_chest', tex: 'entity/chest/copper_exposed' },
+      { name: 'weathered_copper_chest', tex: 'entity/chest/copper_weathered' },
+      { name: 'oxidized_copper_chest', tex: 'entity/chest/copper_oxidized' }
+    ];
+
+    chestBases.forEach(base => {
+      const singleModelKey = `block/${base.name}`;
+      const leftModelKey = `block/${base.name}_left`;
+      const rightModelKey = `block/${base.name}_right`;
+
+      loaded.assets.models[singleModelKey] = createChestSingleModel(base.tex);
+      loaded.assets.models[leftModelKey] = createChestHalfModel(true, `${base.tex}_left`);
+      loaded.assets.models[rightModelKey] = createChestHalfModel(false, `${base.tex}_right`);
+
+      const blockstate = createChestBlockState(singleModelKey, leftModelKey, rightModelKey);
+      loaded.assets.blockstates[base.name] = blockstate;
+      loaded.assets.blockstates[`waxed_${base.name}`] = blockstate;
+    });
 
     // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
