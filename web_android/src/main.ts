@@ -204,15 +204,6 @@ function createWaterMesh(
     };
 
     const getCornerHeight = (cornerCols: [number, number][], defH: number) => {
-      for (const [cx, cz] of cornerCols) {
-        const above = structure.getBlock([cx, by + 1, cz])?.state;
-        if (above) {
-          const aName = above.getName().toString();
-          if (aName === 'minecraft:water' || aName === 'minecraft:lava' || (above.isWaterlogged && above.isWaterlogged())) {
-            return 16.0;
-          }
-        }
-      }
       let sum = 0;
       let count = 0;
       for (const [cx, cz] of cornerCols) {
@@ -266,12 +257,8 @@ function createWaterMesh(
 
     const isTopHalf = stairHalf === 'top';
     const subY0 = isTopHalf ? 0 : 8;
-    const subY1_nw = isTopHalf ? 8 : y_nw;
-    const subY1_ne = isTopHalf ? 8 : y_ne;
-    const subY1_se = isTopHalf ? 8 : y_se;
-    const subY1_sw = isTopHalf ? 8 : y_sw;
 
-    // Helper to add a sub-box for a cutout quadrant without internal overlapping faces
+    // Helper to add a sub-box for a cutout quadrant without internal overlapping faces (0..16 grid scale)
     const addSubBox = (
       qx0: number, qz0: number, qx1: number, qz1: number,
       hNW: number, hNE: number, hSE: number, hSW: number
@@ -397,38 +384,30 @@ function createWaterMesh(
       }
     };
 
-    const midNW_N = (subY1_nw + subY1_ne) / 2;
-    const midNW_W = (subY1_nw + subY1_sw) / 2;
-    const midNE_E = (subY1_ne + subY1_se) / 2;
-    const midSE_S = (subY1_sw + subY1_se) / 2;
-    const centerH = (subY1_nw + subY1_ne + subY1_se + subY1_sw) / 4;
+    const midNW_N = (y_nw + y_ne) / 2;
+    const midNW_W = (y_nw + y_sw) / 2;
+    const midNE_E = (y_ne + y_se) / 2;
+    const midSE_S = (y_sw + y_se) / 2;
+    const centerH = (y_nw + y_ne + y_se + y_sw) / 4;
 
     const hasQ = (qIdx: number) => cutoutQuads.includes(qIdx);
 
     // NW (Quad 0): x: 0..8, z: 0..8
     if (hasQ(0)) {
-      addSubBox(0, 0, 8, 8, subY1_nw, midNW_N, centerH, midNW_W);
+      addSubBox(0, 0, 8, 8, y_nw, midNW_N, centerH, midNW_W);
     }
     // NE (Quad 1): x: 8..16, z: 0..8
     if (hasQ(1)) {
-      addSubBox(8, 0, 16, 8, midNW_N, subY1_ne, midNE_E, centerH);
+      addSubBox(8, 0, 16, 8, midNW_N, y_ne, midNE_E, centerH);
     }
     // SE (Quad 2): x: 8..16, z: 8..16
     if (hasQ(2)) {
-      addSubBox(8, 8, 16, 16, centerH, midNE_E, subY1_se, midSE_S);
+      addSubBox(8, 8, 16, 16, centerH, midNE_E, y_se, midSE_S);
     }
     // SW (Quad 3): x: 0..8, z: 8..16
     if (hasQ(3)) {
-      addSubBox(0, 8, 8, 16, midNW_W, centerH, midSE_S, subY1_sw);
+      addSubBox(0, 8, 8, 16, midNW_W, centerH, midSE_S, y_sw);
     }
-
-    const scaleMat = new Float32Array([
-      0.0625, 0, 0, 0,
-      0, 0.0625, 0, 0,
-      0, 0, 0.0625, 0,
-      0, 0, 0, 1
-    ]);
-    mesh.transform(scaleMat);
 
     return mesh;
   }
@@ -553,19 +532,14 @@ function createWaterMesh(
     mesh.quads.push(q);
   }
 
-  const scaleMat = new Float32Array([
-    0.0625, 0, 0, 0,
-    0, 0.0625, 0, 0,
-    0, 0, 0.0625, 0,
-    0, 0, 0, 1
-  ]);
-  mesh.transform(scaleMat);
-
   return mesh;
 }
 
 if ((Lodestone as any).SpecialRenderers) {
-  (Lodestone as any).SpecialRenderers.liquidRenderer = createWaterMesh;
+  (Lodestone as any).SpecialRenderers.liquidRenderer = function () {
+    // Return empty mesh for generic un-contextualized calls from Lodestone
+    return new (Lodestone as any).Mesh();
+  };
 }
 
 // Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
@@ -573,11 +547,19 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
   (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any, structure?: any, pos?: any) {
     const name = block.getName().toString();
+    const scaleMat = new Float32Array([
+      0.0625, 0, 0, 0,
+      0, 0.0625, 0, 0,
+      0, 0, 0.0625, 0,
+      0, 0, 0, 1
+    ]);
+
     if (name === 'minecraft:water' || name === 'minecraft:lava') {
       const liquidType = name.replace('minecraft:', '');
       const levelStr = typeof block.getProperty === 'function' ? block.getProperty('level') : (block.properties?.level ?? '0');
       const level = parseInt(levelStr || '0', 10);
-      return createWaterMesh(liquidType, level, atlas, cull, 0, structure, pos);
+      const wMesh = createWaterMesh(liquidType, level, atlas, cull, 0, structure, pos);
+      return wMesh.transform(scaleMat);
     }
     if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
       let type = 'single';
@@ -591,7 +573,7 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         const emptyMesh = new (Lodestone as any).Mesh();
         if (block.isWaterlogged && block.isWaterlogged()) {
           const waterMesh = createWaterMesh('water', 0, atlas, cull, 0, structure, pos);
-          if (waterMesh) emptyMesh.merge(waterMesh);
+          if (waterMesh) emptyMesh.merge(waterMesh.transform(scaleMat));
         }
         return emptyMesh;
       }
@@ -600,11 +582,19 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
       const emptyMesh = new (Lodestone as any).Mesh();
       if (block.isWaterlogged && block.isWaterlogged()) {
         const waterMesh = createWaterMesh('water', 0, atlas, cull, 0, structure, pos);
-        if (waterMesh) emptyMesh.merge(waterMesh);
+        if (waterMesh) emptyMesh.merge(waterMesh.transform(scaleMat));
       }
       return emptyMesh;
     }
-    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+
+    const mesh = origGetBlockMesh.call(this, block, nbt, atlas, cull);
+    if (block.isWaterlogged && block.isWaterlogged()) {
+      const waterMesh = createWaterMesh('water', 0, atlas, cull, 0, structure, pos);
+      if (waterMesh && !waterMesh.isEmpty()) {
+        mesh.merge(waterMesh.transform(scaleMat));
+      }
+    }
+    return mesh;
   };
 }
 
