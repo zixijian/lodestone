@@ -190,12 +190,56 @@ const isNonFullBlock = (name: string) => {
   return nonFullKeywords.some(kw => lower.includes(kw));
 };
 
+const isNoCullBlock = (name: string) => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return (
+    lower.includes('redstone_torch') ||
+    lower.includes('redstone_wall_torch') ||
+    lower.includes('repeater') ||
+    lower.includes('comparator')
+  );
+};
+
+const isGlassBlock = (name: string) => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return lower.includes('glass');
+};
+
+const isFullLeavesBlock = (name: string) => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  if (!lower.includes('leaves')) return false;
+  if (lower.includes('azalea')) return false;
+  return true;
+};
+
 // Comprehensive Face Culling & Special Block Processing
 if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.needsCull = function (block: any, dir: any) {
+    const blockName = block.state.getName().toString();
+
+    // 1. Redstone torch, repeater, comparator: no face culling
+    if (isNoCullBlock(blockName)) {
+      return false;
+    }
+
     const neighbor = this.structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
     if (!neighbor) return false;
     const neighborName = neighbor.getName().toString();
+
+    // 2. Glass (including stained glass and glass panes): cull connection faces between glass blocks
+    if (isGlassBlock(blockName)) {
+      return isGlassBlock(neighborName);
+    }
+
+    // 3. Full leaves: cull connection faces between full leaf blocks
+    if (isFullLeavesBlock(blockName)) {
+      return isFullLeavesBlock(neighborName);
+    }
+
+    // 4. Default culling rule
     const flags = this.resources.getBlockFlags(neighbor.getName());
     if (!flags?.opaque) return false;
     if (isNonFullBlock(neighborName)) return false;
@@ -205,6 +249,7 @@ if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
     const blockName = block.state.getName().toString();
     if (
+      isNoCullBlock(blockName) ||
       blockName.includes('chest') ||
       blockName.includes('sign') ||
       blockName.includes('frame') ||
