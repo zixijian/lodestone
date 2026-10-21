@@ -128,72 +128,6 @@ function createWaterMesh(
   const mesh = new (Lodestone as any).Mesh();
   const tint = (Lodestone as any).BlockColors?.[type]?.({}) ?? [0.247, 0.462, 0.894];
   const heightsTable = [14.2, 12.5, 10.5, 9.0, 7.0, 5.3, 3.7, 1.9];
-  const defaultH = level >= 8 ? 16.0 : (heightsTable[level] ?? 14.2);
-
-  const getWaterLevelHeight = (lx: number, ly: number, lz: number) => {
-    if (!structure) return -1;
-    const b = structure.getBlock([lx, ly, lz])?.state;
-    if (!b) return -1;
-    const bName = b.getName().toString();
-    const isW = bName === 'minecraft:water' || (b.isWaterlogged && b.isWaterlogged());
-    if (!isW) return -1;
-
-    const above = structure.getBlock([lx, ly + 1, lz])?.state;
-    if (above) {
-      const aName = above.getName().toString();
-      if (aName === 'minecraft:water' || (above.isWaterlogged && above.isWaterlogged())) {
-        return 16.0;
-      }
-    }
-
-    if (bName === 'minecraft:water') {
-      const pLevelStr = typeof b.getProperty === 'function' ? b.getProperty('level') : (b.properties?.level ?? '0');
-      const pLevel = parseInt(pLevelStr || '0', 10);
-      if (pLevel >= 8) return 16.0;
-      return heightsTable[pLevel] ?? 14.2;
-    }
-    return 16.0;
-  };
-
-  const getCornerHeight = (cornerCols: [number, number][], bx: number, by: number, bz: number, defH: number) => {
-    if (!structure) return defH;
-    for (const [cx, cz] of cornerCols) {
-      const above = structure.getBlock([cx, by + 1, cz])?.state;
-      if (above) {
-        const aName = above.getName().toString();
-        if (aName === 'minecraft:water' || (above.isWaterlogged && above.isWaterlogged())) {
-          return 16.0;
-        }
-      }
-    }
-    let sum = 0;
-    let count = 0;
-    for (const [cx, cz] of cornerCols) {
-      const h = getWaterLevelHeight(cx, by, cz);
-      if (h >= 0) {
-        sum += h;
-        count++;
-      }
-    }
-    return count > 0 ? sum / count : defH;
-  };
-
-  let y_nw = defaultH, y_ne = defaultH, y_se = defaultH, y_sw = defaultH;
-  if (cull['up']) {
-    y_nw = y_ne = y_se = y_sw = 16.0;
-  } else if (structure && pos) {
-    const [bx, by, bz] = pos;
-    const blockAbove = structure.getBlock([bx, by + 1, bz])?.state;
-    const isAboveWater = blockAbove && (blockAbove.getName().toString() === 'minecraft:water' || (blockAbove.isWaterlogged && blockAbove.isWaterlogged()));
-    if (isAboveWater) {
-      y_nw = y_ne = y_se = y_sw = 16.0;
-    } else {
-      y_nw = getCornerHeight([[bx - 1, bz - 1], [bx - 1, bz], [bx, bz - 1], [bx, bz]], bx, by, bz, defaultH);
-      y_ne = getCornerHeight([[bx, bz - 1], [bx + 1, bz - 1], [bx, bz], [bx + 1, bz]], bx, by, bz, defaultH);
-      y_se = getCornerHeight([[bx, bz], [bx + 1, bz], [bx, bz + 1], [bx + 1, bz + 1]], bx, by, bz, defaultH);
-      y_sw = getCornerHeight([[bx - 1, bz], [bx, bz], [bx - 1, bz + 1], [bx, bz + 1]], bx, by, bz, defaultH);
-    }
-  }
 
   // Check if block at pos is a waterlogged stair
   let isWaterloggedStair = false;
@@ -218,6 +152,83 @@ function createWaterMesh(
         }
       }
     }
+  }
+
+  const blockAbove = structure && pos ? structure.getBlock([pos[0], pos[1] + 1, pos[2]])?.state : null;
+  const isAboveWater = blockAbove && (
+    blockAbove.getName().toString() === 'minecraft:water' ||
+    blockAbove.getName().toString() === 'minecraft:lava' ||
+    (blockAbove.isWaterlogged && blockAbove.isWaterlogged())
+  );
+
+  let defaultH = 14.2;
+  if (isAboveWater) {
+    defaultH = 16.0;
+  } else {
+    const effectiveLevel = level & 7;
+    defaultH = heightsTable[effectiveLevel] ?? 14.2;
+  }
+
+  let y_nw = defaultH, y_ne = defaultH, y_se = defaultH, y_sw = defaultH;
+
+  if (cull['up'] || isAboveWater) {
+    y_nw = y_ne = y_se = y_sw = 16.0;
+  } else if (isWaterloggedStair) {
+    // Waterlogged stairs use default source height directly for high performance
+    y_nw = y_ne = y_se = y_sw = defaultH;
+  } else if (structure && pos) {
+    const [bx, by, bz] = pos;
+
+    const getWaterLevelHeight = (lx: number, ly: number, lz: number) => {
+      const b = structure.getBlock([lx, ly, lz])?.state;
+      if (!b) return -1;
+      const bName = b.getName().toString();
+      const isW = bName === 'minecraft:water' || bName === 'minecraft:lava' || (b.isWaterlogged && b.isWaterlogged());
+      if (!isW) return -1;
+
+      const above = structure.getBlock([lx, ly + 1, lz])?.state;
+      if (above) {
+        const aName = above.getName().toString();
+        if (aName === 'minecraft:water' || aName === 'minecraft:lava' || (above.isWaterlogged && above.isWaterlogged())) {
+          return 16.0;
+        }
+      }
+
+      if (bName === 'minecraft:water' || bName === 'minecraft:lava') {
+        const pLevelStr = typeof b.getProperty === 'function' ? b.getProperty('level') : (b.properties?.level ?? '0');
+        const pLevel = parseInt(pLevelStr || '0', 10);
+        const effLevel = pLevel & 7;
+        return heightsTable[effLevel] ?? 14.2;
+      }
+      return 14.2;
+    };
+
+    const getCornerHeight = (cornerCols: [number, number][], defH: number) => {
+      for (const [cx, cz] of cornerCols) {
+        const above = structure.getBlock([cx, by + 1, cz])?.state;
+        if (above) {
+          const aName = above.getName().toString();
+          if (aName === 'minecraft:water' || aName === 'minecraft:lava' || (above.isWaterlogged && above.isWaterlogged())) {
+            return 16.0;
+          }
+        }
+      }
+      let sum = 0;
+      let count = 0;
+      for (const [cx, cz] of cornerCols) {
+        const h = getWaterLevelHeight(cx, by, cz);
+        if (h >= 0) {
+          sum += h;
+          count++;
+        }
+      }
+      return count > 0 ? sum / count : defH;
+    };
+
+    y_nw = getCornerHeight([[bx - 1, bz - 1], [bx - 1, bz], [bx, bz - 1], [bx, bz]], defaultH);
+    y_ne = getCornerHeight([[bx, bz - 1], [bx + 1, bz - 1], [bx, bz], [bx + 1, bz]], defaultH);
+    y_se = getCornerHeight([[bx, bz], [bx + 1, bz], [bx, bz + 1], [bx + 1, bz + 1]], defaultH);
+    y_sw = getCornerHeight([[bx - 1, bz], [bx, bz], [bx - 1, bz + 1], [bx, bz + 1]], defaultH);
   }
 
   const textureStill = `block/${type}_still`;
@@ -260,13 +271,12 @@ function createWaterMesh(
     const subY1_se = isTopHalf ? 8 : y_se;
     const subY1_sw = isTopHalf ? 8 : y_sw;
 
-    // Helper to add a sub-box for a cutout quadrant
+    // Helper to add a sub-box for a cutout quadrant without internal overlapping faces
     const addSubBox = (
       qx0: number, qz0: number, qx1: number, qz1: number,
-      hNW: number, hNE: number, hSE: number, hSW: number,
-      internalFaces: { north?: boolean; south?: boolean; east?: boolean; west?: boolean; down?: boolean }
+      hNW: number, hNE: number, hSE: number, hSW: number
     ) => {
-      // UP
+      // UP (Water surface)
       if (!cull['up'] && !isTopHalf) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx0, hSW, qz1),
@@ -286,8 +296,8 @@ function createWaterMesh(
         mesh.quads.push(q);
       }
 
-      // DOWN
-      if ((!cull['down'] && qz0 === 0 && isTopHalf) || internalFaces.down) {
+      // DOWN (Only if bottom of block is facing open air in top-half stair)
+      if (!cull['down'] && qz0 === 0 && isTopHalf) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx0, subY0, qz0),
           new (Lodestone as any).Vector(qx1, subY0, qz0),
@@ -306,8 +316,8 @@ function createWaterMesh(
         mesh.quads.push(q);
       }
 
-      // NORTH
-      if ((!cull['north'] && qz0 === 0) || internalFaces.north) {
+      // NORTH (Outer block face only)
+      if (!cull['north'] && qz0 === 0) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx1, subY0, qz0),
           new (Lodestone as any).Vector(qx0, subY0, qz0),
@@ -326,8 +336,8 @@ function createWaterMesh(
         mesh.quads.push(q);
       }
 
-      // SOUTH
-      if ((!cull['south'] && qz1 === 16) || internalFaces.south) {
+      // SOUTH (Outer block face only)
+      if (!cull['south'] && qz1 === 16) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx0, subY0, qz1),
           new (Lodestone as any).Vector(qx1, subY0, qz1),
@@ -346,8 +356,8 @@ function createWaterMesh(
         mesh.quads.push(q);
       }
 
-      // WEST
-      if ((!cull['west'] && qx0 === 0) || internalFaces.west) {
+      // WEST (Outer block face only)
+      if (!cull['west'] && qx0 === 0) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx0, subY0, qz0),
           new (Lodestone as any).Vector(qx0, subY0, qz1),
@@ -366,8 +376,8 @@ function createWaterMesh(
         mesh.quads.push(q);
       }
 
-      // EAST
-      if ((!cull['east'] && qx1 === 16) || internalFaces.east) {
+      // EAST (Outer block face only)
+      if (!cull['east'] && qx1 === 16) {
         const q = (Lodestone as any).Quad.fromPoints(
           new (Lodestone as any).Vector(qx1, subY0, qz1),
           new (Lodestone as any).Vector(qx1, subY0, qz0),
@@ -397,36 +407,28 @@ function createWaterMesh(
 
     // NW (Quad 0): x: 0..8, z: 0..8
     if (hasQ(0)) {
-      addSubBox(0, 0, 8, 8, subY1_nw, midNW_N, centerH, midNW_W, {
-        south: !hasQ(3),
-        east: !hasQ(1),
-        down: !isTopHalf
-      });
+      addSubBox(0, 0, 8, 8, subY1_nw, midNW_N, centerH, midNW_W);
     }
     // NE (Quad 1): x: 8..16, z: 0..8
     if (hasQ(1)) {
-      addSubBox(8, 0, 16, 8, midNW_N, subY1_ne, midNE_E, centerH, {
-        south: !hasQ(2),
-        west: !hasQ(0),
-        down: !isTopHalf
-      });
+      addSubBox(8, 0, 16, 8, midNW_N, subY1_ne, midNE_E, centerH);
     }
     // SE (Quad 2): x: 8..16, z: 8..16
     if (hasQ(2)) {
-      addSubBox(8, 8, 16, 16, centerH, midNE_E, subY1_se, midSE_S, {
-        north: !hasQ(1),
-        west: !hasQ(3),
-        down: !isTopHalf
-      });
+      addSubBox(8, 8, 16, 16, centerH, midNE_E, subY1_se, midSE_S);
     }
     // SW (Quad 3): x: 0..8, z: 8..16
     if (hasQ(3)) {
-      addSubBox(0, 8, 8, 16, midNW_W, centerH, midSE_S, subY1_sw, {
-        north: !hasQ(0),
-        east: !hasQ(2),
-        down: !isTopHalf
-      });
+      addSubBox(0, 8, 8, 16, midNW_W, centerH, midSE_S, subY1_sw);
     }
+
+    const scaleMat = new Float32Array([
+      0.0625, 0, 0, 0,
+      0, 0.0625, 0, 0,
+      0, 0, 0.0625, 0,
+      0, 0, 0, 1
+    ]);
+    mesh.transform(scaleMat);
 
     return mesh;
   }
