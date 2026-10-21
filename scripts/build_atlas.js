@@ -150,14 +150,9 @@ for (const sprite of packedSprites) {
   if (!srcPng) continue;
 
   // 1. Copy main sprite pixels
-  const isRedstoneLine = sprite.key.startsWith('block/redstone_dust_line') || sprite.key === 'block/redstone_dust_dot';
   for (let y = 0; y < sprite.h; y++) {
     for (let x = 0; x < sprite.w; x++) {
-      let [r, g, b, a] = getPixel(srcPng, sprite.x + x, sprite.y + y);
-      if (isRedstoneLine && a > 0 && Math.abs(r - g) < 20 && Math.abs(r - b) < 20) {
-        g = Math.round(g * 0.15);
-        b = 0;
-      }
+      const [r, g, b, a] = getPixel(srcPng, sprite.x + x, sprite.y + y);
       setPixel(masterPng, sprite.destX + x, sprite.destY + y, r, g, b, a);
     }
   }

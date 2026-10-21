@@ -788,9 +788,20 @@ async function init() {
           const expandX = 1;
           const expandZ = 1;
 
+          // Torch head vertical bounding box
+          let y0 = elem.from[1];
+          let y1 = elem.to[1];
+          if (modelKey.includes('torch')) {
+            y0 = Math.max(elem.from[1], 6);
+            y1 = Math.min(elem.to[1], 10);
+          } else if (modelKey.includes('repeater') || modelKey.includes('comparator')) {
+            y0 = Math.max(elem.from[1], 3);
+            y1 = Math.min(elem.to[1], 7);
+          }
+
           const plane1: any = {
-            from: [elem.from[0] - expandX, elem.from[1], cz],
-            to: [elem.to[0] + expandX, elem.to[1], cz],
+            from: [elem.from[0] - expandX, y0, cz],
+            to: [elem.to[0] + expandX, y1, cz],
             shade: false,
             faces: {
               north: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
@@ -799,8 +810,8 @@ async function init() {
           };
 
           const plane2: any = {
-            from: [cx, elem.from[1], elem.from[2] - expandZ],
-            to: [cx, elem.to[1], elem.to[2] + expandZ],
+            from: [cx, y0, elem.from[2] - expandZ],
+            to: [cx, y1, elem.to[2] + expandZ],
             shade: false,
             faces: {
               east: { texture: 'block/redstone_dust_overlay', uv: [0, 0, 16, 16] },
@@ -841,7 +852,7 @@ async function init() {
       });
     }
 
-    // Provide default fallback blockstate properties for repeaters and comparators
+    // Provide default fallback blockstate properties for repeaters, comparators, and redstone wire
     const origGetDefaultProps = loaded.getDefaultBlockProperties ? loaded.getDefaultBlockProperties.bind(loaded) : () => null;
     loaded.getDefaultBlockProperties = (id: any) => {
       const nameStr = id && id.toString ? id.toString() : String(id);
@@ -851,6 +862,9 @@ async function init() {
       }
       if (nameStr.includes('comparator')) {
         return { facing: 'north', mode: 'compare', powered: 'false', ...base };
+      }
+      if (nameStr.includes('redstone_wire')) {
+        return { power: '0', east: 'none', north: 'none', south: 'none', west: 'none', ...base };
       }
       return base;
     };
