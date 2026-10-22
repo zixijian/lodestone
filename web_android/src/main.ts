@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as Lodestone from '@mattzh72/lodestone';
 import { mat4 } from 'gl-matrix';
-import NbtWorker from './nbtWorker?worker&inline';
 
 const {
   Structure,
@@ -71,7 +70,7 @@ const workerCallbacks = new Map<number, { resolve: (val: any) => void; reject: (
 
 function getWorker(): Worker {
   if (!workerInstance) {
-    workerInstance = new NbtWorker();
+    workerInstance = new Worker(new URL('./nbtWorker.ts', import.meta.url), { type: 'module' });
     workerInstance.onmessage = (e: MessageEvent) => {
       const { id, type, error, ...data } = e.data;
       const cb = workerCallbacks.get(id);

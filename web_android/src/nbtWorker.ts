@@ -163,7 +163,7 @@ function parsePaletteList(cursor: NbtCursor): BlockStateData[] {
   return palette;
 }
 
-// Decode blocks for a specific Chunk (cx, cy, cz)
+// Decode blocks for a specific Chunk (cx, cy, cz) with Padded / Continuous Auto-Detection
 function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: number, chunkSize: number) {
   const meta = currentRegions.get(regionName);
   if (!meta) throw new Error(`Region ${regionName} not found`);
@@ -176,8 +176,13 @@ function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: numbe
   const width = meta.size[0];
   const height = meta.size[1];
   const depth = meta.size[2];
+  const volume = width * height * depth;
   const longArray = meta.longArray;
   const numLongs = meta.numLongs;
+
+  const blocksPerLong = Math.floor(64 / bitsPerBlock);
+  const paddedExpectedLongs = Math.ceil(volume / blocksPerLong);
+  const isPadded = numLongs === paddedExpectedLongs || (numLongs > volume / (64 / bitsPerBlock) + 0.1 && numLongs !== Math.ceil((volume * bitsPerBlock) / 64));
 
   const startX = cx * chunkSize;
   const endX = Math.min(startX + chunkSize, width);
@@ -193,21 +198,30 @@ function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: numbe
       for (let z = startZ; z < endZ; z++) {
         for (let x = startX; x < endX; x++) {
           const index = y * (width * depth) + z * width + x;
-          const startBit = BigInt(index * bitsPerBlock);
-          const startLong = Number(startBit >> 6n);
-          const startBitOffset = startBit & 63n;
-          const endBit = BigInt((index + 1) * bitsPerBlock - 1);
-          const endLong = Number(endBit >> 6n);
-
           let paletteIndex = 0;
-          if (startLong < numLongs) {
-            if (startLong === endLong) {
-              paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
-            } else if (endLong < numLongs) {
-              const endOffset = 64n - startBitOffset;
-              paletteIndex = Number(
-                ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
-              );
+
+          if (isPadded) {
+            const longIndex = Math.floor(index / blocksPerLong);
+            if (longIndex < numLongs) {
+              const startBit = BigInt((index % blocksPerLong) * bitsPerBlock);
+              paletteIndex = Number((longArray[longIndex] >> startBit) & maskBig);
+            }
+          } else {
+            const startBit = BigInt(index * bitsPerBlock);
+            const startLong = Number(startBit >> 6n);
+            const startBitOffset = startBit & 63n;
+            const endBit = BigInt((index + 1) * bitsPerBlock - 1);
+            const endLong = Number(endBit >> 6n);
+
+            if (startLong < numLongs) {
+              if (startLong === endLong) {
+                paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
+              } else if (endLong < numLongs) {
+                const endOffset = 64n - startBitOffset;
+                paletteIndex = Number(
+                  ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
+                );
+              }
             }
           }
 
@@ -238,25 +252,38 @@ function decodeRegionBlocks(regionName: string) {
   const longArray = meta.longArray;
   const numLongs = meta.numLongs;
 
+  const blocksPerLong = Math.floor(64 / bitsPerBlock);
+  const paddedExpectedLongs = Math.ceil(volume / blocksPerLong);
+  const isPadded = numLongs === paddedExpectedLongs || (numLongs > volume / (64 / bitsPerBlock) + 0.1 && numLongs !== Math.ceil((volume * bitsPerBlock) / 64));
+
   const tempBlocks: number[] = [];
 
   if (longArray && numLongs > 0) {
     for (let index = 0; index < volume; index++) {
-      const startBit = BigInt(index * bitsPerBlock);
-      const startLong = Number(startBit >> 6n);
-      const startBitOffset = startBit & 63n;
-      const endBit = BigInt((index + 1) * bitsPerBlock - 1);
-      const endLong = Number(endBit >> 6n);
-
       let paletteIndex = 0;
-      if (startLong < numLongs) {
-        if (startLong === endLong) {
-          paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
-        } else if (endLong < numLongs) {
-          const endOffset = 64n - startBitOffset;
-          paletteIndex = Number(
-            ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
-          );
+
+      if (isPadded) {
+        const longIndex = Math.floor(index / blocksPerLong);
+        if (longIndex < numLongs) {
+          const startBit = BigInt((index % blocksPerLong) * bitsPerBlock);
+          paletteIndex = Number((longArray[longIndex] >> startBit) & maskBig);
+        }
+      } else {
+        const startBit = BigInt(index * bitsPerBlock);
+        const startLong = Number(startBit >> 6n);
+        const startBitOffset = startBit & 63n;
+        const endBit = BigInt((index + 1) * bitsPerBlock - 1);
+        const endLong = Number(endBit >> 6n);
+
+        if (startLong < numLongs) {
+          if (startLong === endLong) {
+            paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
+          } else if (endLong < numLongs) {
+            const endOffset = 64n - startBitOffset;
+            paletteIndex = Number(
+              ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
+            );
+          }
         }
       }
 
