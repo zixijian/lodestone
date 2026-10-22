@@ -275,6 +275,12 @@ if (fs.existsSync(targetPath)) {
     });
 `;
 
+  // 7. Remove Lodestone's un-contextualized waterlogged liquid rendering inside SpecialRenderer.js
+  code = code.replace(
+    /if\s*\(!block\.is\('water'\)\s*&&\s*!block\.is\('lava'\)\s*&&\s*block\.isWaterlogged\(\)\)\s*\{\s*mesh\.merge\(liquidRenderer\('water',\s*0,\s*atlas,\s*cull,\s*0\)\);\s*\}/g,
+    "/* waterlogged liquidRenderer disabled in favour of main.ts createWaterMesh */"
+  );
+
   if (!code.includes('SignRenderers.clear()')) {
     code = code.replace(
       "SpecialRenderers.getBlockMesh = getBlockMesh;",
