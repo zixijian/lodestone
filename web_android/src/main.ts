@@ -257,16 +257,19 @@ function createWaterMesh(
     const getCornerHeight = (cornerCols: [number, number][], defH: number) => {
       let sum = 0;
       let count = 0;
+      let maxH = -1;
       for (const [cx, cz] of cornerCols) {
         const h = getWaterLevelHeight(cx, by, cz);
         if (h >= 0) {
           sum += h;
           count++;
+          if (h > maxH) maxH = h;
         }
       }
-      const avg = count > 0 ? sum / count : defH;
-      // Water flowing outward should never be higher than the current block's default source height
-      return Math.min(avg, defH);
+      if (count === 0) return defH;
+      const avg = sum / count;
+      // Cap at maximum height present around the corner to prevent outflow from exceeding source height
+      return Math.min(avg, maxH >= 0 ? maxH : defH);
     };
 
     y_nw = getCornerHeight([[bx - 1, bz - 1], [bx - 1, bz], [bx, bz - 1], [bx, bz]], defaultH);
