@@ -1,5 +1,5 @@
 import { decompressSync, gunzipSync } from 'fflate';
-import { NbtCursor, TAG_COMPOUND, TAG_END, TAG_LIST, TAG_LONG_ARRAY, TAG_STRING, TAG_INT, TAG_SHORT, TAG_BYTE } from './nbtStream';
+import { NbtFile } from '@mattzh72/lodestone';
 
 export interface BlockStateData {
   name: string;
@@ -11,16 +11,13 @@ export interface RegionMeta {
   size: [number, number, number];
   position?: [number, number, number];
   palette: BlockStateData[];
-  blockStatesOffset: number;
-  blockStatesLength: number;
+  longArray: BigUint64Array | null;
   numLongs: number;
   entities: any[];
 }
 
 let currentRegions: Map<string, RegionMeta> = new Map();
-let currentRegionStates: Map<string, BigUint64Array> = new Map();
 
-// Parse Gzip or raw NBT buffer
 function parseLitematicBuffer(buffer: ArrayBuffer) {
   let uint8 = new Uint8Array(buffer);
   if (uint8[0] === 0x1f && uint8[1] === 0x8b) {
@@ -30,180 +27,149 @@ function parseLitematicBuffer(buffer: ArrayBuffer) {
       uint8 = decompressSync(uint8);
     }
   }
+
   currentRegions.clear();
-  currentRegionStates.clear();
 
-  const cursor = new NbtCursor(uint8);
-  const rootTag = cursor.readByte();
-  if (rootTag !== TAG_COMPOUND) {
-    throw new Error('Invalid litematic file: Root tag must be TAG_Compound');
+  const nbt = NbtFile.read(uint8);
+  const root = nbt.root;
+  const regionsTag = root.getCompound('Regions');
+
+  if (!regionsTag) {
+    throw new Error('Invalid litematic: Regions tag not found');
   }
-  cursor.readString(); // Root name
 
-  while (cursor.offset < uint8.byteLength) {
-    const t = cursor.readByte();
-    if (t === TAG_END) break;
-    const key = cursor.readString();
+  let keys: string[] = [];
+  if (typeof (regionsTag as any).keys === 'function') {
+    keys = Array.from((regionsTag as any).keys());
+  } else {
+    keys = Object.keys(regionsTag);
+  }
 
-    if (key === 'Regions' && t === TAG_COMPOUND) {
-      while (cursor.offset < uint8.byteLength) {
-        const regTag = cursor.readByte();
-        if (regTag === TAG_END) break;
-        const regionName = cursor.readString();
-        const regMeta = parseRegionCompound(cursor, regionName);
-        currentRegions.set(regionName, regMeta);
-      }
-    } else {
-      cursor.skipTag(t);
+  keys = keys.filter(
+    k => typeof k === 'string' && k !== 'properties' && k !== 'constructor' && k !== '__proto__'
+  );
+
+  for (const regName of keys) {
+    const regionTag = regionsTag.getCompound(regName);
+    if (!regionTag) continue;
+
+    const sizeNbt = regionTag.getCompound('Size');
+    const rawSize = [
+      sizeNbt?.getNumber('x') ?? 0,
+      sizeNbt?.getNumber('y') ?? 0,
+      sizeNbt?.getNumber('z') ?? 0,
+    ];
+    const size: [number, number, number] = [
+      Math.abs(rawSize[0]),
+      Math.abs(rawSize[1]),
+      Math.abs(rawSize[2]),
+    ];
+
+    const posNbt = regionTag.getCompound('Position');
+    const position: [number, number, number] = [
+      posNbt?.getNumber('x') ?? 0,
+      posNbt?.getNumber('y') ?? 0,
+      posNbt?.getNumber('z') ?? 0,
+    ];
+
+    // Palette parsing
+    const paletteList = regionTag.getList('BlockStatePalette');
+    const palette: BlockStateData[] = [];
+    if (paletteList) {
+      paletteList.forEach((entry: any) => {
+        if (!entry.isCompound()) return;
+        const name = entry.getString('Name') ?? 'minecraft:air';
+        const properties: Record<string, string> = {};
+        if (entry.has('Properties')) {
+          const propsTag = entry.get('Properties');
+          if (propsTag && propsTag.isCompound()) {
+            propsTag.forEach((pKey: string, pVal: any) => {
+              if (!pKey) return;
+              if (pVal && pVal.value !== undefined) {
+                if (typeof pVal.value === 'object' && Array.isArray(pVal.value)) {
+                  properties[pKey] = String(pVal.value[1] ?? pVal.value[0]);
+                } else {
+                  properties[pKey] = String(pVal.value);
+                }
+              } else if (pVal && typeof pVal.getAsString === 'function') {
+                properties[pKey] = pVal.getAsString();
+              } else if (pVal !== undefined && pVal !== null) {
+                properties[pKey] = String(pVal);
+              }
+            });
+          }
+        }
+        palette.push({ name, properties });
+      });
     }
+
+    // BlockStates parsing
+    const blockStatesNbt = regionTag.has('BlockStates')
+      ? regionTag.getLongArray('BlockStates')
+      : null;
+
+    let numLongs = 0;
+    let longArray: BigUint64Array | null = null;
+
+    if (blockStatesNbt) {
+      if (typeof blockStatesNbt.getItems === 'function') {
+        const items = blockStatesNbt.getItems();
+        numLongs = items.length;
+        longArray = new BigUint64Array(numLongs);
+        for (let i = 0; i < numLongs; i++) {
+          const item = items[i];
+          if (item && typeof item.getAsPair === 'function') {
+            const pair = item.getAsPair();
+            const high = BigInt(pair[0] >>> 0);
+            const low = BigInt(pair[1] >>> 0);
+            longArray[i] = (high << 32n) | low;
+          } else if (item && typeof item.value === 'bigint') {
+            longArray[i] = BigInt(item.value);
+          } else if (Array.isArray(item)) {
+            const high = BigInt((item[0] ?? 0) >>> 0);
+            const low = BigInt((item[1] ?? 0) >>> 0);
+            longArray[i] = (high << 32n) | low;
+          }
+        }
+      } else if (Array.isArray((blockStatesNbt as any).value)) {
+        const arr = (blockStatesNbt as any).value;
+        numLongs = arr.length;
+        longArray = new BigUint64Array(numLongs);
+        for (let i = 0; i < numLongs; i++) {
+          longArray[i] = BigInt(arr[i]);
+        }
+      }
+    }
+
+    // Entities parsing
+    const entities: any[] = [];
+    const entityLists = ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'];
+    entityLists.forEach(listName => {
+      if (!regionTag.has(listName)) return;
+      const list = regionTag.getList(listName);
+      if (!list) return;
+      list.forEach((entTag: any) => {
+        if (!entTag || !entTag.isCompound()) return;
+        entities.push(entTag);
+      });
+    });
+
+    currentRegions.set(regName, {
+      name: regName,
+      size,
+      position,
+      palette,
+      longArray,
+      numLongs,
+      entities
+    });
   }
 
   return Array.from(currentRegions.keys());
 }
 
-function parseRegionCompound(cursor: NbtCursor, regionName: string): RegionMeta {
-  let size: [number, number, number] = [0, 0, 0];
-  let position: [number, number, number] = [0, 0, 0];
-  let palette: BlockStateData[] = [];
-  let blockStatesOffset = 0;
-  let blockStatesLength = 0;
-  let numLongs = 0;
-  let entities: any[] = [];
-
-  while (cursor.offset < cursor.buffer.byteLength) {
-    const t = cursor.readByte();
-    if (t === TAG_END) break;
-    const key = cursor.readString();
-
-    if (key === 'Size' && t === TAG_COMPOUND) {
-      size = parseVector3(cursor);
-    } else if (key === 'Position' && t === TAG_COMPOUND) {
-      position = parseVector3(cursor);
-    } else if (key === 'BlockStatePalette' && t === TAG_LIST) {
-      palette = parseBlockStatePalette(cursor);
-    } else if (key === 'BlockStates' && t === TAG_LONG_ARRAY) {
-      numLongs = cursor.readInt();
-      blockStatesOffset = cursor.offset;
-      blockStatesLength = numLongs * 8;
-
-      const longArray = new BigUint64Array(numLongs);
-      for (let i = 0; i < numLongs; i++) {
-        longArray[i] = cursor.readLongBigInt();
-      }
-      currentRegionStates.set(regionName, longArray);
-    } else if ((key === 'Entities' || key === 'PendingBlockEntities' || key === 'TileEntities' || key === 'BlockEntities') && t === TAG_LIST) {
-      const parsedEnts = parseEntitiesList(cursor);
-      entities.push(...parsedEnts);
-    } else {
-      cursor.skipTag(t);
-    }
-  }
-
-  return {
-    name: regionName,
-    size: [Math.abs(size[0]), Math.abs(size[1]), Math.abs(size[2])],
-    position,
-    palette,
-    blockStatesOffset,
-    blockStatesLength,
-    numLongs,
-    entities
-  };
-}
-
-function parseVector3(cursor: NbtCursor): [number, number, number] {
-  let x = 0, y = 0, z = 0;
-  while (cursor.offset < cursor.buffer.byteLength) {
-    const t = cursor.readByte();
-    if (t === TAG_END) break;
-    const key = cursor.readString();
-    let val = 0;
-    if (t === TAG_INT) val = cursor.readInt();
-    else if (t === TAG_SHORT) val = cursor.readShort();
-    else if (t === TAG_BYTE) val = cursor.readByte();
-    else cursor.skipTag(t);
-
-    if (key === 'x' || key === 'X') x = val;
-    else if (key === 'y' || key === 'Y') y = val;
-    else if (key === 'z' || key === 'Z') z = val;
-  }
-  return [x, y, z];
-}
-
-function parseBlockStatePalette(cursor: NbtCursor): BlockStateData[] {
-  const elemType = cursor.readByte();
-  const len = cursor.readInt();
-  const palette: BlockStateData[] = [];
-
-  if (elemType !== TAG_COMPOUND) {
-    for (let i = 0; i < len; i++) cursor.skipTag(elemType);
-    return palette;
-  }
-
-  for (let i = 0; i < len; i++) {
-    let name = 'minecraft:air';
-    const properties: Record<string, string> = {};
-
-    while (cursor.offset < cursor.buffer.byteLength) {
-      const t = cursor.readByte();
-      if (t === TAG_END) break;
-      const key = cursor.readString();
-
-      if (key === 'Name' && t === TAG_STRING) {
-        name = cursor.readString();
-      } else if (key === 'Properties' && t === TAG_COMPOUND) {
-        while (cursor.offset < cursor.buffer.byteLength) {
-          const pt = cursor.readByte();
-          if (pt === TAG_END) break;
-          const pKey = cursor.readString();
-          if (pt === TAG_STRING) {
-            properties[pKey] = cursor.readString();
-          } else {
-            properties[pKey] = String(cursor.readString());
-          }
-        }
-      } else {
-        cursor.skipTag(t);
-      }
-    }
-    palette.push({ name, properties });
-  }
-
-  return palette;
-}
-
-function parseEntitiesList(cursor: NbtCursor): any[] {
-  const elemType = cursor.readByte();
-  const len = cursor.readInt();
-  const ents: any[] = [];
-
-  if (elemType !== TAG_COMPOUND) {
-    for (let i = 0; i < len; i++) cursor.skipTag(elemType);
-    return ents;
-  }
-
-  for (let i = 0; i < len; i++) {
-    let ent: any = {};
-    while (cursor.offset < cursor.buffer.byteLength) {
-      const t = cursor.readByte();
-      if (t === TAG_END) break;
-      const key = cursor.readString();
-      if (t === TAG_STRING) ent[key] = cursor.readString();
-      else if (t === TAG_INT) ent[key] = cursor.readInt();
-      else if (t === TAG_SHORT) ent[key] = cursor.readShort();
-      else if (t === TAG_BYTE) ent[key] = cursor.readByte();
-      else cursor.skipTag(t);
-    }
-    ents.push(ent);
-  }
-
-  return ents;
-}
-
-// Decode blocks for a specific Region into a compact flat Uint32Array [x, y, z, stateIndex]
 function decodeRegionBlocks(regionName: string) {
   const meta = currentRegions.get(regionName);
-  const longArray = currentRegionStates.get(regionName);
   if (!meta) throw new Error(`Region ${regionName} not found`);
 
   const palette = meta.palette;
@@ -215,6 +181,7 @@ function decodeRegionBlocks(regionName: string) {
   const height = meta.size[1];
   const depth = meta.size[2];
   const volume = width * height * depth;
+  const longArray = meta.longArray;
   const numLongs = meta.numLongs;
 
   const tempBlocks: number[] = [];
@@ -248,8 +215,7 @@ function decodeRegionBlocks(regionName: string) {
     }
   }
 
-  const result = new Uint32Array(tempBlocks);
-  return result;
+  return new Uint32Array(tempBlocks);
 }
 
 self.onmessage = async (e: MessageEvent) => {
@@ -274,6 +240,15 @@ self.onmessage = async (e: MessageEvent) => {
         id,
         type: 'PARSE_LITEMATIC_SUCCESS',
         regions: regionsListMeta
+      });
+    } else if (type === 'GET_REGION_PALETTE') {
+      const meta = currentRegions.get(payload.regionName);
+      if (!meta) throw new Error(`Region ${payload.regionName} not found`);
+      self.postMessage({
+        id,
+        type: 'GET_REGION_PALETTE_SUCCESS',
+        palette: meta.palette,
+        size: meta.size
       });
     } else if (type === 'DECODE_REGION') {
       const blocksArray = decodeRegionBlocks(payload.regionName);
