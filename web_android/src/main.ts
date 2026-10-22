@@ -140,13 +140,45 @@ function createWaterMesh(
     return false;
   };
 
+  const getNeighborWaterHeight = (nx: number, ny: number, nz: number) => {
+    if (!structure) return -1;
+    const b = structure.getBlock([nx, ny, nz])?.state;
+    if (!b) return -1;
+    const bName = b.getName().toString();
+    const isW = bName === 'minecraft:water' || bName === 'minecraft:lava' || (b.isWaterlogged && b.isWaterlogged());
+    if (!isW) return -1;
+
+    const above = structure.getBlock([nx, ny + 1, nz])?.state;
+    if (above) {
+      const aName = above.getName().toString();
+      if (aName === 'minecraft:water' || aName === 'minecraft:lava') {
+        return 16.0;
+      }
+    }
+
+    if (bName === 'minecraft:water' || bName === 'minecraft:lava') {
+      const pLevelStr = typeof b.getProperty === 'function' ? b.getProperty('level') : (b.properties?.level ?? '0');
+      const pLevel = parseInt(pLevelStr || '0', 10);
+      if (pLevel >= 8) return 16.0;
+      const effLevel = pLevel & 7;
+      return heightsTable[effLevel] ?? 14.2;
+    }
+    return 14.2;
+  };
+
   const [bx, by, bz] = pos || [0, 0, 0];
   const cullUpFinal = cull['up'] || (structure && pos ? neighborHasFluid(bx, by + 1, bz) : false);
   const cullDownFinal = cull['down'] || (structure && pos ? neighborHasFluid(bx, by - 1, bz) : false);
-  const cullNorthFinal = cull['north'] || (structure && pos ? neighborHasFluid(bx, by, bz - 1) : false);
-  const cullSouthFinal = cull['south'] || (structure && pos ? neighborHasFluid(bx, by, bz + 1) : false);
-  const cullWestFinal = cull['west'] || (structure && pos ? neighborHasFluid(bx - 1, by, bz) : false);
-  const cullEastFinal = cull['east'] || (structure && pos ? neighborHasFluid(bx + 1, by, bz) : false);
+
+  const renderNorth = !cull['north'];
+  const renderSouth = !cull['south'];
+  const renderWest  = !cull['west'];
+  const renderEast  = !cull['east'];
+
+  const nbH_north = structure && pos ? getNeighborWaterHeight(bx, by, bz - 1) : -1;
+  const nbH_south = structure && pos ? getNeighborWaterHeight(bx, by, bz + 1) : -1;
+  const nbH_west  = structure && pos ? getNeighborWaterHeight(bx - 1, by, bz) : -1;
+  const nbH_east  = structure && pos ? getNeighborWaterHeight(bx + 1, by, bz) : -1;
 
 
   // Check self block type and properties
@@ -225,6 +257,7 @@ function createWaterMesh(
       if (bName === 'minecraft:water' || bName === 'minecraft:lava') {
         const pLevelStr = typeof b.getProperty === 'function' ? b.getProperty('level') : (b.properties?.level ?? '0');
         const pLevel = parseInt(pLevelStr || '0', 10);
+        if (pLevel >= 8) return 16.0;
         const effLevel = pLevel & 7;
         return heightsTable[effLevel] ?? 14.2;
       }
@@ -235,15 +268,18 @@ function createWaterMesh(
       let sum = 0;
       let count = 0;
       let maxH = -1;
+      let hasFallingOrFull = false;
       for (const [cx, cz] of cornerCols) {
         const h = getWaterLevelHeight(cx, by, cz);
         if (h >= 0) {
           sum += h;
           count++;
           if (h > maxH) maxH = h;
+          if (h >= 16.0) hasFallingOrFull = true;
         }
       }
       if (count === 0) return defH;
+      if (hasFallingOrFull) return 16.0;
       const avg = sum / count;
       // Cap at maximum height present around the corner to prevent outflow from exceeding source height
       return Math.min(avg, maxH >= 0 ? maxH : defH);
@@ -310,17 +346,23 @@ function createWaterMesh(
       mesh.quads.push(q);
     }
 
+    // Calculate effective bottom Y for side faces based on neighbor fluid height
+    const y0_north = nbH_north >= 0 ? Math.min(nbH_north, Math.min(y1_NW, y1_NE)) : y0;
+    const y0_south = nbH_south >= 0 ? Math.min(nbH_south, Math.min(y1_SW, y1_SE)) : y0;
+    const y0_west  = nbH_west  >= 0 ? Math.min(nbH_west,  Math.min(y1_NW, y1_SW)) : y0;
+    const y0_east  = nbH_east  >= 0 ? Math.min(nbH_east,  Math.min(y1_NE, y1_SE)) : y0;
+
     // NORTH face
-    if (renderNorth) {
+    if (renderNorth && (y1_NW > y0_north || y1_NE > y0_north)) {
       const q = (Lodestone as any).Quad.fromPoints(
-        new (Lodestone as any).Vector(x1, y0, z0),
-        new (Lodestone as any).Vector(x0, y0, z0),
+        new (Lodestone as any).Vector(x1, y0_north, z0),
+        new (Lodestone as any).Vector(x0, y0_north, z0),
         new (Lodestone as any).Vector(x0, y1_NW, z0),
         new (Lodestone as any).Vector(x1, y1_NE, z0)
       );
       q.setColor(tint);
-      q.v1.texture = [u0_f + x1 * du_f, v0_f + (16 - y0) * dv_f];
-      q.v2.texture = [u0_f + x0 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v1.texture = [u0_f + x1 * du_f, v0_f + (16 - y0_north) * dv_f];
+      q.v2.texture = [u0_f + x0 * du_f, v0_f + (16 - y0_north) * dv_f];
       q.v3.texture = [u0_f + x0 * du_f, v0_f + (16 - y1_NW) * dv_f];
       q.v4.texture = [u0_f + x1 * du_f, v0_f + (16 - y1_NE) * dv_f];
       q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
@@ -331,16 +373,16 @@ function createWaterMesh(
     }
 
     // SOUTH face
-    if (renderSouth) {
+    if (renderSouth && (y1_SW > y0_south || y1_SE > y0_south)) {
       const q = (Lodestone as any).Quad.fromPoints(
-        new (Lodestone as any).Vector(x0, y0, z1),
-        new (Lodestone as any).Vector(x1, y0, z1),
+        new (Lodestone as any).Vector(x0, y0_south, z1),
+        new (Lodestone as any).Vector(x1, y0_south, z1),
         new (Lodestone as any).Vector(x1, y1_SE, z1),
         new (Lodestone as any).Vector(x0, y1_SW, z1)
       );
       q.setColor(tint);
-      q.v1.texture = [u0_f + x0 * du_f, v0_f + (16 - y0) * dv_f];
-      q.v2.texture = [u0_f + x1 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v1.texture = [u0_f + x0 * du_f, v0_f + (16 - y0_south) * dv_f];
+      q.v2.texture = [u0_f + x1 * du_f, v0_f + (16 - y0_south) * dv_f];
       q.v3.texture = [u0_f + x1 * du_f, v0_f + (16 - y1_SE) * dv_f];
       q.v4.texture = [u0_f + x0 * du_f, v0_f + (16 - y1_SW) * dv_f];
       q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
@@ -351,16 +393,16 @@ function createWaterMesh(
     }
 
     // WEST face
-    if (renderWest) {
+    if (renderWest && (y1_NW > y0_west || y1_SW > y0_west)) {
       const q = (Lodestone as any).Quad.fromPoints(
-        new (Lodestone as any).Vector(x0, y0, z0),
-        new (Lodestone as any).Vector(x0, y0, z1),
+        new (Lodestone as any).Vector(x0, y0_west, z0),
+        new (Lodestone as any).Vector(x0, y0_west, z1),
         new (Lodestone as any).Vector(x0, y1_SW, z1),
         new (Lodestone as any).Vector(x0, y1_NW, z0)
       );
       q.setColor(tint);
-      q.v1.texture = [u0_f + z0 * du_f, v0_f + (16 - y0) * dv_f];
-      q.v2.texture = [u0_f + z1 * du_f, v0_f + (16 - y0) * dv_f];
+      q.v1.texture = [u0_f + z0 * du_f, v0_f + (16 - y0_west) * dv_f];
+      q.v2.texture = [u0_f + z1 * du_f, v0_f + (16 - y0_west) * dv_f];
       q.v3.texture = [u0_f + z1 * du_f, v0_f + (16 - y1_SW) * dv_f];
       q.v4.texture = [u0_f + z0 * du_f, v0_f + (16 - y1_NW) * dv_f];
       q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
@@ -371,16 +413,16 @@ function createWaterMesh(
     }
 
     // EAST face
-    if (renderEast) {
+    if (renderEast && (y1_NE > y0_east || y1_SE > y0_east)) {
       const q = (Lodestone as any).Quad.fromPoints(
-        new (Lodestone as any).Vector(x1, y0, z1),
-        new (Lodestone as any).Vector(x1, y0, z0),
+        new (Lodestone as any).Vector(x1, y0_east, z1),
+        new (Lodestone as any).Vector(x1, y0_east, z0),
         new (Lodestone as any).Vector(x1, y1_NE, z0),
         new (Lodestone as any).Vector(x1, y1_SE, z1)
       );
       q.setColor(tint);
-      q.v1.texture = [u0_f + (16 - z1) * du_f, v0_f + (16 - y0) * dv_f];
-      q.v2.texture = [u0_f + (16 - z0) * du_f, v0_f + (16 - y0) * dv_f];
+      q.v1.texture = [u0_f + (16 - z1) * du_f, v0_f + (16 - y0_east) * dv_f];
+      q.v2.texture = [u0_f + (16 - z0) * du_f, v0_f + (16 - y0_east) * dv_f];
       q.v3.texture = [u0_f + (16 - z0) * du_f, v0_f + (16 - y1_NE) * dv_f];
       q.v4.texture = [u0_f + (16 - z1) * du_f, v0_f + (16 - y1_SE) * dv_f];
       q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
@@ -435,10 +477,10 @@ function createWaterMesh(
         hNW, hNE, hSE, hSW,
         !cullUpFinal && !isTopHalf,
         !cullDownFinal && qz0 === 0 && isTopHalf,
-        !cullNorthFinal && qz0 === 0,
-        !cullSouthFinal && qz1 === 16,
-        !cullWestFinal && qx0 === 0,
-        !cullEastFinal && qx1 === 16
+        renderNorth && qz0 === 0,
+        renderSouth && qz1 === 16,
+        renderWest && qx0 === 0,
+        renderEast && qx1 === 16
       );
     };
 
@@ -469,8 +511,8 @@ function createWaterMesh(
         16, 16,
         y_nw, y_ne, y_se, y_sw,
         !cullUpFinal, false,
-        !cullNorthFinal, !cullSouthFinal,
-        !cullWestFinal, !cullEastFinal
+        renderNorth, renderSouth,
+        renderWest, renderEast
       );
     } else {
       addWaterBox(
@@ -478,8 +520,8 @@ function createWaterMesh(
         16, 16,
         8, 8, 8, 8,
         false, !cullDownFinal,
-        !cullNorthFinal, !cullSouthFinal,
-        !cullWestFinal, !cullEastFinal
+        renderNorth, renderSouth,
+        renderWest, renderEast
       );
     }
     return mesh;
@@ -493,8 +535,8 @@ function createWaterMesh(
           16, 16,
           y_nw, y_ne, y_se, y_sw,
           !cullUpFinal, !cullDownFinal,
-          false, !cullSouthFinal,
-          !cullWestFinal, !cullEastFinal
+          false, renderSouth,
+          renderWest, renderEast
         );
       } else if (trapdoorFacing === 'south') {
         addWaterBox(
@@ -502,8 +544,8 @@ function createWaterMesh(
           16, 13,
           y_nw, y_ne, y_se, y_sw,
           !cullUpFinal, !cullDownFinal,
-          !cullNorthFinal, false,
-          !cullWestFinal, !cullEastFinal
+          renderNorth, false,
+          renderWest, renderEast
         );
       } else if (trapdoorFacing === 'west') {
         addWaterBox(
@@ -511,8 +553,8 @@ function createWaterMesh(
           16, 16,
           y_nw, y_ne, y_se, y_sw,
           !cullUpFinal, !cullDownFinal,
-          !cullNorthFinal, !cullSouthFinal,
-          false, !cullEastFinal
+          renderNorth, renderSouth,
+          false, renderEast
         );
       } else {
         addWaterBox(
@@ -520,8 +562,8 @@ function createWaterMesh(
           13, 16,
           y_nw, y_ne, y_se, y_sw,
           !cullUpFinal, !cullDownFinal,
-          !cullNorthFinal, !cullSouthFinal,
-          !cullWestFinal, false
+          renderNorth, renderSouth,
+          renderWest, false
         );
       }
     } else {
@@ -531,8 +573,8 @@ function createWaterMesh(
           16, 16,
           y_nw, y_ne, y_se, y_sw,
           !cullUpFinal, false,
-          !cullNorthFinal, !cullSouthFinal,
-          !cullWestFinal, !cullEastFinal
+          renderNorth, renderSouth,
+          renderWest, renderEast
         );
       } else {
         addWaterBox(
@@ -540,8 +582,8 @@ function createWaterMesh(
           16, 16,
           13, 13, 13, 13,
           false, !cullDownFinal,
-          !cullNorthFinal, !cullSouthFinal,
-          !cullWestFinal, !cullEastFinal
+          renderNorth, renderSouth,
+          renderWest, renderEast
         );
       }
     }
@@ -554,8 +596,8 @@ function createWaterMesh(
     16, 16,
     y_nw, y_ne, y_se, y_sw,
     !cullUpFinal, !cullDownFinal,
-    !cullNorthFinal, !cullSouthFinal,
-    !cullWestFinal, !cullEastFinal
+    renderNorth, renderSouth,
+    renderWest, renderEast
   );
 
   return mesh;
@@ -735,8 +777,15 @@ if (Lodestone.ChunkBuilder) {
     // 5. Pure fluid block (standalone water or lava)
     const selfIsPureFluid = blockName === 'minecraft:water' || blockName === 'minecraft:lava';
     if (selfIsPureFluid) {
+      const dirName = typeof dir === 'string' ? dir : (dir?.name || String(dir));
       const neighborIsWater = neighborName === 'minecraft:water' || neighborName === 'minecraft:lava' || (neighbor.isWaterlogged && neighbor.isWaterlogged());
-      if (neighborIsWater) return true;
+      if (dirName === 'up' || dirName === 'down') {
+        if (neighborIsWater) return true;
+      } else if (neighborIsWater) {
+        // For horizontal side faces between water blocks, do not cull here.
+        // createWaterMesh will compute step faces (y1 > y0_side) and cull internal faces.
+        return false;
+      }
       if (isGlassBlock(neighborName) || isGlassPane(neighborName)) return false;
       if (isNonFullBlock(neighborName)) return false;
       const flags = this.resources.getBlockFlags(neighbor.getName());
@@ -1328,9 +1377,10 @@ async function init() {
 
 const cachedViewMatrix = mat4.create();
 
-// Render loop to keep view and OrbitControls synchronized
-function tick() {
-  animFrameId = requestAnimationFrame(tick);
+let renderRequested = false;
+
+function renderFrame() {
+  renderRequested = false;
   if (controls) {
     controls.update();
   }
@@ -1339,12 +1389,25 @@ function tick() {
     mat4.copy(cachedViewMatrix, activeCamera.matrixWorldInverse.elements as any);
     renderer.drawStructure(cachedViewMatrix);
   }
+  if (controls && controls.enableDamping) {
+    // If controls damping is active and still moving, request next frame
+    const curPos = activeCamera.position;
+    const curTarget = controls.target;
+    if ((controls as any).state !== -1 || renderRequested) {
+      requestRender();
+    }
+  }
+}
+
+function requestRender() {
+  if (!renderRequested) {
+    renderRequested = true;
+    animFrameId = requestAnimationFrame(renderFrame);
+  }
 }
 
 window.startRenderLoop = function () {
-  if (animFrameId === null) {
-    tick();
-  }
+  requestRender();
 };
 
 window.stopRenderLoop = function () {
@@ -1352,6 +1415,7 @@ window.stopRenderLoop = function () {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
   }
+  renderRequested = false;
 };
 
 window.destroyRenderer = function () {
@@ -1826,6 +1890,7 @@ async function buildRendererForRegion(regionName: string) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
+  controls.addEventListener('change', requestRender);
 
   const fitDistance = Math.max(tightRadius * 2.2, 10.0);
   activeCamera.position.set(
@@ -1856,9 +1921,10 @@ async function buildRendererForRegion(regionName: string) {
       orthographicCamera.far = 100000.0;
       orthographicCamera.updateProjectionMatrix();
     }
+    requestRender();
   });
 
-  tick();
+  requestRender();
 
   // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
@@ -1952,7 +2018,9 @@ window.toggleCameraView = function () {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.target.copy(currentTarget);
+  controls.addEventListener('change', requestRender);
   controls.update();
+  requestRender();
 };
 
 let isNightMode = false;
@@ -1985,6 +2053,7 @@ window.toggleDayNight = function () {
     if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
     if ((renderer as any).transparentMaterial) (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
   }
+  requestRender();
   return isNightMode;
 };
 
@@ -1995,6 +2064,7 @@ window.resetCamera = function () {
   controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
   activeCamera.position.addVectors(controls.target, offset);
   controls.update();
+  requestRender();
 };
 
 window.switchRegion = async function (regionName: string) {
