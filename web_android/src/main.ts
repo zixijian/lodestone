@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as Lodestone from '@mattzh72/lodestone';
 import { mat4 } from 'gl-matrix';
+import NbtWorker from './nbtWorker?worker&inline';
 
 const {
   Structure,
@@ -70,7 +71,7 @@ const workerCallbacks = new Map<number, { resolve: (val: any) => void; reject: (
 
 function getWorker(): Worker {
   if (!workerInstance) {
-    workerInstance = new Worker(new URL('./nbtWorker.ts', import.meta.url), { type: 'module' });
+    workerInstance = new NbtWorker();
     workerInstance.onmessage = (e: MessageEvent) => {
       const { id, type, error, ...data } = e.data;
       const cb = workerCallbacks.get(id);
@@ -936,44 +937,6 @@ const tempCamPos: [number, number, number] = [0, 0, 0];
   }
 };
 
-(ThreeStructureRenderer.prototype as any).rebuildChunksAsync = async function (chunkPositions?: any) {
-  const token = ++(this as any).buildToken;
-
-  if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('RENDERING_0%');
-  }
-
-  await (this as any).chunkBuilder.updateStructureBuffersAsync({
-    chunkPositions,
-    timeSliceMs: (this as any).asyncChunkBuildTimeMs || 12,
-    onProgress: (done: number, total: number) => {
-      if (window.AndroidHost) {
-        const pct = Math.floor((done / Math.max(1, total)) * 50);
-        window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
-      }
-    }
-  });
-
-  if (token !== (this as any).buildToken) return;
-
-  const origRebuildChunkObjectsAsync = (this as any).rebuildChunkObjectsAsync;
-  const buildPromise = origRebuildChunkObjectsAsync.call(this, token).then(() => {
-    if ((this as any).chunkMeshes) {
-      for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
-        const mesh = (this as any).chunkMeshes[i];
-        mesh.visible = true;
-        mesh.frustumCulled = true;
-      }
-    }
-    if (window.AndroidHost && token === (this as any).buildToken) {
-      window.AndroidHost.onLoadingProgress('RENDERING_100%');
-    }
-  });
-
-  (this as any).buildPromise = buildPromise;
-  return buildPromise;
-};
-
 // Initialize Web application
 async function init() {
   container = document.getElementById('renderer-container')!;
@@ -1659,12 +1622,9 @@ async function buildRendererForRegion(regionName: string) {
   // Calculate and send statistics to Android host asynchronously with frame time-slicing
   calculateAndSendStatistics();
 
-  // Asynchronously build all chunk meshes using time-slicing (12ms max per frame)
-  // This keeps the UI thread, OrbitControls, and gestures 100% smooth!
-  await renderer.rebuildChunksAsync();
-  requestRender();
-
+  // Asynchronously build all chunk meshes using Lodestone's native async chunk builder (12ms max per frame)
   await renderer.whenReady();
+  requestRender();
 }
 
 async function calculateAndSendStatistics(): Promise<void> {
