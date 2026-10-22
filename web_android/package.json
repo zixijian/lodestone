@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@mattzh72/lodestone": "^0.6.0",
+    "fflate": "^0.8.3",
     "three": "^0.164.1"
   },
   "devDependencies": {

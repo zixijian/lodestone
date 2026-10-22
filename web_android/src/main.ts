@@ -2,14 +2,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as Lodestone from '@mattzh72/lodestone';
 import { mat4 } from 'gl-matrix';
+import NbtWorker from './nbtWorker?worker&inline';
 
 const {
   Structure,
   ThreeStructureRenderer,
   loadDefaultPackResources,
   createResourcesFromPack,
-  BlockState,
-  NbtFile
+  BlockState
 } = Lodestone;
 
 // Patch TextureAtlas.prototype.getTextureUV for dual-key fallback compatibility
@@ -60,10 +60,46 @@ let currentStructure: Structure | null = null;
 let activeRegionName: string = '';
 let currentResources: any = null;
 let canvasElement: HTMLCanvasElement;
-let parsedRootCompound: any = null;
 let tightCenter: [number, number, number] = [0, 0, 0];
 let tightRadius: number = 10;
 let animFrameId: number | null = null;
+
+// Worker Instance Management
+let workerInstance: Worker | null = null;
+let workerMessageId = 0;
+const workerCallbacks = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
+
+function getWorker(): Worker {
+  if (!workerInstance) {
+    workerInstance = new NbtWorker();
+    workerInstance.onmessage = (e: MessageEvent) => {
+      const { id, type, error, ...data } = e.data;
+      const cb = workerCallbacks.get(id);
+      if (cb) {
+        workerCallbacks.delete(id);
+        if (type === 'ERROR' || error) {
+          cb.reject(new Error(error || 'Worker error'));
+        } else {
+          cb.resolve(data);
+        }
+      }
+    };
+  }
+  return workerInstance;
+}
+
+function sendWorkerMessage(type: string, payload: any, transferables?: Transferable[]): Promise<any> {
+  const id = ++workerMessageId;
+  const worker = getWorker();
+  return new Promise((resolve, reject) => {
+    workerCallbacks.set(id, { resolve, reject });
+    if (transferables) {
+      worker.postMessage({ id, type, payload }, transferables);
+    } else {
+      worker.postMessage({ id, type, payload });
+    }
+  });
+}
 
 // High-performance, zero-GC Uint16Array flat block grid storage with on-demand lazy block object creation
 (Structure.prototype as any).ensurePlacedCaches = function () {
@@ -88,7 +124,7 @@ let animFrameId: number | null = null;
 (Structure.prototype as any).getBlock = function (pos: [number, number, number]) {
   if (!this.isInside(pos)) return null;
   this.ensurePlacedCaches();
-  const w = this.size[0], h = this.size[1], d = this.size[2];
+  const h = this.size[1], d = this.size[2];
   const idx = pos[0] * (h * d) + pos[1] * d + pos[2];
   const stateIdx = this.placedBlocksGrid[idx];
   if (stateIdx === 0xffff) return null;
@@ -121,7 +157,7 @@ function createWaterMesh(
   level: number,
   atlas: any,
   cull: any,
-  tintindex: number = 0,
+  _tintindex: number = 0,
   structure: any = null,
   pos: any = null
 ) {
@@ -129,7 +165,6 @@ function createWaterMesh(
   const tint = (Lodestone as any).BlockColors?.[type]?.({}) ?? [0.247, 0.462, 0.894];
   const heightsTable = [14.2, 12.5, 10.5, 9.0, 7.0, 5.3, 3.7, 1.9];
 
-  // Fluid neighbor check: 100% cull faces between water/water, water/waterlogged, or waterlogged/waterlogged
   const neighborHasFluid = (nx: number, ny: number, nz: number) => {
     if (!structure) return false;
     const nb = structure.getBlock([nx, ny, nz])?.state;
@@ -180,8 +215,6 @@ function createWaterMesh(
   const nbH_west  = structure && pos ? getNeighborWaterHeight(bx - 1, by, bz) : -1;
   const nbH_east  = structure && pos ? getNeighborWaterHeight(bx + 1, by, bz) : -1;
 
-
-  // Check self block type and properties
   let isWaterloggedStair = false;
   let stairFacing = 'north';
   let stairHalf = 'bottom';
@@ -281,7 +314,6 @@ function createWaterMesh(
       if (count === 0) return defH;
       if (hasFallingOrFull) return 16.0;
       const avg = sum / count;
-      // Cap at maximum height present around the corner to prevent outflow from exceeding source height
       return Math.min(avg, maxH >= 0 ? maxH : defH);
     };
 
@@ -306,7 +338,6 @@ function createWaterMesh(
     renderNorth: boolean, renderSouth: boolean,
     renderWest: boolean, renderEast: boolean
   ) => {
-    // UP face
     if (renderUp) {
       const q = (Lodestone as any).Quad.fromPoints(
         new (Lodestone as any).Vector(x0, y1_SW, z1),
@@ -326,7 +357,6 @@ function createWaterMesh(
       mesh.quads.push(q);
     }
 
-    // DOWN face
     if (renderDown) {
       const q = (Lodestone as any).Quad.fromPoints(
         new (Lodestone as any).Vector(x0, y0, z0),
@@ -346,13 +376,11 @@ function createWaterMesh(
       mesh.quads.push(q);
     }
 
-    // Calculate effective bottom Y for side faces based on neighbor fluid height
     const y0_north = nbH_north >= 0 ? Math.min(nbH_north, Math.min(y1_NW, y1_NE)) : y0;
     const y0_south = nbH_south >= 0 ? Math.min(nbH_south, Math.min(y1_SW, y1_SE)) : y0;
     const y0_west  = nbH_west  >= 0 ? Math.min(nbH_west,  Math.min(y1_NW, y1_SW)) : y0;
     const y0_east  = nbH_east  >= 0 ? Math.min(nbH_east,  Math.min(y1_NE, y1_SE)) : y0;
 
-    // NORTH face
     if (renderNorth && (y1_NW > y0_north || y1_NE > y0_north)) {
       const q = (Lodestone as any).Quad.fromPoints(
         new (Lodestone as any).Vector(x1, y0_north, z0),
@@ -372,7 +400,6 @@ function createWaterMesh(
       mesh.quads.push(q);
     }
 
-    // SOUTH face
     if (renderSouth && (y1_SW > y0_south || y1_SE > y0_south)) {
       const q = (Lodestone as any).Quad.fromPoints(
         new (Lodestone as any).Vector(x0, y0_south, z1),
@@ -392,7 +419,6 @@ function createWaterMesh(
       mesh.quads.push(q);
     }
 
-    // WEST face
     if (renderWest && (y1_NW > y0_west || y1_SW > y0_west)) {
       const q = (Lodestone as any).Quad.fromPoints(
         new (Lodestone as any).Vector(x0, y0_west, z0),
@@ -412,7 +438,6 @@ function createWaterMesh(
       mesh.quads.push(q);
     }
 
-    // EAST face
     if (renderEast && (y1_NE > y0_east || y1_SE > y0_east)) {
       const q = (Lodestone as any).Quad.fromPoints(
         new (Lodestone as any).Vector(x1, y0_east, z1),
@@ -466,7 +491,6 @@ function createWaterMesh(
 
     const hasQ = (qIdx: number) => cutoutQuads.includes(qIdx);
 
-    // Helper for quadrant box cutout rendering
     const addSubBox = (
       qx0: number, qz0: number, qx1: number, qz1: number,
       hNW: number, hNE: number, hSE: number, hSW: number
@@ -484,22 +508,10 @@ function createWaterMesh(
       );
     };
 
-    // NW (Quad 0): x: 0..8, z: 0..8
-    if (hasQ(0)) {
-      addSubBox(0, 0, 8, 8, y_nw, midNW_N, centerH, midNW_W);
-    }
-    // NE (Quad 1): x: 8..16, z: 0..8
-    if (hasQ(1)) {
-      addSubBox(8, 0, 16, 8, midNW_N, y_ne, midNE_E, centerH);
-    }
-    // SE (Quad 2): x: 8..16, z: 8..16
-    if (hasQ(2)) {
-      addSubBox(8, 8, 16, 16, centerH, midNE_E, y_se, midSE_S);
-    }
-    // SW (Quad 3): x: 0..8, z: 8..16
-    if (hasQ(3)) {
-      addSubBox(0, 8, 8, 16, midNW_W, centerH, midSE_S, y_sw);
-    }
+    if (hasQ(0)) addSubBox(0, 0, 8, 8, y_nw, midNW_N, centerH, midNW_W);
+    if (hasQ(1)) addSubBox(8, 0, 16, 8, midNW_N, y_ne, midNE_E, centerH);
+    if (hasQ(2)) addSubBox(8, 8, 16, 16, centerH, midNE_E, y_se, midSE_S);
+    if (hasQ(3)) addSubBox(0, 8, 8, 16, midNW_W, centerH, midSE_S, y_sw);
 
     return mesh;
   }
@@ -590,7 +602,6 @@ function createWaterMesh(
     return mesh;
   }
 
-  // Standard Water Block / Default Waterlogged Block
   addWaterBox(
     0, 0, 0,
     16, 16,
@@ -605,7 +616,6 @@ function createWaterMesh(
 
 if ((Lodestone as any).SpecialRenderers) {
   (Lodestone as any).SpecialRenderers.liquidRenderer = function () {
-    // Return empty mesh for generic un-contextualized calls from Lodestone
     return new (Lodestone as any).Mesh();
   };
 }
@@ -646,7 +656,6 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         return emptyMesh;
       }
     } else if (name.includes('copper_chest')) {
-      // Copper chests: delegate entirely to BlockDefinition (custom blockstates & models)
       const emptyMesh = new (Lodestone as any).Mesh();
       if (block.isWaterlogged && block.isWaterlogged()) {
         const waterMesh = createWaterMesh('water', 0, atlas, cull, 0, structure, pos);
@@ -743,19 +752,17 @@ const isObserverBlock = (name: string) => {
 
 // Comprehensive Face Culling & Special Block Processing
 if (Lodestone.ChunkBuilder) {
-  Lodestone.ChunkBuilder.prototype.needsCull = function (block: any, dir: any) {
+  (Lodestone.ChunkBuilder.prototype as any).needsCull = function (block: any, dir: any) {
     const blockName = block.state.getName().toString();
 
-    // 1. Redstone torch, repeater, comparator: no face culling
     if (isNoCullBlock(blockName)) {
       return false;
     }
 
-    const neighbor = this.structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
+    const neighbor = (this as any).structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
     if (!neighbor) return false;
     const neighborName = neighbor.getName().toString();
 
-    // 2. Full Glass blocks: cull connection faces only between full glass blocks (exclude glass panes)
     if (isGlassBlock(blockName)) {
       return isGlassBlock(neighborName);
     }
@@ -764,17 +771,14 @@ if (Lodestone.ChunkBuilder) {
       return false;
     }
 
-    // 3. Full leaves: cull connection faces between full leaf blocks
     if (isFullLeavesBlock(blockName)) {
       return isFullLeavesBlock(neighborName);
     }
 
-    // 4. Observer: cull connection faces between observer blocks
     if (isObserverBlock(blockName)) {
       return isObserverBlock(neighborName);
     }
 
-    // 5. Pure fluid block (standalone water or lava)
     const selfIsPureFluid = blockName === 'minecraft:water' || blockName === 'minecraft:lava';
     if (selfIsPureFluid) {
       const dirName = typeof dir === 'string' ? dir : (dir?.name || String(dir));
@@ -782,26 +786,23 @@ if (Lodestone.ChunkBuilder) {
       if (dirName === 'up' || dirName === 'down') {
         if (neighborIsWater) return true;
       } else if (neighborIsWater) {
-        // For horizontal side faces between water blocks, do not cull here.
-        // createWaterMesh will compute step faces (y1 > y0_side) and cull internal faces.
         return false;
       }
       if (isGlassBlock(neighborName) || isGlassPane(neighborName)) return false;
       if (isNonFullBlock(neighborName)) return false;
-      const flags = this.resources.getBlockFlags(neighbor.getName());
+      const flags = (this as any).resources.getBlockFlags(neighbor.getName());
       if (flags?.transparent) return false;
       if (!flags?.opaque) return false;
       return true;
     }
 
-    // 5. Default culling rule
-    const flags = this.resources.getBlockFlags(neighbor.getName());
+    const flags = (this as any).resources.getBlockFlags(neighbor.getName());
     if (!flags?.opaque) return false;
     if (isNonFullBlock(neighborName)) return false;
     return true;
   };
 
-  Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
+  (Lodestone.ChunkBuilder.prototype as any).isFullyOccluded = function (block: any) {
     const blockName = block.state.getName().toString();
     if (
       isNoCullBlock(blockName) ||
@@ -819,70 +820,69 @@ if (Lodestone.ChunkBuilder) {
       Lodestone.Direction.EAST, Lodestone.Direction.WEST
     ];
     for (const dir of dirs) {
-      const neighbor = this.structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
+      const neighbor = (this as any).structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
       if (!neighbor) return false;
       const name = neighbor.getName().toString();
       if (isNonFullBlock(name)) return false;
-      const flags = this.resources.getBlockFlags(neighbor.getName());
+      const flags = (this as any).resources.getBlockFlags(neighbor.getName());
       if (!flags?.opaque) return false;
     }
     return true;
   };
 
-  Lodestone.ChunkBuilder.prototype.processBlock = function (block: any, chunkFilter: any) {
+  (Lodestone.ChunkBuilder.prototype as any).processBlock = function (block: any, chunkFilter: any) {
     const blockName = block.state.getName();
     const nameStr = blockName.toString();
-    const blockProps = this.getBlockProps(block.state);
-    if (this.isFullyOccluded(block)) {
+    const blockProps = (this as any).getBlockProps(block.state);
+    if ((this as any).isFullyOccluded(block)) {
       return;
     }
     const chunkPos = [
-      Math.floor(block.pos[0] / this.chunkSize[0]),
-      Math.floor(block.pos[1] / this.chunkSize[1]),
-      Math.floor(block.pos[2] / this.chunkSize[2]),
+      Math.floor(block.pos[0] / (this as any).chunkSize[0]),
+      Math.floor(block.pos[1] / (this as any).chunkSize[1]),
+      Math.floor(block.pos[2] / (this as any).chunkSize[2]),
     ];
-    const chunkKey = this.chunkKey(chunkPos);
+    const chunkKey = (this as any).chunkKey(chunkPos);
     if (chunkFilter && !chunkFilter.has(chunkKey)) return;
-    const chunk = this.getChunk(chunkPos);
+    const chunk = (this as any).getChunk(chunkPos);
     try {
       const cull = {
-        up: this.needsCull(block, Lodestone.Direction.UP),
-        down: this.needsCull(block, Lodestone.Direction.DOWN),
-        west: this.needsCull(block, Lodestone.Direction.WEST),
-        east: this.needsCull(block, Lodestone.Direction.EAST),
-        north: this.needsCull(block, Lodestone.Direction.NORTH),
-        south: this.needsCull(block, Lodestone.Direction.SOUTH),
+        up: (this as any).needsCull(block, Lodestone.Direction.UP),
+        down: (this as any).needsCull(block, Lodestone.Direction.DOWN),
+        west: (this as any).needsCull(block, Lodestone.Direction.WEST),
+        east: (this as any).needsCull(block, Lodestone.Direction.EAST),
+        north: (this as any).needsCull(block, Lodestone.Direction.NORTH),
+        south: (this as any).needsCull(block, Lodestone.Direction.SOUTH),
       };
       const mesh = new (Lodestone as any).Mesh();
 
-      // For signs and hanging signs, ONLY use SpecialRenderer to prevent double rendering and scale issues
       const isSpecialSign = nameStr.includes('sign');
 
       if (!isSpecialSign) {
-        const blockDefinition = this.resources.getBlockDefinition(blockName);
+        const blockDefinition = (this as any).resources.getBlockDefinition(blockName);
         if (blockDefinition) {
           try {
-            mesh.merge(blockDefinition.getMesh(blockName, blockProps, this.resources, this.resources, cull));
-          } catch (e) {
-            // Fallback if BlockDefinition fails
+            mesh.merge(blockDefinition.getMesh(blockName, blockProps, (this as any).resources, (this as any).resources, cull));
+          } catch {
+            // Fallback
           }
         }
       }
 
       if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         try {
-          const specialMesh = (Lodestone as any).SpecialRenderers.getBlockMesh(block.state, block.nbt, this.resources, cull, this.structure, block.pos);
+          const specialMesh = (Lodestone as any).SpecialRenderers.getBlockMesh(block.state, block.nbt, (this as any).resources, cull, (this as any).structure, block.pos);
           if (specialMesh && !specialMesh.isEmpty()) {
             mesh.merge(specialMesh);
           }
-        } catch (e) {
-          // Fallback if SpecialRenderer fails
+        } catch {
+          // Fallback
         }
       }
 
       if (!mesh.isEmpty()) {
-        this.finishChunkMesh(mesh, block.pos, blockName, blockProps, chunkKey);
-        if (this.resources.getBlockFlags(block.state.getName())?.semi_transparent) {
+        (this as any).finishChunkMesh(mesh, block.pos, blockName, blockProps, chunkKey);
+        if ((this as any).resources.getBlockFlags(block.state.getName())?.semi_transparent) {
           chunk.transparentMesh.merge(mesh);
         } else {
           chunk.mesh.merge(mesh);
@@ -894,8 +894,8 @@ if (Lodestone.ChunkBuilder) {
   };
 }
 
-// Infinite View: override applyDrawDistance so chunks are never culled when zooming out
-ThreeStructureRenderer.prototype.applyDrawDistance = function () {
+// Dynamic Infinite View
+(ThreeStructureRenderer.prototype as any).applyDrawDistance = function () {
   if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
       const mesh = (this as any).chunkMeshes[i];
@@ -905,25 +905,24 @@ ThreeStructureRenderer.prototype.applyDrawDistance = function () {
   }
 };
 
-// Eliminate per-frame Matrix4 allocations inside prepareCamera
 const tempMat1 = new THREE.Matrix4();
 const tempMat2 = new THREE.Matrix4();
 const tempCamPos: [number, number, number] = [0, 0, 0];
 
-ThreeStructureRenderer.prototype.prepareCamera = function (viewMatrixElements: any) {
+(ThreeStructureRenderer.prototype as any).prepareCamera = function (viewMatrixElements: any) {
   tempMat1.fromArray(viewMatrixElements);
   tempMat2.copy(tempMat1).invert();
 
-  this.camera.position.setFromMatrixPosition(tempMat2);
-  this.camera.quaternion.setFromRotationMatrix(tempMat2);
-  this.camera.updateMatrixWorld(true);
+  (this as any).camera.position.setFromMatrixPosition(tempMat2);
+  (this as any).camera.quaternion.setFromRotationMatrix(tempMat2);
+  (this as any).camera.updateMatrixWorld(true);
 
   tempCamPos[0] = tempMat2.elements[12];
   tempCamPos[1] = tempMat2.elements[13];
   tempCamPos[2] = tempMat2.elements[14];
 
   if ((this as any).drawDistance) {
-    this.applyDrawDistance(tempCamPos as any, (this as any).drawDistance);
+    (this as any).applyDrawDistance(tempCamPos as any, (this as any).drawDistance);
   } else if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
       (this as any).chunkMeshes[i].visible = true;
@@ -935,8 +934,7 @@ ThreeStructureRenderer.prototype.prepareCamera = function (viewMatrixElements: a
   }
 };
 
-// Hook rebuildChunksAsync to report progress (RENDERING_X%) and enable progressive chunk display
-ThreeStructureRenderer.prototype.rebuildChunksAsync = async function (chunkPositions?: any) {
+(ThreeStructureRenderer.prototype as any).rebuildChunksAsync = async function (chunkPositions?: any) {
   const token = ++(this as any).buildToken;
 
   if (window.AndroidHost) {
@@ -1009,7 +1007,6 @@ async function init() {
       fetch(packBaseUrl + `block-flags/emissive.json?cb=${cb}`).catch(() => null)
     ]);
 
-    // Delete sign blockstates and models so Lodestone native SpecialRenderers render signs cleanly
     const woodTypes = ['acacia', 'bamboo', 'birch', 'cherry', 'crimson', 'dark_oak', 'jungle', 'mangrove', 'oak', 'pale_oak', 'poplar', 'spruce', 'warped'];
     woodTypes.forEach(w => {
       delete loaded.assets.blockstates[`${w}_sign`];
@@ -1022,7 +1019,6 @@ async function init() {
       delete loaded.assets.models[`${w}_wall_hanging_sign`];
     });
 
-    // Create custom blockstates and models for double chests (left/right)
     const createChestBlockState = (modelName: string, leftModel: string, rightModel: string) => ({
       variants: {
         'type=left,facing=north': { model: leftModel, y: 0 },
@@ -1048,10 +1044,6 @@ async function init() {
     loaded.assets.blockstates['trapped_chest'] = createChestBlockState('block/chest', 'block/trapped_chest_left', 'block/trapped_chest_right');
 
     const createChestHalfModel = (isLeft: boolean, texPath: string) => {
-      // isLeft = type=left (Left half of double chest from viewer perspective):
-      // Spans x = 1..16, outer wall at x=1 (west), inner seam at x=16 (east). Latch at x=15..16.
-      // isRight = type=right (Right half of double chest from viewer perspective):
-      // Spans x = 0..15, outer wall at x=15 (east), inner seam at x=0 (west). Latch at x=0..1.
       const bodyFrom: [number, number, number] = isLeft ? [1, 0, 1] : [0, 0, 1];
       const bodyTo: [number, number, number] = isLeft ? [16, 10, 15] : [15, 10, 15];
 
@@ -1083,16 +1075,10 @@ async function init() {
       };
 
       if (isLeft) {
-        // Left half (isLeft = true, type=left):
-        // Outer wall is West face (x=1), using normal_left.png [7.25, 10.75] outer side texture.
-        // East face (x=16) is inner seam, omitted so no face renders inside seam.
         bodyFaces.west = { uv: [7.25, 8.25, 10.75, 10.75], rotation: 180, texture: '#0' };
         lidFaces.west = { uv: [7.25, 3.75, 10.75, 4.75], rotation: 180, texture: '#0' };
         latchFaces.west = { uv: [0.5, 0.25, 0.75, 1.25], rotation: 180, texture: '#0' };
       } else {
-        // Right half (isLeft = false, type=right):
-        // Outer wall is East face (x=15), using normal_right.png [0, 3.5] with u-flipped UV [3.5, 8.25, 0, 10.75].
-        // West face (x=0) is inner seam, omitted so no face renders inside seam.
         bodyFaces.east = { uv: [3.5, 8.25, 0, 10.75], rotation: 180, texture: '#0' };
         lidFaces.east = { uv: [3.5, 3.75, 0, 4.75], rotation: 180, texture: '#0' };
         latchFaces.east = { uv: [0.25, 0.25, 0, 1.25], rotation: 180, texture: '#0' };
@@ -1113,7 +1099,6 @@ async function init() {
     loaded.assets.models['block/trapped_chest_left'] = createChestHalfModel(true, 'entity/chest/trapped_left');
     loaded.assets.models['block/trapped_chest_right'] = createChestHalfModel(false, 'entity/chest/trapped_right');
 
-    // Copper torch models and blockstates
     loaded.assets.models['block/copper_torch'] = {
       parent: 'minecraft:block/template_torch',
       textures: { torch: 'minecraft:block/copper_torch' }
@@ -1146,7 +1131,6 @@ async function init() {
       loaded.assets.blockstates[variant.replace('_torch', '_wall_torch')] = wallTorchBS;
     });
 
-    // Copper chest models and blockstates
     const createChestSingleModel = (texPath: string) => ({
       textures: { '0': texPath },
       elements: [
@@ -1210,7 +1194,6 @@ async function init() {
       loaded.assets.blockstates[`waxed_${base.name}`] = blockstate;
     });
 
-    // Custom blockstate for item frames across orientations
     const createItemFrameBlockState = (modelName: string) => ({
       variants: {
         'facing=south': { model: modelName },
@@ -1321,7 +1304,6 @@ async function init() {
     const parsedOpaque = parseBlockList(opaqueText);
     const parsedTransparent = parseBlockList(transparentText);
 
-    // Filter opaque flags so ONLY true 1x1x1 solid cubes are opaque
     const strictOpaque = new Set<string>();
     parsedOpaque.forEach(id => {
       if (!isNonFullBlock(id)) {
@@ -1344,7 +1326,6 @@ async function init() {
       flags
     });
 
-    // Alias all texture keys in atlas to include minecraft: namespace prefix for BlockModel lookup compatibility
     if (currentResources && currentResources.textures) {
       const texMap = currentResources.textures;
       Object.keys(texMap).forEach(key => {
@@ -1354,7 +1335,6 @@ async function init() {
           texMap[key.replace('minecraft:', '')] = texMap[key];
         }
       });
-      // Ensure entity sign textures are aliased for special sign renderers
       woodTypes.forEach(w => {
         if (texMap[`entity/signs/${w}`]) {
           texMap[`minecraft:entity/signs/${w}`] = texMap[`entity/signs/${w}`];
@@ -1376,7 +1356,6 @@ async function init() {
 }
 
 const cachedViewMatrix = mat4.create();
-
 let renderRequested = false;
 
 function renderFrame() {
@@ -1390,9 +1369,6 @@ function renderFrame() {
     renderer.drawStructure(cachedViewMatrix);
   }
   if (controls && controls.enableDamping) {
-    // If controls damping is active and still moving, request next frame
-    const curPos = activeCamera.position;
-    const curTarget = controls.target;
     if ((controls as any).state !== -1 || renderRequested) {
       requestRender();
     }
@@ -1451,319 +1427,40 @@ window.destroyRenderer = function () {
 
   currentStructure = null;
   currentLitematicBuffer = null;
-  parsedRootCompound = null;
 
   if (container) {
     container.innerHTML = '';
   }
 };
 
-// Streaming Time-Sliced NBT Decoder
-async function loadRegionAsync(
-  regionCompound: any,
-  onProgress?: (pct: number) => void
-): Promise<Structure> {
-  const sizeNbt = regionCompound.getCompound('Size');
-  const rawSize = [
-    sizeNbt.getNumber('x') ?? 0,
-    sizeNbt.getNumber('y') ?? 0,
-    sizeNbt.getNumber('z') ?? 0,
-  ];
-  const size: [number, number, number] = [
-    Math.abs(rawSize[0]),
-    Math.abs(rawSize[1]),
-    Math.abs(rawSize[2]),
-  ];
-
-  const paletteList = regionCompound.getList('BlockStatePalette');
-  const palette: BlockState[] = [];
-  paletteList.forEach((entry: any) => {
-    if (!entry.isCompound()) return;
-    const name = entry.getString('Name') ?? 'minecraft:air';
-    const properties: { [key: string]: string } = {};
-    if (entry.has('Properties')) {
-      const propsTag = entry.get('Properties');
-      if (propsTag && propsTag.isCompound()) {
-        propsTag.forEach((key: string, value: any) => {
-          if (!key) return;
-          if (value && value.value !== undefined) {
-            if (typeof value.value === 'object' && Array.isArray(value.value)) {
-              properties[key] = String(value.value[1] ?? value.value[0]);
-            } else {
-              properties[key] = String(value.value);
-            }
-          } else if (value && typeof value.getAsString === 'function') {
-            properties[key] = value.getAsString();
-          } else if (value !== undefined && value !== null) {
-            properties[key] = String(value);
-          }
-        });
-      }
-    }
-    palette.push(new BlockState(name, properties));
-  });
-
-  const isAir = palette.map(state => state.is('minecraft:air'));
-
-  const blockStatesNbt = regionCompound.has('BlockStates')
-    ? regionCompound.getLongArray('BlockStates')
-    : null;
-
-  let numLongs = 0;
-  let longArray = new BigUint64Array(0);
-
-  if (blockStatesNbt) {
-    if (typeof blockStatesNbt.getItems === 'function') {
-      const items = blockStatesNbt.getItems();
-      numLongs = items.length;
-      longArray = new BigUint64Array(numLongs);
-      for (let i = 0; i < numLongs; i++) {
-        const item = items[i];
-        if (item && typeof item.getAsPair === 'function') {
-          const pair = item.getAsPair(); // [high32, low32]
-          const high = BigInt(pair[0] >>> 0);
-          const low = BigInt(pair[1] >>> 0);
-          longArray[i] = (high << 32n) | low;
-        } else if (item && typeof item.value === 'bigint') {
-          longArray[i] = BigInt(item.value);
-        } else if (Array.isArray(item)) {
-          const high = BigInt((item[0] ?? 0) >>> 0);
-          const low = BigInt((item[1] ?? 0) >>> 0);
-          longArray[i] = (high << 32n) | low;
-        }
-      }
-    } else if (Array.isArray((blockStatesNbt as any).value)) {
-      const arr = (blockStatesNbt as any).value;
-      numLongs = arr.length;
-      longArray = new BigUint64Array(numLongs);
-      for (let i = 0; i < numLongs; i++) {
-        longArray[i] = BigInt(arr[i]);
-      }
-    }
-  }
-
-  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
-  const maskBig = (1n << BigInt(bitsPerBlock)) - 1n;
-
-  const width = size[0];
-  const height = size[1];
-  const depth = size[2];
-  const volume = width * height * depth;
-
-  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
-
-  let minX = width, minY = height, minZ = depth;
-  let maxX = 0, maxY = 0, maxZ = 0;
-  let hasPlaced = false;
-
-  let lastYield = performance.now();
-
-  for (let index = 0; index < volume; index++) {
-    let paletteIndex = 0;
-    if (numLongs > 0) {
-      const startBit = BigInt(index * bitsPerBlock);
-      const startLong = Number(startBit >> 6n);
-      const startBitOffset = startBit & 63n;
-      const endBit = BigInt((index + 1) * bitsPerBlock - 1);
-      const endLong = Number(endBit >> 6n);
-
-      if (startLong < numLongs) {
-        if (startLong === endLong) {
-          paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
-        } else if (endLong < numLongs) {
-          const endOffset = 64n - startBitOffset;
-          paletteIndex = Number(
-            ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
-          );
-        }
-      }
-    }
-
-    if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-      const x = index % width;
-      const y = Math.floor(index / (width * depth));
-      const z = Math.floor(index / width) % depth;
-      storedBlocks.push({ pos: [x, y, z], state: paletteIndex });
-
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (z < minZ) minZ = z;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      if (z > maxZ) maxZ = z;
-      hasPlaced = true;
-    }
-
-    if ((index & 0xff) === 0) {
-      const now = performance.now();
-      if (now - lastYield >= 12) {
-        if (onProgress) {
-          onProgress(Math.floor((index / volume) * 100));
-        }
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        lastYield = performance.now();
-      }
-    }
-  }
-
-  if (hasPlaced) {
-    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
-    const dx = maxX - minX + 1;
-    const dy = maxY - minY + 1;
-    const dz = maxZ - minZ + 1;
-    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-  } else {
-    tightCenter = [width / 2, height / 2, depth / 2];
-    tightRadius = Math.max(1.0, Math.max(width, height, depth) / 2);
-  }
-
-  // Extract NBT Entities / TileEntities / BlockEntities / PendingBlockEntities
-  const entityLists = ['Entities', 'PendingBlockEntities', 'TileEntities', 'BlockEntities'];
-  const positionTag = regionCompound.has('Position') ? regionCompound.getCompound('Position') : null;
-  const regPosX = positionTag ? (positionTag.getNumber('x') ?? 0) : 0;
-  const regPosY = positionTag ? (positionTag.getNumber('y') ?? 0) : 0;
-  const regPosZ = positionTag ? (positionTag.getNumber('z') ?? 0) : 0;
-  const originX = rawSize[0] < 0 ? regPosX + rawSize[0] + 1 : regPosX;
-  const originY = rawSize[1] < 0 ? regPosY + rawSize[1] + 1 : regPosY;
-  const originZ = rawSize[2] < 0 ? regPosZ + rawSize[2] + 1 : regPosZ;
-
-  const placedBlocksGrid = new Set<string>();
-  storedBlocks.forEach(b => placedBlocksGrid.add(b.pos[0] + ',' + b.pos[1] + ',' + b.pos[2]));
-
-  entityLists.forEach(listName => {
-    if (!regionCompound.has(listName)) return;
-    const list = regionCompound.getList(listName);
-    if (!list) return;
-
-    list.forEach((entityTag: any) => {
-      if (!entityTag || !entityTag.isCompound()) return;
-
-      const rawId = entityTag.getString('id') ?? entityTag.getString('Id') ?? entityTag.getString('Name') ?? '';
-      const id = rawId.toLowerCase().replace('minecraft:', '');
-
-      if (id !== 'item_frame' && id !== 'glow_item_frame') return;
-
-      let px = 0, py = 0, pz = 0;
-      if (entityTag.has('Pos')) {
-        const posList = entityTag.getList('Pos');
-        if (posList && posList.length >= 3) {
-          px = posList.getNumber(0) ?? 0;
-          py = posList.getNumber(1) ?? 0;
-          pz = posList.getNumber(2) ?? 0;
-        }
-      } else if (entityTag.has('TileX')) {
-        px = entityTag.getNumber('TileX') ?? 0;
-        py = entityTag.getNumber('TileY') ?? 0;
-        pz = entityTag.getNumber('TileZ') ?? 0;
-      } else if (entityTag.has('x')) {
-        px = entityTag.getNumber('x') ?? 0;
-        py = entityTag.getNumber('y') ?? 0;
-        pz = entityTag.getNumber('z') ?? 0;
-      }
-
-      let relX = Math.floor(px - originX);
-      let relY = Math.floor(py - originY);
-      let relZ = Math.floor(pz - originZ);
-
-      if (relX < 0 || relX >= width || relY < 0 || relY >= height || relZ < 0 || relZ >= depth) {
-        relX = Math.floor(px);
-        relY = Math.floor(py);
-        relZ = Math.floor(pz);
-      }
-
-      if (relX < 0 || relX >= width || relY < 0 || relY >= height || relZ < 0 || relZ >= depth) {
-        return;
-      }
-
-      let facingStr = 'south';
-      let facingNum = -1;
-      if (entityTag.has('Facing')) {
-        const f = entityTag.get('Facing');
-        if (typeof f === 'number') facingNum = f;
-        else if (f && typeof f.getAsNumber === 'function') facingNum = f.getAsNumber();
-        else if (f && f.value !== undefined) facingNum = Number(f.value);
-        else if (typeof f === 'string') facingStr = f.toLowerCase();
-      } else if (entityTag.has('FacingDirection')) {
-        facingNum = entityTag.getNumber('FacingDirection') ?? -1;
-      } else if (entityTag.has('Direction')) {
-        facingNum = entityTag.getNumber('Direction') ?? -1;
-      }
-
-      if (facingNum !== -1) {
-        const dirMap: { [key: number]: string } = {
-          0: 'down',
-          1: 'up',
-          2: 'north',
-          3: 'south',
-          4: 'west',
-          5: 'east'
-        };
-        if (dirMap[facingNum]) {
-          facingStr = dirMap[facingNum];
-        }
-      }
-
-      const gridKey = relX + ',' + relY + ',' + relZ;
-      if (placedBlocksGrid.has(gridKey)) {
-        if (facingStr === 'south' && relZ + 1 < depth) relZ += 1;
-        else if (facingStr === 'north' && relZ - 1 >= 0) relZ -= 1;
-        else if (facingStr === 'east' && relX + 1 < width) relX += 1;
-        else if (facingStr === 'west' && relX - 1 >= 0) relX -= 1;
-        else if (facingStr === 'up' && relY + 1 < height) relY += 1;
-        else if (facingStr === 'down' && relY - 1 >= 0) relY -= 1;
-      }
-
-      const blockName = id === 'glow_item_frame' ? 'minecraft:glow_item_frame' : 'minecraft:item_frame';
-      const frameState = new BlockState(blockName, {
-        facing: facingStr,
-        fixed: 'false',
-        invisible: 'false',
-        map: 'false'
-      });
-
-      palette.push(frameState);
-      const frameStateIndex = palette.length - 1;
-      storedBlocks.push({ pos: [relX, relY, relZ], state: frameStateIndex });
-      placedBlocksGrid.add(relX + ',' + relY + ',' + relZ);
-    });
-  });
-
-  if (onProgress) {
-    onProgress(100);
-  }
-
-  return new Structure(size, palette, storedBlocks);
-}
-
-// Main loader function called from Android native side
+// Worker-based fast Litematic loading
 window.loadLitematic = async function () {
   try {
+    if (window.AndroidHost) {
+      window.AndroidHost.onLoadingProgress('DECODING_0%');
+    }
+
     const response = await fetch('./model.litematic');
     currentLitematicBuffer = await response.arrayBuffer();
 
-    const nbt = Lodestone.NbtFile.read(new Uint8Array(currentLitematicBuffer));
-    parsedRootCompound = nbt.root;
-    const regionsTag = parsedRootCompound.getCompound('Regions');
-
-    let regions: string[] = [];
-    if (regionsTag && typeof (regionsTag as any).keys === 'function') {
-      regions = Array.from((regionsTag as any).keys());
-    } else if (regionsTag) {
-      regions = Object.keys(regionsTag);
-    }
-
-    regions = regions.filter(
-      key => typeof key === 'string' && key !== 'properties' && key !== 'constructor' && key !== '__proto__'
+    // Send array buffer to Worker for zero-copy streaming NBT parse
+    const parseRes = await sendWorkerMessage(
+      'PARSE_LITEMATIC',
+      { buffer: currentLitematicBuffer.slice(0) },
+      [currentLitematicBuffer.slice(0)]
     );
 
-    if (regions.length === 0) {
-      regions = ['Region1'];
+    const regionsList: any[] = parseRes.regions || [];
+    const regionNames = regionsList.map(r => r.name);
+
+    if (regionNames.length === 0) {
+      regionNames.push('Region1');
     }
 
-    activeRegionName = regions[0];
+    activeRegionName = regionNames[0];
 
     if (window.AndroidHost) {
-      window.AndroidHost.onRegionsParsed(JSON.stringify(regions));
+      window.AndroidHost.onRegionsParsed(JSON.stringify(regionNames));
     }
 
     await buildRendererForRegion(activeRegionName);
@@ -1779,7 +1476,7 @@ window.loadLitematic = async function () {
 };
 
 async function buildRendererForRegion(regionName: string) {
-  if (!currentLitematicBuffer || !currentResources || !parsedRootCompound) return;
+  if (!currentResources) return;
 
   window.stopRenderLoop();
 
@@ -1815,23 +1512,63 @@ async function buildRendererForRegion(regionName: string) {
   canvasElement.style.height = '100%';
   container.appendChild(canvasElement);
 
-  const regionsTag = parsedRootCompound.getCompound('Regions');
-  const region = regionsTag.getCompound(regionName);
+  if (window.AndroidHost) {
+    window.AndroidHost.onLoadingProgress('DECODING_50%');
+  }
 
-  // Time-sliced streaming NBT parsing
-  currentStructure = await loadRegionAsync(region, (pct) => {
-    if (window.AndroidHost) {
-      window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
-    }
-  });
+  // Request region block states from Worker
+  const paletteRes = await sendWorkerMessage('GET_REGION_PALETTE', { regionName });
+  const rawPalette: any[] = paletteRes.palette || [];
+  const regionSize: [number, number, number] = paletteRes.size || [1, 1, 1];
 
-  // Synchronously compute and send block statistics to Android UI before mesh rendering begins
-  await calculateAndSendStatistics();
+  const palette = rawPalette.map(p => new BlockState(p.name, p.properties));
 
-  const size = currentStructure.getSize();
-  const volume = size[0] * size[1] * size[2];
-  const maxDim = Math.max(size[0], size[1], size[2]);
+  // Request Transferable Uint32Array block data from Worker
+  const decodeRes = await sendWorkerMessage('DECODE_REGION', { regionName });
+  const flatBlocks = new Uint32Array(decodeRes.blocks);
 
+  const numPlaced = flatBlocks.length / 4;
+  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = new Array(numPlaced);
+
+  let minX = regionSize[0], minY = regionSize[1], minZ = regionSize[2];
+  let maxX = 0, maxY = 0, maxZ = 0;
+  let hasPlaced = false;
+
+  for (let i = 0; i < numPlaced; i++) {
+    const x = flatBlocks[i * 4];
+    const y = flatBlocks[i * 4 + 1];
+    const z = flatBlocks[i * 4 + 2];
+    const stateIdx = flatBlocks[i * 4 + 3];
+
+    storedBlocks[i] = { pos: [x, y, z], state: stateIdx };
+
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+    hasPlaced = true;
+  }
+
+  if (hasPlaced) {
+    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
+    const dx = maxX - minX + 1;
+    const dy = maxY - minY + 1;
+    const dz = maxZ - minZ + 1;
+    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
+  } else {
+    tightCenter = [regionSize[0] / 2, regionSize[1] / 2, regionSize[2] / 2];
+    tightRadius = Math.max(1.0, Math.max(regionSize[0], regionSize[1], regionSize[2]) / 2);
+  }
+
+  currentStructure = new Structure(regionSize, palette, storedBlocks);
+
+  // Send statistics to Android host
+  calculateAndSendStatistics();
+
+  const volume = regionSize[0] * regionSize[1] * regionSize[2];
+  const maxDim = Math.max(regionSize[0], regionSize[1], regionSize[2]);
   const chunkSize = volume > 1000000 || maxDim > 128 ? 32 : 16;
 
   const rendererOptions: any = {
@@ -1853,7 +1590,6 @@ async function buildRendererForRegion(regionName: string) {
     texture.needsUpdate = true;
   }
 
-  // Disable sunlight fog density so models stay clear without fading when camera zooms out
   if ((renderer as any).sunlight && (renderer as any).sunlight.fog) {
     (renderer as any).sunlight.fog.density = 0.0;
     (renderer as any).sunlight.fog.heightFalloff = 0.0;
@@ -1871,7 +1607,6 @@ async function buildRendererForRegion(regionName: string) {
     renderer.renderer.toneMappingExposure = 0.70;
   }
 
-  // Force strict Day Mode initialization and synchronize all material lighting uniforms
   isNightMode = true;
   window.toggleDayNight();
 
@@ -1926,7 +1661,6 @@ async function buildRendererForRegion(regionName: string) {
 
   requestRender();
 
-  // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
 }
 
@@ -1940,29 +1674,17 @@ async function calculateAndSendStatistics(): Promise<void> {
 
     const blockStats: { [key: string]: number } = {};
     let totalBlocks = 0;
-    const totalCount = blocks.length;
-    let index = 0;
 
-    let lastYield = performance.now();
-
-    while (index < totalCount) {
-      const end = Math.min(index + 50000, totalCount);
-      for (; index < end; index++) {
-        const block = blocks[index];
-        if (block) {
-          const stateIdx = block.state;
-          const state = palette[stateIdx];
-          if (state) {
-            const blockName = state.getName().toString();
-            blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-            totalBlocks++;
-          }
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      if (block) {
+        const stateIdx = block.state;
+        const state = palette[stateIdx];
+        if (state) {
+          const blockName = state.getName().toString();
+          blockStats[blockName] = (blockStats[blockName] || 0) + 1;
+          totalBlocks++;
         }
-      }
-
-      if (index < totalCount && performance.now() - lastYield >= 12) {
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        lastYield = performance.now();
       }
     }
 
@@ -2033,7 +1755,6 @@ window.toggleDayNight = function () {
     if ((renderer as any).sunlight) {
       const sun = (renderer as any).sunlight;
       if (isNightMode) {
-        // Night Mode: Ambient 0.12, Sun 0.08, Background #040810, Clean contrast
         sun.intensity = 0.08;
         sun.ambientIntensity = 0.12;
         if (sun.emissive) sun.emissive.intensity = 0.25;
@@ -2041,7 +1762,6 @@ window.toggleDayNight = function () {
         if (sun.light) sun.light.intensity = 0.08;
         if (sun.ambient) sun.ambient.intensity = 0.12;
       } else {
-        // Day Mode: Ambient 0.65, Sun 0.50, Exposure 0.77, Emissive 0.10 (~10% boost for high clarity)
         sun.intensity = 0.50;
         sun.ambientIntensity = 0.65;
         if (sun.emissive) sun.emissive.intensity = 0.10;

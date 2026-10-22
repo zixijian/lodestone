@@ -3,6 +3,9 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   root: '.',
   base: './',
+  worker: {
+    format: 'iife'
+  },
   build: {
     outDir: '../app/src/main/assets/web',
     emptyOutDir: true,
