@@ -116,11 +116,519 @@ let animFrameId: number | null = null;
   return this.placedBlocksCache;
 };
 
+function createWaterMesh(
+  type: string,
+  level: number,
+  atlas: any,
+  cull: any,
+  tintindex: number = 0,
+  structure: any = null,
+  pos: any = null
+) {
+  const mesh = new (Lodestone as any).Mesh();
+  const tint = (Lodestone as any).BlockColors?.[type]?.({}) ?? [0.247, 0.462, 0.894];
+  const heightsTable = [14.2, 12.5, 10.5, 9.0, 7.0, 5.3, 3.7, 1.9];
+
+  // Fluid neighbor check: 100% cull faces between water/water, water/waterlogged, or waterlogged/waterlogged
+  const neighborHasFluid = (nx: number, ny: number, nz: number) => {
+    if (!structure) return false;
+    const nb = structure.getBlock([nx, ny, nz])?.state;
+    if (!nb) return false;
+    const nbName = nb.getName().toString();
+    if (nbName === 'minecraft:water' || nbName === 'minecraft:lava') return true;
+    if (nb.isWaterlogged && nb.isWaterlogged()) return true;
+    return false;
+  };
+
+  const getNeighborWaterHeight = (nx: number, ny: number, nz: number) => {
+    if (!structure) return -1;
+    const b = structure.getBlock([nx, ny, nz])?.state;
+    if (!b) return -1;
+    const bName = b.getName().toString();
+    const isW = bName === 'minecraft:water' || bName === 'minecraft:lava' || (b.isWaterlogged && b.isWaterlogged());
+    if (!isW) return -1;
+
+    const above = structure.getBlock([nx, ny + 1, nz])?.state;
+    if (above) {
+      const aName = above.getName().toString();
+      if (aName === 'minecraft:water' || aName === 'minecraft:lava') {
+        return 16.0;
+      }
+    }
+
+    if (bName === 'minecraft:water' || bName === 'minecraft:lava') {
+      const pLevelStr = typeof b.getProperty === 'function' ? b.getProperty('level') : (b.properties?.level ?? '0');
+      const pLevel = parseInt(pLevelStr || '0', 10);
+      if (pLevel >= 8) return 16.0;
+      const effLevel = pLevel & 7;
+      return heightsTable[effLevel] ?? 14.2;
+    }
+    return 14.2;
+  };
+
+  const [bx, by, bz] = pos || [0, 0, 0];
+  const cullUpFinal = cull['up'] || (structure && pos ? neighborHasFluid(bx, by + 1, bz) : false);
+  const cullDownFinal = cull['down'] || (structure && pos ? neighborHasFluid(bx, by - 1, bz) : false);
+
+  const renderNorth = !cull['north'];
+  const renderSouth = !cull['south'];
+  const renderWest  = !cull['west'];
+  const renderEast  = !cull['east'];
+
+  const nbH_north = structure && pos ? getNeighborWaterHeight(bx, by, bz - 1) : -1;
+  const nbH_south = structure && pos ? getNeighborWaterHeight(bx, by, bz + 1) : -1;
+  const nbH_west  = structure && pos ? getNeighborWaterHeight(bx - 1, by, bz) : -1;
+  const nbH_east  = structure && pos ? getNeighborWaterHeight(bx + 1, by, bz) : -1;
+
+
+  // Check self block type and properties
+  let isWaterloggedStair = false;
+  let stairFacing = 'north';
+  let stairHalf = 'bottom';
+  let stairShape = 'straight';
+
+  let isWaterloggedSlab = false;
+  let slabType = 'bottom';
+
+  let isWaterloggedTrapdoor = false;
+  let trapdoorHalf = 'bottom';
+  let trapdoorOpen = 'false';
+  let trapdoorFacing = 'north';
+
+  if (structure && pos) {
+    const selfBlock = structure.getBlock(pos)?.state;
+    if (selfBlock) {
+      const selfName = selfBlock.getName().toString();
+      const getProp = (k: string) => typeof selfBlock.getProperty === 'function' ? selfBlock.getProperty(k) : selfBlock.properties?.[k];
+
+      if (selfName.includes('stair')) {
+        isWaterloggedStair = true;
+        stairFacing = getProp('facing') || 'north';
+        stairHalf = getProp('half') || 'bottom';
+        stairShape = getProp('shape') || 'straight';
+      } else if (selfName.includes('slab') && !selfName.includes('double')) {
+        isWaterloggedSlab = true;
+        slabType = getProp('type') || 'bottom';
+      } else if (selfName.includes('trapdoor')) {
+        isWaterloggedTrapdoor = true;
+        trapdoorHalf = getProp('half') || 'bottom';
+        trapdoorOpen = getProp('open') || 'false';
+        trapdoorFacing = getProp('facing') || 'north';
+      }
+    }
+  }
+
+  const blockAbove = structure && pos ? structure.getBlock([pos[0], pos[1] + 1, pos[2]])?.state : null;
+  const isAbovePureFluid = blockAbove && (
+    blockAbove.getName().toString() === 'minecraft:water' ||
+    blockAbove.getName().toString() === 'minecraft:lava'
+  );
+
+  let defaultH = 14.2;
+  if (isAbovePureFluid) {
+    defaultH = 16.0;
+  } else {
+    const effectiveLevel = level & 7;
+    defaultH = heightsTable[effectiveLevel] ?? 14.2;
+  }
+
+  let y_nw = defaultH, y_ne = defaultH, y_se = defaultH, y_sw = defaultH;
+
+  if (cullUpFinal || isAbovePureFluid) {
+    y_nw = y_ne = y_se = y_sw = 16.0;
+  } else if (isWaterloggedStair || isWaterloggedSlab || isWaterloggedTrapdoor) {
+    y_nw = y_ne = y_se = y_sw = defaultH;
+  } else if (structure && pos) {
+    const getWaterLevelHeight = (lx: number, ly: number, lz: number) => {
+      const b = structure.getBlock([lx, ly, lz])?.state;
+      if (!b) return -1;
+      const bName = b.getName().toString();
+      const isW = bName === 'minecraft:water' || bName === 'minecraft:lava' || (b.isWaterlogged && b.isWaterlogged());
+      if (!isW) return -1;
+
+      const above = structure.getBlock([lx, ly + 1, lz])?.state;
+      if (above) {
+        const aName = above.getName().toString();
+        if (aName === 'minecraft:water' || aName === 'minecraft:lava') {
+          return 16.0;
+        }
+      }
+
+      if (bName === 'minecraft:water' || bName === 'minecraft:lava') {
+        const pLevelStr = typeof b.getProperty === 'function' ? b.getProperty('level') : (b.properties?.level ?? '0');
+        const pLevel = parseInt(pLevelStr || '0', 10);
+        if (pLevel >= 8) return 16.0;
+        const effLevel = pLevel & 7;
+        return heightsTable[effLevel] ?? 14.2;
+      }
+      return 14.2;
+    };
+
+    const getCornerHeight = (cornerCols: [number, number][], defH: number) => {
+      let sum = 0;
+      let count = 0;
+      let maxH = -1;
+      let hasFallingOrFull = false;
+      for (const [cx, cz] of cornerCols) {
+        const h = getWaterLevelHeight(cx, by, cz);
+        if (h >= 0) {
+          sum += h;
+          count++;
+          if (h > maxH) maxH = h;
+          if (h >= 16.0) hasFallingOrFull = true;
+        }
+      }
+      if (count === 0) return defH;
+      if (hasFallingOrFull) return 16.0;
+      const avg = sum / count;
+      // Cap at maximum height present around the corner to prevent outflow from exceeding source height
+      return Math.min(avg, maxH >= 0 ? maxH : defH);
+    };
+
+    y_nw = getCornerHeight([[bx - 1, bz - 1], [bx - 1, bz], [bx, bz - 1], [bx, bz]], defaultH);
+    y_ne = getCornerHeight([[bx, bz - 1], [bx + 1, bz - 1], [bx, bz], [bx + 1, bz]], defaultH);
+    y_se = getCornerHeight([[bx, bz], [bx + 1, bz], [bx, bz + 1], [bx + 1, bz + 1]], defaultH);
+    y_sw = getCornerHeight([[bx - 1, bz], [bx, bz], [bx - 1, bz + 1], [bx, bz + 1]], defaultH);
+  }
+
+  const textureStill = `block/${type}_still`;
+  const textureFlow = `block/${type}_flow`;
+  const [u0_s, v0_s, u1_s, v1_s] = atlas.getTextureUV(textureStill);
+  const du_s = (u1_s - u0_s) / 16, dv_s = (v1_s - v0_s) / 16;
+  const [u0_f, v0_f, u1_f, v1_f] = atlas.getTextureUV(textureFlow);
+  const du_f = (u1_f - u0_f) / 16, dv_f = (v1_f - v0_f) / 16;
+
+  const addWaterBox = (
+    x0: number, y0: number, z0: number,
+    x1: number, z1: number,
+    y1_NW: number, y1_NE: number, y1_SE: number, y1_SW: number,
+    renderUp: boolean, renderDown: boolean,
+    renderNorth: boolean, renderSouth: boolean,
+    renderWest: boolean, renderEast: boolean
+  ) => {
+    // UP face
+    if (renderUp) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x0, y1_SW, z1),
+        new (Lodestone as any).Vector(x1, y1_SE, z1),
+        new (Lodestone as any).Vector(x1, y1_NE, z0),
+        new (Lodestone as any).Vector(x0, y1_NW, z0)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_s + x0 * du_s, v0_s + z1 * dv_s];
+      q.v2.texture = [u0_s + x1 * du_s, v0_s + z1 * dv_s];
+      q.v3.texture = [u0_s + x1 * du_s, v0_s + z0 * dv_s];
+      q.v4.texture = [u0_s + x0 * du_s, v0_s + z0 * dv_s];
+      q.v1.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v2.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v3.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v4.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      mesh.quads.push(q);
+    }
+
+    // DOWN face
+    if (renderDown) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x0, y0, z0),
+        new (Lodestone as any).Vector(x1, y0, z0),
+        new (Lodestone as any).Vector(x1, y0, z1),
+        new (Lodestone as any).Vector(x0, y0, z1)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_s + x0 * du_s, v0_s + z0 * dv_s];
+      q.v2.texture = [u0_s + x1 * du_s, v0_s + z0 * dv_s];
+      q.v3.texture = [u0_s + x1 * du_s, v0_s + z1 * dv_s];
+      q.v4.texture = [u0_s + x0 * du_s, v0_s + z1 * dv_s];
+      q.v1.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v2.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v3.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      q.v4.textureLimit = [u0_s, v0_s, u1_s, v1_s];
+      mesh.quads.push(q);
+    }
+
+    // Calculate effective bottom Y for side faces based on neighbor fluid height
+    const y0_north = nbH_north >= 0 ? Math.min(nbH_north, Math.min(y1_NW, y1_NE)) : y0;
+    const y0_south = nbH_south >= 0 ? Math.min(nbH_south, Math.min(y1_SW, y1_SE)) : y0;
+    const y0_west  = nbH_west  >= 0 ? Math.min(nbH_west,  Math.min(y1_NW, y1_SW)) : y0;
+    const y0_east  = nbH_east  >= 0 ? Math.min(nbH_east,  Math.min(y1_NE, y1_SE)) : y0;
+
+    // NORTH face
+    if (renderNorth && (y1_NW > y0_north || y1_NE > y0_north)) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x1, y0_north, z0),
+        new (Lodestone as any).Vector(x0, y0_north, z0),
+        new (Lodestone as any).Vector(x0, y1_NW, z0),
+        new (Lodestone as any).Vector(x1, y1_NE, z0)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_f + x1 * du_f, v0_f + (16 - y0_north) * dv_f];
+      q.v2.texture = [u0_f + x0 * du_f, v0_f + (16 - y0_north) * dv_f];
+      q.v3.texture = [u0_f + x0 * du_f, v0_f + (16 - y1_NW) * dv_f];
+      q.v4.texture = [u0_f + x1 * du_f, v0_f + (16 - y1_NE) * dv_f];
+      q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      mesh.quads.push(q);
+    }
+
+    // SOUTH face
+    if (renderSouth && (y1_SW > y0_south || y1_SE > y0_south)) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x0, y0_south, z1),
+        new (Lodestone as any).Vector(x1, y0_south, z1),
+        new (Lodestone as any).Vector(x1, y1_SE, z1),
+        new (Lodestone as any).Vector(x0, y1_SW, z1)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_f + x0 * du_f, v0_f + (16 - y0_south) * dv_f];
+      q.v2.texture = [u0_f + x1 * du_f, v0_f + (16 - y0_south) * dv_f];
+      q.v3.texture = [u0_f + x1 * du_f, v0_f + (16 - y1_SE) * dv_f];
+      q.v4.texture = [u0_f + x0 * du_f, v0_f + (16 - y1_SW) * dv_f];
+      q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      mesh.quads.push(q);
+    }
+
+    // WEST face
+    if (renderWest && (y1_NW > y0_west || y1_SW > y0_west)) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x0, y0_west, z0),
+        new (Lodestone as any).Vector(x0, y0_west, z1),
+        new (Lodestone as any).Vector(x0, y1_SW, z1),
+        new (Lodestone as any).Vector(x0, y1_NW, z0)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_f + z0 * du_f, v0_f + (16 - y0_west) * dv_f];
+      q.v2.texture = [u0_f + z1 * du_f, v0_f + (16 - y0_west) * dv_f];
+      q.v3.texture = [u0_f + z1 * du_f, v0_f + (16 - y1_SW) * dv_f];
+      q.v4.texture = [u0_f + z0 * du_f, v0_f + (16 - y1_NW) * dv_f];
+      q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      mesh.quads.push(q);
+    }
+
+    // EAST face
+    if (renderEast && (y1_NE > y0_east || y1_SE > y0_east)) {
+      const q = (Lodestone as any).Quad.fromPoints(
+        new (Lodestone as any).Vector(x1, y0_east, z1),
+        new (Lodestone as any).Vector(x1, y0_east, z0),
+        new (Lodestone as any).Vector(x1, y1_NE, z0),
+        new (Lodestone as any).Vector(x1, y1_SE, z1)
+      );
+      q.setColor(tint);
+      q.v1.texture = [u0_f + (16 - z1) * du_f, v0_f + (16 - y0_east) * dv_f];
+      q.v2.texture = [u0_f + (16 - z0) * du_f, v0_f + (16 - y0_east) * dv_f];
+      q.v3.texture = [u0_f + (16 - z0) * du_f, v0_f + (16 - y1_NE) * dv_f];
+      q.v4.texture = [u0_f + (16 - z1) * du_f, v0_f + (16 - y1_SE) * dv_f];
+      q.v1.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v2.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v3.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      q.v4.textureLimit = [u0_f, v0_f, u1_f, v1_f];
+      mesh.quads.push(q);
+    }
+  };
+
+  if (isWaterloggedStair) {
+    const straightCutouts: Record<string, number[]> = { north: [2, 3], south: [0, 1], east: [0, 3], west: [1, 2] };
+    const outerLeftCutouts: Record<string, number[]> = { north: [0, 2, 3], south: [0, 1, 2], east: [0, 1, 3], west: [1, 2, 3] };
+    const outerRightCutouts: Record<string, number[]> = { north: [1, 2, 3], south: [0, 1, 3], east: [0, 2, 3], west: [0, 1, 2] };
+    const innerLeftCutouts: Record<string, number[]> = { north: [2], south: [0], east: [3], west: [1] };
+    const innerRightCutouts: Record<string, number[]> = { north: [3], south: [1], east: [0], west: [2] };
+
+    let cutoutQuads: number[] = [];
+    if (stairShape === 'straight') {
+      cutoutQuads = straightCutouts[stairFacing] || straightCutouts.north;
+    } else if (stairShape === 'outer_left') {
+      cutoutQuads = outerLeftCutouts[stairFacing] || outerLeftCutouts.north;
+    } else if (stairShape === 'outer_right') {
+      cutoutQuads = outerRightCutouts[stairFacing] || outerRightCutouts.north;
+    } else if (stairShape === 'inner_left') {
+      cutoutQuads = innerLeftCutouts[stairFacing] || innerLeftCutouts.north;
+    } else if (stairShape === 'inner_right') {
+      cutoutQuads = innerRightCutouts[stairFacing] || innerRightCutouts.north;
+    } else {
+      cutoutQuads = straightCutouts[stairFacing] || straightCutouts.north;
+    }
+
+    const isTopHalf = stairHalf === 'top';
+    const subY0 = isTopHalf ? 0 : 8;
+
+    const midNW_N = (y_nw + y_ne) / 2;
+    const midNW_W = (y_nw + y_sw) / 2;
+    const midNE_E = (y_ne + y_se) / 2;
+    const midSE_S = (y_sw + y_se) / 2;
+    const centerH = (y_nw + y_ne + y_se + y_sw) / 4;
+
+    const hasQ = (qIdx: number) => cutoutQuads.includes(qIdx);
+
+    // Helper for quadrant box cutout rendering
+    const addSubBox = (
+      qx0: number, qz0: number, qx1: number, qz1: number,
+      hNW: number, hNE: number, hSE: number, hSW: number
+    ) => {
+      addWaterBox(
+        qx0, subY0, qz0,
+        qx1, qz1,
+        hNW, hNE, hSE, hSW,
+        !cullUpFinal && !isTopHalf,
+        !cullDownFinal && qz0 === 0 && isTopHalf,
+        renderNorth && qz0 === 0,
+        renderSouth && qz1 === 16,
+        renderWest && qx0 === 0,
+        renderEast && qx1 === 16
+      );
+    };
+
+    // NW (Quad 0): x: 0..8, z: 0..8
+    if (hasQ(0)) {
+      addSubBox(0, 0, 8, 8, y_nw, midNW_N, centerH, midNW_W);
+    }
+    // NE (Quad 1): x: 8..16, z: 0..8
+    if (hasQ(1)) {
+      addSubBox(8, 0, 16, 8, midNW_N, y_ne, midNE_E, centerH);
+    }
+    // SE (Quad 2): x: 8..16, z: 8..16
+    if (hasQ(2)) {
+      addSubBox(8, 8, 16, 16, centerH, midNE_E, y_se, midSE_S);
+    }
+    // SW (Quad 3): x: 0..8, z: 8..16
+    if (hasQ(3)) {
+      addSubBox(0, 8, 8, 16, midNW_W, centerH, midSE_S, y_sw);
+    }
+
+    return mesh;
+  }
+
+  if (isWaterloggedSlab) {
+    if (slabType === 'bottom') {
+      addWaterBox(
+        0, 8, 0,
+        16, 16,
+        y_nw, y_ne, y_se, y_sw,
+        !cullUpFinal, false,
+        renderNorth, renderSouth,
+        renderWest, renderEast
+      );
+    } else {
+      addWaterBox(
+        0, 0, 0,
+        16, 16,
+        8, 8, 8, 8,
+        false, !cullDownFinal,
+        renderNorth, renderSouth,
+        renderWest, renderEast
+      );
+    }
+    return mesh;
+  }
+
+  if (isWaterloggedTrapdoor) {
+    if (trapdoorOpen === 'true') {
+      if (trapdoorFacing === 'north') {
+        addWaterBox(
+          0, 0, 3,
+          16, 16,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, !cullDownFinal,
+          false, renderSouth,
+          renderWest, renderEast
+        );
+      } else if (trapdoorFacing === 'south') {
+        addWaterBox(
+          0, 0, 0,
+          16, 13,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, !cullDownFinal,
+          renderNorth, false,
+          renderWest, renderEast
+        );
+      } else if (trapdoorFacing === 'west') {
+        addWaterBox(
+          3, 0, 0,
+          16, 16,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, !cullDownFinal,
+          renderNorth, renderSouth,
+          false, renderEast
+        );
+      } else {
+        addWaterBox(
+          0, 0, 0,
+          13, 16,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, !cullDownFinal,
+          renderNorth, renderSouth,
+          renderWest, false
+        );
+      }
+    } else {
+      if (trapdoorHalf === 'bottom') {
+        addWaterBox(
+          0, 3, 0,
+          16, 16,
+          y_nw, y_ne, y_se, y_sw,
+          !cullUpFinal, false,
+          renderNorth, renderSouth,
+          renderWest, renderEast
+        );
+      } else {
+        addWaterBox(
+          0, 0, 0,
+          16, 16,
+          13, 13, 13, 13,
+          false, !cullDownFinal,
+          renderNorth, renderSouth,
+          renderWest, renderEast
+        );
+      }
+    }
+    return mesh;
+  }
+
+  // Standard Water Block / Default Waterlogged Block
+  addWaterBox(
+    0, 0, 0,
+    16, 16,
+    y_nw, y_ne, y_se, y_sw,
+    !cullUpFinal, !cullDownFinal,
+    renderNorth, renderSouth,
+    renderWest, renderEast
+  );
+
+  return mesh;
+}
+
+if ((Lodestone as any).SpecialRenderers) {
+  (Lodestone as any).SpecialRenderers.liquidRenderer = function () {
+    // Return empty mesh for generic un-contextualized calls from Lodestone
+    return new (Lodestone as any).Mesh();
+  };
+}
+
 // Override SpecialRenderers.getBlockMesh to yield double chest halves (type=left/right) to BlockDefinition
 if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
   const origGetBlockMesh = (Lodestone as any).SpecialRenderers.getBlockMesh;
-  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any) {
+  (Lodestone as any).SpecialRenderers.getBlockMesh = function (block: any, nbt: any, atlas: any, cull: any, structure?: any, pos?: any) {
     const name = block.getName().toString();
+    const scaleMat = new Float32Array([
+      0.0625, 0, 0, 0,
+      0, 0.0625, 0, 0,
+      0, 0, 0.0625, 0,
+      0, 0, 0, 1
+    ]);
+
+    if (name === 'minecraft:water' || name === 'minecraft:lava') {
+      const liquidType = name.replace('minecraft:', '');
+      const levelStr = typeof block.getProperty === 'function' ? block.getProperty('level') : (block.properties?.level ?? '0');
+      const level = parseInt(levelStr || '0', 10);
+      const wMesh = createWaterMesh(liquidType, level, atlas, cull, 0, structure, pos);
+      return wMesh.transform(scaleMat);
+    }
     if (name === 'minecraft:chest' || name === 'minecraft:trapped_chest') {
       let type = 'single';
       if (typeof block.getProperties === 'function') {
@@ -132,8 +640,8 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
       if (type === 'left' || type === 'right') {
         const emptyMesh = new (Lodestone as any).Mesh();
         if (block.isWaterlogged && block.isWaterlogged()) {
-          const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
-          if (waterMesh) emptyMesh.merge(waterMesh);
+          const waterMesh = createWaterMesh('water', 0, atlas, cull, 0, structure, pos);
+          if (waterMesh) emptyMesh.merge(waterMesh.transform(scaleMat));
         }
         return emptyMesh;
       }
@@ -141,12 +649,20 @@ if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
       // Copper chests: delegate entirely to BlockDefinition (custom blockstates & models)
       const emptyMesh = new (Lodestone as any).Mesh();
       if (block.isWaterlogged && block.isWaterlogged()) {
-        const waterMesh = (Lodestone as any).SpecialRenderers.liquidRenderer?.('water', 0, atlas, cull, 0);
-        if (waterMesh) emptyMesh.merge(waterMesh);
+        const waterMesh = createWaterMesh('water', 0, atlas, cull, 0, structure, pos);
+        if (waterMesh) emptyMesh.merge(waterMesh.transform(scaleMat));
       }
       return emptyMesh;
     }
-    return origGetBlockMesh.call(this, block, nbt, atlas, cull);
+
+    const mesh = origGetBlockMesh.call(this, block, nbt, atlas, cull);
+    if (block.isWaterlogged && block.isWaterlogged()) {
+      const waterMesh = createWaterMesh('water', 0, atlas, cull, 0, structure, pos);
+      if (waterMesh && !waterMesh.isEmpty()) {
+        mesh.merge(waterMesh.transform(scaleMat));
+      }
+    }
+    return mesh;
   };
 }
 
@@ -190,12 +706,95 @@ const isNonFullBlock = (name: string) => {
   return nonFullKeywords.some(kw => lower.includes(kw));
 };
 
+const isNoCullBlock = (name: string) => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return (
+    lower.includes('redstone_torch') ||
+    lower.includes('redstone_wall_torch') ||
+    lower.includes('repeater') ||
+    lower.includes('comparator')
+  );
+};
+
+const isGlassBlock = (name: string) => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return lower.includes('glass') && !lower.includes('pane');
+};
+
+const isGlassPane = (name: string) => {
+  if (!name) return false;
+  return name.toLowerCase().includes('pane');
+};
+
+const isFullLeavesBlock = (name: string) => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  if (!lower.includes('leaves')) return false;
+  if (lower.includes('azalea')) return false;
+  return true;
+};
+
+const isObserverBlock = (name: string) => {
+  if (!name) return false;
+  return name.toLowerCase().includes('observer');
+};
+
 // Comprehensive Face Culling & Special Block Processing
 if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.needsCull = function (block: any, dir: any) {
+    const blockName = block.state.getName().toString();
+
+    // 1. Redstone torch, repeater, comparator: no face culling
+    if (isNoCullBlock(blockName)) {
+      return false;
+    }
+
     const neighbor = this.structure.getBlock(Lodestone.BlockPos.towards(block.pos, dir))?.state;
     if (!neighbor) return false;
     const neighborName = neighbor.getName().toString();
+
+    // 2. Full Glass blocks: cull connection faces only between full glass blocks (exclude glass panes)
+    if (isGlassBlock(blockName)) {
+      return isGlassBlock(neighborName);
+    }
+
+    if (isGlassPane(blockName)) {
+      return false;
+    }
+
+    // 3. Full leaves: cull connection faces between full leaf blocks
+    if (isFullLeavesBlock(blockName)) {
+      return isFullLeavesBlock(neighborName);
+    }
+
+    // 4. Observer: cull connection faces between observer blocks
+    if (isObserverBlock(blockName)) {
+      return isObserverBlock(neighborName);
+    }
+
+    // 5. Pure fluid block (standalone water or lava)
+    const selfIsPureFluid = blockName === 'minecraft:water' || blockName === 'minecraft:lava';
+    if (selfIsPureFluid) {
+      const dirName = typeof dir === 'string' ? dir : (dir?.name || String(dir));
+      const neighborIsWater = neighborName === 'minecraft:water' || neighborName === 'minecraft:lava' || (neighbor.isWaterlogged && neighbor.isWaterlogged());
+      if (dirName === 'up' || dirName === 'down') {
+        if (neighborIsWater) return true;
+      } else if (neighborIsWater) {
+        // For horizontal side faces between water blocks, do not cull here.
+        // createWaterMesh will compute step faces (y1 > y0_side) and cull internal faces.
+        return false;
+      }
+      if (isGlassBlock(neighborName) || isGlassPane(neighborName)) return false;
+      if (isNonFullBlock(neighborName)) return false;
+      const flags = this.resources.getBlockFlags(neighbor.getName());
+      if (flags?.transparent) return false;
+      if (!flags?.opaque) return false;
+      return true;
+    }
+
+    // 5. Default culling rule
     const flags = this.resources.getBlockFlags(neighbor.getName());
     if (!flags?.opaque) return false;
     if (isNonFullBlock(neighborName)) return false;
@@ -205,6 +804,7 @@ if (Lodestone.ChunkBuilder) {
   Lodestone.ChunkBuilder.prototype.isFullyOccluded = function (block: any) {
     const blockName = block.state.getName().toString();
     if (
+      isNoCullBlock(blockName) ||
       blockName.includes('chest') ||
       blockName.includes('sign') ||
       blockName.includes('frame') ||
@@ -271,7 +871,7 @@ if (Lodestone.ChunkBuilder) {
 
       if ((Lodestone as any).SpecialRenderers?.getBlockMesh) {
         try {
-          const specialMesh = (Lodestone as any).SpecialRenderers.getBlockMesh(block.state, block.nbt, this.resources, cull);
+          const specialMesh = (Lodestone as any).SpecialRenderers.getBlockMesh(block.state, block.nbt, this.resources, cull, this.structure, block.pos);
           if (specialMesh && !specialMesh.isEmpty()) {
             mesh.merge(specialMesh);
           }
@@ -777,9 +1377,10 @@ async function init() {
 
 const cachedViewMatrix = mat4.create();
 
-// Render loop to keep view and OrbitControls synchronized
-function tick() {
-  animFrameId = requestAnimationFrame(tick);
+let renderRequested = false;
+
+function renderFrame() {
+  renderRequested = false;
   if (controls) {
     controls.update();
   }
@@ -788,12 +1389,25 @@ function tick() {
     mat4.copy(cachedViewMatrix, activeCamera.matrixWorldInverse.elements as any);
     renderer.drawStructure(cachedViewMatrix);
   }
+  if (controls && controls.enableDamping) {
+    // If controls damping is active and still moving, request next frame
+    const curPos = activeCamera.position;
+    const curTarget = controls.target;
+    if ((controls as any).state !== -1 || renderRequested) {
+      requestRender();
+    }
+  }
+}
+
+function requestRender() {
+  if (!renderRequested) {
+    renderRequested = true;
+    animFrameId = requestAnimationFrame(renderFrame);
+  }
 }
 
 window.startRenderLoop = function () {
-  if (animFrameId === null) {
-    tick();
-  }
+  requestRender();
 };
 
 window.stopRenderLoop = function () {
@@ -801,6 +1415,7 @@ window.stopRenderLoop = function () {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
   }
+  renderRequested = false;
 };
 
 window.destroyRenderer = function () {
@@ -1275,6 +1890,7 @@ async function buildRendererForRegion(regionName: string) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
+  controls.addEventListener('change', requestRender);
 
   const fitDistance = Math.max(tightRadius * 2.2, 10.0);
   activeCamera.position.set(
@@ -1305,9 +1921,10 @@ async function buildRendererForRegion(regionName: string) {
       orthographicCamera.far = 100000.0;
       orthographicCamera.updateProjectionMatrix();
     }
+    requestRender();
   });
 
-  tick();
+  requestRender();
 
   // Wait for mesh building to be 100% complete before finishing progress
   await renderer.whenReady();
@@ -1401,7 +2018,9 @@ window.toggleCameraView = function () {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.target.copy(currentTarget);
+  controls.addEventListener('change', requestRender);
   controls.update();
+  requestRender();
 };
 
 let isNightMode = false;
@@ -1434,6 +2053,7 @@ window.toggleDayNight = function () {
     if ((renderer as any).opaqueMaterial) (renderer as any).applySunlightUniforms((renderer as any).opaqueMaterial);
     if ((renderer as any).transparentMaterial) (renderer as any).applySunlightUniforms((renderer as any).transparentMaterial);
   }
+  requestRender();
   return isNightMode;
 };
 
@@ -1444,6 +2064,7 @@ window.resetCamera = function () {
   controls.target.set(tightCenter[0], tightCenter[1], tightCenter[2]);
   activeCamera.position.addVectors(controls.target, offset);
   controls.update();
+  requestRender();
 };
 
 window.switchRegion = async function (regionName: string) {
