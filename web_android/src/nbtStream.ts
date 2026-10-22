@@ -137,3 +137,54 @@ export class NbtCursor {
     }
   }
 }
+
+export function parseNbtTagValue(cursor: NbtCursor, type: number): any {
+  switch (type) {
+    case TAG_BYTE: return cursor.readByte();
+    case TAG_SHORT: return cursor.readShort();
+    case TAG_INT: return cursor.readInt();
+    case TAG_LONG: return cursor.readLongBigInt();
+    case TAG_FLOAT: return cursor.readFloat();
+    case TAG_DOUBLE: return cursor.readDouble();
+    case TAG_BYTE_ARRAY: {
+      const len = cursor.readInt();
+      const arr = new Int8Array(len);
+      for (let i = 0; i < len; i++) arr[i] = cursor.readByte();
+      return arr;
+    }
+    case TAG_STRING: return cursor.readString();
+    case TAG_LIST: {
+      const elemType = cursor.readByte();
+      const len = cursor.readInt();
+      const list: any[] = [];
+      for (let i = 0; i < len; i++) {
+        list.push(parseNbtTagValue(cursor, elemType));
+      }
+      return list;
+    }
+    case TAG_COMPOUND: {
+      const compound: Record<string, any> = {};
+      while (cursor.offset < cursor.buffer.byteLength) {
+        const t = cursor.readByte();
+        if (t === TAG_END) break;
+        const name = cursor.readString();
+        compound[name] = parseNbtTagValue(cursor, t);
+      }
+      return compound;
+    }
+    case TAG_INT_ARRAY: {
+      const len = cursor.readInt();
+      const arr = new Int32Array(len);
+      for (let i = 0; i < len; i++) arr[i] = cursor.readInt();
+      return arr;
+    }
+    case TAG_LONG_ARRAY: {
+      const len = cursor.readInt();
+      const arr = new BigUint64Array(len);
+      for (let i = 0; i < len; i++) arr[i] = cursor.readLongBigInt();
+      return arr;
+    }
+    default:
+      throw new Error(`Unsupported NBT Tag Type: ${type}`);
+  }
+}

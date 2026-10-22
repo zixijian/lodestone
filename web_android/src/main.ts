@@ -894,13 +894,13 @@ if (Lodestone.ChunkBuilder) {
   };
 }
 
-// Dynamic Infinite View
+// Dynamic Frustum Culling
 (ThreeStructureRenderer.prototype as any).applyDrawDistance = function () {
   if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
       const mesh = (this as any).chunkMeshes[i];
       mesh.visible = true;
-      mesh.frustumCulled = false;
+      mesh.frustumCulled = true;
     }
   }
 };
@@ -913,9 +913,11 @@ const tempCamPos: [number, number, number] = [0, 0, 0];
   tempMat1.fromArray(viewMatrixElements);
   tempMat2.copy(tempMat1).invert();
 
-  (this as any).camera.position.setFromMatrixPosition(tempMat2);
-  (this as any).camera.quaternion.setFromRotationMatrix(tempMat2);
-  (this as any).camera.updateMatrixWorld(true);
+  if ((this as any).camera) {
+    (this as any).camera.position.setFromMatrixPosition(tempMat2);
+    (this as any).camera.quaternion.setFromRotationMatrix(tempMat2);
+    (this as any).camera.updateMatrixWorld(true);
+  }
 
   tempCamPos[0] = tempMat2.elements[12];
   tempCamPos[1] = tempMat2.elements[13];
@@ -926,6 +928,7 @@ const tempCamPos: [number, number, number] = [0, 0, 0];
   } else if ((this as any).chunkMeshes) {
     for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
       (this as any).chunkMeshes[i].visible = true;
+      (this as any).chunkMeshes[i].frustumCulled = true;
     }
   }
 
@@ -960,7 +963,7 @@ const tempCamPos: [number, number, number] = [0, 0, 0];
       for (let i = 0; i < (this as any).chunkMeshes.length; i++) {
         const mesh = (this as any).chunkMeshes[i];
         mesh.visible = true;
-        mesh.frustumCulled = false;
+        mesh.frustumCulled = true;
       }
     }
     if (window.AndroidHost && token === (this as any).buildToken) {
@@ -1513,7 +1516,7 @@ async function buildRendererForRegion(regionName: string) {
   container.appendChild(canvasElement);
 
   if (window.AndroidHost) {
-    window.AndroidHost.onLoadingProgress('DECODING_50%');
+    window.AndroidHost.onLoadingProgress('DECODING_10%');
   }
 
   // Request region block states from Worker
@@ -1523,53 +1526,48 @@ async function buildRendererForRegion(regionName: string) {
 
   const palette = rawPalette.map(p => new BlockState(p.name, p.properties));
 
-  // Request Transferable Uint32Array block data from Worker
-  const decodeRes = await sendWorkerMessage('DECODE_REGION', { regionName });
-  const flatBlocks = new Uint32Array(decodeRes.blocks);
-
-  const numPlaced = flatBlocks.length / 4;
-  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = new Array(numPlaced);
-
-  let minX = regionSize[0], minY = regionSize[1], minZ = regionSize[2];
-  let maxX = 0, maxY = 0, maxZ = 0;
-  let hasPlaced = false;
-
-  for (let i = 0; i < numPlaced; i++) {
-    const x = flatBlocks[i * 4];
-    const y = flatBlocks[i * 4 + 1];
-    const z = flatBlocks[i * 4 + 2];
-    const stateIdx = flatBlocks[i * 4 + 3];
-
-    storedBlocks[i] = { pos: [x, y, z], state: stateIdx };
-
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (z < minZ) minZ = z;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-    if (z > maxZ) maxZ = z;
-    hasPlaced = true;
-  }
-
-  if (hasPlaced) {
-    tightCenter = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
-    const dx = maxX - minX + 1;
-    const dy = maxY - minY + 1;
-    const dz = maxZ - minZ + 1;
-    tightRadius = Math.max(1.0, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-  } else {
-    tightCenter = [regionSize[0] / 2, regionSize[1] / 2, regionSize[2] / 2];
-    tightRadius = Math.max(1.0, Math.max(regionSize[0], regionSize[1], regionSize[2]) / 2);
-  }
-
-  currentStructure = new Structure(regionSize, palette, storedBlocks);
-
-  // Send statistics to Android host
-  calculateAndSendStatistics();
+  tightCenter = [regionSize[0] / 2, regionSize[1] / 2, regionSize[2] / 2];
+  tightRadius = Math.max(1.0, Math.max(regionSize[0], regionSize[1], regionSize[2]) / 2);
 
   const volume = regionSize[0] * regionSize[1] * regionSize[2];
   const maxDim = Math.max(regionSize[0], regionSize[1], regionSize[2]);
   const chunkSize = volume > 1000000 || maxDim > 128 ? 32 : 16;
+
+  // Request chunk list from Worker
+  const chunkListRes = await sendWorkerMessage('GET_CHUNK_LIST', { regionName, chunkSize });
+  const chunkList: Array<[number, number, number]> = chunkListRes.chunks || [];
+  const totalChunks = chunkList.length;
+
+  const storedBlocks: Array<{ pos: [number, number, number]; state: number }> = [];
+
+  // Decode chunks progressively from Worker
+  for (let i = 0; i < totalChunks; i++) {
+    const [cx, cy, cz] = chunkList[i];
+    const chunkRes = await sendWorkerMessage('DECODE_CHUNK', {
+      regionName,
+      cx,
+      cy,
+      cz,
+      chunkSize
+    });
+
+    const flatBlocks = new Uint32Array(chunkRes.blocks);
+    const numPlaced = flatBlocks.length / 4;
+
+    for (let k = 0; k < numPlaced; k++) {
+      storedBlocks.push({
+        pos: [flatBlocks[k * 4], flatBlocks[k * 4 + 1], flatBlocks[k * 4 + 2]],
+        state: flatBlocks[k * 4 + 3]
+      });
+    }
+
+    if (window.AndroidHost && (i % 10 === 0 || i === totalChunks - 1)) {
+      const pct = Math.floor(((i + 1) / totalChunks) * 80) + 10;
+      window.AndroidHost.onLoadingProgress(`DECODING_${pct}%`);
+    }
+  }
+
+  currentStructure = new Structure(regionSize, palette, storedBlocks);
 
   const rendererOptions: any = {
     asyncBuild: true,
@@ -1659,6 +1657,12 @@ async function buildRendererForRegion(regionName: string) {
     requestRender();
   });
 
+  // Calculate and send statistics to Android host asynchronously with frame time-slicing
+  calculateAndSendStatistics();
+
+  // Asynchronously build all chunk meshes using time-slicing (12ms max per frame)
+  // This keeps the UI thread, OrbitControls, and gestures 100% smooth!
+  await renderer.rebuildChunksAsync();
   requestRender();
 
   await renderer.whenReady();
@@ -1674,17 +1678,29 @@ async function calculateAndSendStatistics(): Promise<void> {
 
     const blockStats: { [key: string]: number } = {};
     let totalBlocks = 0;
+    const totalCount = blocks.length;
+    let index = 0;
 
-    for (let i = 0; i < blocks.length; i++) {
-      const block = blocks[i];
-      if (block) {
-        const stateIdx = block.state;
-        const state = palette[stateIdx];
-        if (state) {
-          const blockName = state.getName().toString();
-          blockStats[blockName] = (blockStats[blockName] || 0) + 1;
-          totalBlocks++;
+    let lastYield = performance.now();
+
+    while (index < totalCount) {
+      const end = Math.min(index + 50000, totalCount);
+      for (; index < end; index++) {
+        const block = blocks[index];
+        if (block) {
+          const stateIdx = block.state;
+          const state = palette[stateIdx];
+          if (state) {
+            const blockName = state.getName().toString();
+            blockStats[blockName] = (blockStats[blockName] || 0) + 1;
+            totalBlocks++;
+          }
         }
+      }
+
+      if (index < totalCount && performance.now() - lastYield >= 12) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        lastYield = performance.now();
       }
     }
 
