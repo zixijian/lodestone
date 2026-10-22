@@ -13,6 +13,7 @@ export interface RegionMeta {
   palette: BlockStateData[];
   longArray: BigUint64Array | null;
   numLongs: number;
+  chunkGrids?: Map<string, Uint16Array>; // Sparse chunk-level sub-grids (32x32x32 max)
 }
 
 let currentRegions: Map<string, RegionMeta> = new Map();
@@ -163,26 +164,37 @@ function parsePaletteList(cursor: NbtCursor): BlockStateData[] {
   return palette;
 }
 
-// Decode blocks for a specific Chunk (cx, cy, cz) with Padded / Continuous Auto-Detection
-function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: number, chunkSize: number) {
-  const meta = currentRegions.get(regionName);
-  if (!meta) throw new Error(`Region ${regionName} not found`);
+// Sparse chunk sub-grid decoder (32x32x32 max chunk size)
+function getChunkGrid(meta: RegionMeta, cx: number, cy: number, cz: number, chunkSize: number): Uint16Array {
+  if (!meta.chunkGrids) {
+    meta.chunkGrids = new Map();
+  }
+  const chunkKey = `${cx},${cy},${cz}`;
+  if (meta.chunkGrids.has(chunkKey)) {
+    return meta.chunkGrids.get(chunkKey)!;
+  }
 
-  const palette = meta.palette;
-  const isAir = palette.map(p => p.name === 'minecraft:air');
-  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
-  const maskBig = (1n << BigInt(bitsPerBlock)) - 1n;
+  const chunkVol = chunkSize * chunkSize * chunkSize;
+  const grid = new Uint16Array(chunkVol);
+  grid.fill(0xffff); // 0xffff = air
 
   const width = meta.size[0];
   const height = meta.size[1];
   const depth = meta.size[2];
   const volume = width * height * depth;
+
+  const palette = meta.palette;
+  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
+  const maskBig = (1n << BigInt(bitsPerBlock)) - 1n;
+
   const longArray = meta.longArray;
   const numLongs = meta.numLongs;
 
   const blocksPerLong = Math.floor(64 / bitsPerBlock);
   const paddedExpectedLongs = Math.ceil(volume / blocksPerLong);
   const isPadded = numLongs === paddedExpectedLongs || (numLongs > volume / (64 / bitsPerBlock) + 0.1 && numLongs !== Math.ceil((volume * bitsPerBlock) / 64));
+
+  const isAir = palette.map(p => p.name === 'minecraft:air');
 
   const startX = cx * chunkSize;
   const endX = Math.min(startX + chunkSize, width);
@@ -191,12 +203,13 @@ function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: numbe
   const startZ = cz * chunkSize;
   const endZ = Math.min(startZ + chunkSize, depth);
 
-  const tempBlocks: number[] = [];
-
   if (longArray && numLongs > 0) {
     for (let y = startY; y < endY; y++) {
+      const localY = y - startY;
       for (let z = startZ; z < endZ; z++) {
+        const localZ = z - startZ;
         for (let x = startX; x < endX; x++) {
+          const localX = x - startX;
           const index = y * (width * depth) + z * width + x;
           let paletteIndex = 0;
 
@@ -226,8 +239,47 @@ function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: numbe
           }
 
           if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-            tempBlocks.push(x, y, z, paletteIndex);
+            const localIdx = localX * (chunkSize * chunkSize) + localY * chunkSize + localZ;
+            grid[localIdx] = paletteIndex;
           }
+        }
+      }
+    }
+  }
+
+  meta.chunkGrids.set(chunkKey, grid);
+  return grid;
+}
+
+// Decode blocks for a specific Chunk (cx, cy, cz)
+function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: number, chunkSize: number) {
+  const meta = currentRegions.get(regionName);
+  if (!meta) throw new Error(`Region ${regionName} not found`);
+
+  const grid = getChunkGrid(meta, cx, cy, cz, chunkSize);
+  const width = meta.size[0];
+  const height = meta.size[1];
+  const depth = meta.size[2];
+
+  const startX = cx * chunkSize;
+  const endX = Math.min(startX + chunkSize, width);
+  const startY = cy * chunkSize;
+  const endY = Math.min(startY + chunkSize, height);
+  const startZ = cz * chunkSize;
+  const endZ = Math.min(startZ + chunkSize, depth);
+
+  const tempBlocks: number[] = [];
+
+  for (let x = startX; x < endX; x++) {
+    const localX = x - startX;
+    for (let y = startY; y < endY; y++) {
+      const localY = y - startY;
+      for (let z = startZ; z < endZ; z++) {
+        const localZ = z - startZ;
+        const localIdx = localX * (chunkSize * chunkSize) + localY * chunkSize + localZ;
+        const stateIdx = grid[localIdx];
+        if (stateIdx !== 0xffff) {
+          tempBlocks.push(x, y, z, stateIdx);
         }
       }
     }
@@ -236,7 +288,7 @@ function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: numbe
   return new Uint32Array(tempBlocks);
 }
 
-// Get non-empty Chunk coordinates index
+// Get non-empty Chunk coordinates list
 function getNonEmptyChunkList(regionName: string, chunkSize: number) {
   const meta = currentRegions.get(regionName);
   if (!meta) throw new Error(`Region ${regionName} not found`);
@@ -254,7 +306,18 @@ function getNonEmptyChunkList(regionName: string, chunkSize: number) {
   for (let cx = 0; cx < numChunksX; cx++) {
     for (let cy = 0; cy < numChunksY; cy++) {
       for (let cz = 0; cz < numChunksZ; cz++) {
-        chunkList.push([cx, cy, cz]);
+        const grid = getChunkGrid(meta, cx, cy, cz, chunkSize);
+        let hasBlock = false;
+        for (let i = 0; i < grid.length; i++) {
+          if (grid[i] !== 0xffff) {
+            hasBlock = true;
+            break;
+          }
+        }
+
+        if (hasBlock) {
+          chunkList.push([cx, cy, cz]);
+        }
       }
     }
   }
