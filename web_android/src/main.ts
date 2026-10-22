@@ -101,7 +101,7 @@ function sendWorkerMessage(type: string, payload: any, transferables?: Transfera
   });
 }
 
-// High-performance, zero-GC Uint16Array flat block grid storage with on-demand lazy block object creation
+// High-performance Uint16Array flat block grid storage with on-demand lazy block object creation
 (Structure.prototype as any).ensurePlacedCaches = function () {
   if (this.placedBlocksGrid) return;
   const w = this.size[0], h = this.size[1], d = this.size[2];
@@ -110,13 +110,11 @@ function sendWorkerMessage(type: string, payload: any, transferables?: Transfera
   grid.fill(0xffff);
   const hd = h * d;
   this.placedBlockObjectMap = new Map();
-  this.placedBlockIndexMap = new Map();
 
   for (let i = 0; i < this.blocks.length; i++) {
     const b = this.blocks[i];
     const idx = b.pos[0] * hd + b.pos[1] * d + b.pos[2];
     grid[idx] = b.state;
-    this.placedBlockIndexMap.set(idx, i);
   }
   this.placedBlocksGrid = grid;
 };
@@ -131,9 +129,7 @@ function sendWorkerMessage(type: string, payload: any, transferables?: Transfera
 
   let cached = this.placedBlockObjectMap.get(idx);
   if (!cached) {
-    const origIndex = this.placedBlockIndexMap.get(idx);
-    const origBlock = origIndex !== undefined ? this.blocks[origIndex] : null;
-    cached = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx], nbt: origBlock?.nbt };
+    cached = { pos: [pos[0], pos[1], pos[2]], state: this.palette[stateIdx] };
     this.placedBlockObjectMap.set(idx, cached);
   }
   return cached;
@@ -1622,7 +1618,7 @@ async function buildRendererForRegion(regionName: string) {
   // Calculate and send statistics to Android host asynchronously with frame time-slicing
   calculateAndSendStatistics();
 
-  // Asynchronously build all chunk meshes using Lodestone's native async chunk builder (12ms max per frame)
+  // Asynchronously build all chunk meshes using Lodestone's native async chunk builder
   await renderer.whenReady();
   requestRender();
 }

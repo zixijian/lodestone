@@ -236,69 +236,6 @@ function decodeChunkBlocks(regionName: string, cx: number, cy: number, cz: numbe
   return new Uint32Array(tempBlocks);
 }
 
-function decodeRegionBlocks(regionName: string) {
-  const meta = currentRegions.get(regionName);
-  if (!meta) throw new Error(`Region ${regionName} not found`);
-
-  const palette = meta.palette;
-  const isAir = palette.map(p => p.name === 'minecraft:air');
-  const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
-  const maskBig = (1n << BigInt(bitsPerBlock)) - 1n;
-
-  const width = meta.size[0];
-  const height = meta.size[1];
-  const depth = meta.size[2];
-  const volume = width * height * depth;
-  const longArray = meta.longArray;
-  const numLongs = meta.numLongs;
-
-  const blocksPerLong = Math.floor(64 / bitsPerBlock);
-  const paddedExpectedLongs = Math.ceil(volume / blocksPerLong);
-  const isPadded = numLongs === paddedExpectedLongs || (numLongs > volume / (64 / bitsPerBlock) + 0.1 && numLongs !== Math.ceil((volume * bitsPerBlock) / 64));
-
-  const tempBlocks: number[] = [];
-
-  if (longArray && numLongs > 0) {
-    for (let index = 0; index < volume; index++) {
-      let paletteIndex = 0;
-
-      if (isPadded) {
-        const longIndex = Math.floor(index / blocksPerLong);
-        if (longIndex < numLongs) {
-          const startBit = BigInt((index % blocksPerLong) * bitsPerBlock);
-          paletteIndex = Number((longArray[longIndex] >> startBit) & maskBig);
-        }
-      } else {
-        const startBit = BigInt(index * bitsPerBlock);
-        const startLong = Number(startBit >> 6n);
-        const startBitOffset = startBit & 63n;
-        const endBit = BigInt((index + 1) * bitsPerBlock - 1);
-        const endLong = Number(endBit >> 6n);
-
-        if (startLong < numLongs) {
-          if (startLong === endLong) {
-            paletteIndex = Number((longArray[startLong] >> startBitOffset) & maskBig);
-          } else if (endLong < numLongs) {
-            const endOffset = 64n - startBitOffset;
-            paletteIndex = Number(
-              ((longArray[startLong] >> startBitOffset) | (longArray[endLong] << endOffset)) & maskBig
-            );
-          }
-        }
-      }
-
-      if (paletteIndex >= 0 && paletteIndex < palette.length && !isAir[paletteIndex]) {
-        const x = index % width;
-        const y = Math.floor(index / (width * depth));
-        const z = Math.floor(index / width) % depth;
-        tempBlocks.push(x, y, z, paletteIndex);
-      }
-    }
-  }
-
-  return new Uint32Array(tempBlocks);
-}
-
 // Get non-empty Chunk coordinates index
 function getNonEmptyChunkList(regionName: string, chunkSize: number) {
   const meta = currentRegions.get(regionName);
@@ -363,17 +300,6 @@ self.onmessage = async (e: MessageEvent) => {
         type: 'GET_CHUNK_LIST_SUCCESS',
         chunks: list
       });
-    } else if (type === 'DECODE_REGION') {
-      const blocksArray = decodeRegionBlocks(payload.regionName);
-      self.postMessage(
-        {
-          id,
-          type: 'DECODE_REGION_SUCCESS',
-          regionName: payload.regionName,
-          blocks: blocksArray
-        },
-        [blocksArray.buffer]
-      );
     } else if (type === 'DECODE_CHUNK') {
       const blocksArray = decodeChunkBlocks(
         payload.regionName,
