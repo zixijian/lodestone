@@ -6,10 +6,13 @@ const { PNG } = require('pngjs');
 const repoDir = '/tmp/atlas_repo';
 const repoUrl = 'https://github.com/zixijian/atlas.git';
 
-// Ensure atlas repo is available
+// Ensure atlas repo is available on branch xekr
 if (!fs.existsSync(repoDir)) {
-  console.log('Cloning atlas repository from', repoUrl);
-  execSync(`git clone ${repoUrl} ${repoDir}`, { stdio: 'inherit' });
+  console.log('Cloning atlas repository (branch xekr) from', repoUrl);
+  execSync(`git clone -b xekr ${repoUrl} ${repoDir}`, { stdio: 'inherit' });
+} else {
+  console.log('Updating atlas repository on branch xekr...');
+  execSync(`git -C ${repoDir} fetch origin xekr && git -C ${repoDir} checkout xekr && git -C ${repoDir} pull origin xekr`, { stdio: 'inherit' });
 }
 
 function parseTxt(filename) {
