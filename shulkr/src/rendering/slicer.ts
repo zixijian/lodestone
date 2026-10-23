@@ -12,9 +12,13 @@ export class SlicerController {
   private currentAxis: SliceAxis = SliceAxis.Y;
 
   constructor(renderer: THREE.WebGLRenderer) {
-    this.clippingPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+    this.clippingPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1000);
     renderer.clippingPlanes = [this.clippingPlane];
     renderer.localClippingEnabled = true;
+  }
+
+  public getClippingPlane(): THREE.Plane {
+    return this.clippingPlane;
   }
 
   public setAxis(axis: SliceAxis): void {
