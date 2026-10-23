@@ -1,10 +1,10 @@
 # Shulkr 投影格式 (.litematic / .schem / .nbt / .mcstructure) 逆向解析算法
 
-Shulkr 通过统一的底层 NBT 抽象层与位流解码器，实现了对 Minecraft 四大主流投影文件格式的无缝解析与互转。
+Shulkr 网页端严格遵循 Minecraft 标准二进制 NBT (Named Binary Tag) 规范及官方/社区格式定义，在浏览器内存中通过 `DataView` 和高吞吐位流读取器实现绝对精准的解压与反序列化。
 
 ---
 
-## 📄 1. 四大格式特性对比表
+## 📄 1. 四大格式标准特性表
 
 | 格式名称 | 适用平台/模组 | 压缩格式 | NBT 字节序 | 方块存储结构 | 调色板 (Palette) 机制 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -15,20 +15,38 @@ Shulkr 通过统一的底层 NBT 抽象层与位流解码器，实现了对 Mine
 
 ---
 
-## 🧩 2. `.litematic` (Litematica) 详细解析算法
+## 🧩 2. `.litematic` (Litematica) 标准解包与 DataView 偏移控制
 
-### 2.1 数据结构层次
-```
-Root (Compound)
- ├── MinecraftDataVersion (Int)
- ├── Version (Int)
- └── Regions (Compound)
-      └── [RegionName] (Compound)
-           ├── Position (Compound: x, y, z)
-           ├── Size (Compound: x, y, z)
-           ├── BlockStatePalette (List of Compound)
-           │    └── [0..N]: { Name: "minecraft:stone", Properties: {...} }
-           └── BlockStates (LongArray / Int64 Array)
+### 2.1 NBT 标签与内存预算控制 (`NbtCursor`)
+Shulkr 内置 `NbtCursor` 读取类，基于 `DataView` 的精准 byteOffset / byteLength 进行严格控制。当 DataView 尝试读取超出数据流范围的字节时，抛出 `NbtReadError: Unexpected end of NBT data` 异常：
+
+```typescript
+export class NbtCursor {
+  private view: DataView;
+  private offset: number = 0;
+  private littleEndian: boolean;
+
+  constructor(buffer: ArrayBuffer, byteOffset: number, byteLength: number, littleEndian: boolean = false) {
+    this.view = new DataView(buffer, byteOffset, byteLength);
+    this.littleEndian = littleEndian;
+  }
+
+  private take(bytes: number): number {
+    const current = this.offset;
+    if (current + bytes > this.view.byteLength) {
+      throw new Error(`Unexpected end of NBT data: needed ${bytes} more byte(s) at offset ${current}.`);
+    }
+    this.offset += bytes;
+    return current;
+  }
+
+  public i8(): number { return this.view.getInt8(this.take(1)); }
+  public u8(): number { return this.view.getUint8(this.take(1)); }
+  public i16(): number { return this.view.getInt16(this.take(2), this.littleEndian); }
+  public i32(): number { return this.view.getInt32(this.take(4), this.littleEndian); }
+  public f32(): number { return this.view.getFloat32(this.take(4), this.littleEndian); }
+  public f64(): number { return this.view.getFloat64(this.take(8), this.littleEndian); }
+}
 ```
 
 ### 2.2 位流解包算法 (Bit-Unpacking Algorithm)
@@ -39,7 +57,7 @@ Litematica 将所有方块在 Palette 中的索引紧密打包存储在一个 `L
   - **Continuous (1.12-1.15)**：方块索引可以跨越两个相邻的 64 位 Long 整数边界。
 
 ```typescript
-// Padded 解码核心计算公式:
+// Padded 解码标准计算公式:
 const blocksPerLong = Math.floor(64 / bitsPerBlock);
 const mask = (1n << BigInt(bitsPerBlock)) - 1n;
 
@@ -48,26 +66,13 @@ for (let index = 0; index < totalVolume; index++) {
   const startBit = (index % blocksPerLong) * bitsPerBlock;
   const paletteIndex = Number((longArray[longIndex] >> BigInt(startBit)) & mask);
   const blockState = palette[paletteIndex];
-  // 映射至 (x, y, z) 局部坐标
 }
 ```
 
 ---
 
-## 📜 3. `.schem` (Sponge Schematic v1/v2/v3) 详细解析算法
+## 📜 3. `.schem` (Sponge Schematic v1/v2/v3) 标准 Varint 解码
 
-### 3.1 数据结构层次
-```
-Schematic (Compound)
- ├── Width (Short)
- ├── Height (Short)
- ├── Length (Short)
- ├── Palette (Compound: "minecraft:oak_log" -> Int Index)
- ├── BlockData (ByteArray / Varint Stream)
- └── BlockEntities (List of Compound)
-```
-
-### 3.2 BlockData Varint 解码
 `BlockData` 使用 Varint（变长整数）编码。每个字节最高位 (MSB) 标识是否有后续字节，低 7 位组合构成 Palette 索引：
 
 ```typescript
@@ -79,13 +84,15 @@ for (let y = 0; y < height; y++) {
       let varintBits = 0;
       let byteVal = 0;
       do {
+        if (offset >= blockDataBytes.length) {
+          throw new Error('Offset is outside the bounds of the DataView');
+        }
         byteVal = blockDataBytes[offset++];
         value |= (byteVal & 0x7F) << varintBits;
         varintBits += 7;
       } while ((byteVal & 0x80) !== 0);
 
       const paletteName = paletteMapByValue[value];
-      // 放置到坐标 (x, y, z)
     }
   }
 }
@@ -93,45 +100,10 @@ for (let y = 0; y < height; y++) {
 
 ---
 
-## 📦 4. `.nbt` (Java Structure Block) 详细解析算法
+## 🎮 4. `.mcstructure` (Bedrock Edition) 小端序标准解析
 
-结构方块导出的 `.nbt` 格式相对扁平直观：
-1. 读取 `size` (x, y, z) 三维尺寸。
-2. 读取 `palette` (List) 获取所有方块状态对象。
-3. 遍历 `blocks` (List)：
-   - `pos`: `[x, y, z]` 坐标。
-   - `state`: 对应 `palette` 的整数索引。
-   - `nbt`: 额外方块实体数据 (Tile Entity Data)。
-
----
-
-## 🎮 5. `.mcstructure` (Bedrock Edition) 详细解析算法
-
-### 5.1 关键区别
+### 4.1 关键区别
 - **小端序 (Little-Endian NBT)**：所有 Tag 的 Int/Short/Float 长度均以小端存储。
 - **双层方块网络 (Two-layer Block Indices)**：`block_indices` 包含两个等长数组：
   - 数组 0 (`Layer 0`)：主方块层 (Main Block Layer)。
   - 数组 1 (`Layer 1`)：次方块层（用于水下/含水方块 Waterlogged Blocks）。
-
-### 5.2 Palette 映射公式
-```typescript
-const layer0Indices = structure.block_indices[0];
-const layer1Indices = structure.block_indices[1]; // 含水层
-const palette = structure.palette.default.block_palette;
-
-let idx = 0;
-for (let x = 0; x < sizeX; x++) {
-  for (let y = 0; y < sizeY; y++) {
-    for (let z = 0; z < sizeZ; z++) {
-      const blockPaletteIdx = layer0Indices[idx];
-      const waterPaletteIdx = layer1Indices[idx];
-      idx++;
-
-      if (blockPaletteIdx !== -1) {
-        const blockObj = palette[blockPaletteIdx];
-        // 解析 blockObj.name (例如 "minecraft:chest") 和 blockObj.states
-      }
-    }
-  }
-}
-```
