@@ -244,6 +244,15 @@ function renderRegion(region: RegionData): void {
   }
 }
 
+const faceDirMap: Record<string, [number, number, number]> = {
+  up: [0, 1, 0],
+  down: [0, -1, 0],
+  south: [0, 0, 1],
+  north: [0, 0, -1],
+  east: [1, 0, 0],
+  west: [-1, 0, 0]
+};
+
 function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, chunkSize: number): void {
   const minX = cx * chunkSize;
   const maxX = Math.min((cx + 1) * chunkSize, region.size.x);
@@ -282,33 +291,91 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
         const bState = region.palette[palIdx];
         if (!bState) continue;
 
+        const resolvedModel = ChunkBuilder.resolveBlockModel(assets!, bState.name, bState.properties);
         const isOpaque = ChunkBuilder.isFaceOpaque(bState.name, opaqueList);
 
-        for (const f of faces) {
-          const nx = x + f.dir[0];
-          const ny = y + f.dir[1];
-          const nz = z + f.dir[2];
+        if (resolvedModel && resolvedModel.elements.length > 0) {
+          // Model-driven rendering
+          for (const el of resolvedModel.elements) {
+            for (const faceKey in el.faces) {
+              const face = el.faces[faceKey];
+              const cullDir = face.cullface || faceKey;
+              const dir = faceDirMap[cullDir];
+              if (dir) {
+                const neighborName = getNeighborBlockName(region, x + dir[0], y + dir[1], z + dir[2]);
+                if (ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
+                  continue; // Skip face if culled by opaque neighbor
+                }
+              }
 
-          if (isOpaque && ChunkBuilder.isFaceOpaque(getNeighborBlockName(region, nx, ny, nz), opaqueList)) {
-            continue; // Cull internal face
+              const quadData = ChunkBuilder.getTransformedElementFace(
+                assets!,
+                x,
+                y,
+                z,
+                el,
+                faceKey,
+                face,
+                resolvedModel.rotX,
+                resolvedModel.rotY,
+                resolvedModel.rotZ
+              );
+
+              if (isOpaque) {
+                opPositions.push(...quadData.positions);
+                opNormals.push(...quadData.normals);
+                opUvs.push(...quadData.uvs);
+                opIndices.push(
+                  opVertexCount, opVertexCount + 1, opVertexCount + 2,
+                  opVertexCount, opVertexCount + 2, opVertexCount + 3
+                );
+                opVertexCount += 4;
+              } else {
+                trPositions.push(...quadData.positions);
+                trNormals.push(...quadData.normals);
+                trUvs.push(...quadData.uvs);
+                trIndices.push(
+                  trVertexCount, trVertexCount + 1, trVertexCount + 2,
+                  trVertexCount, trVertexCount + 2, trVertexCount + 3
+                );
+                trVertexCount += 4;
+              }
+            }
           }
+        } else {
+          // Fallback basic block rendering
+          for (const f of faces) {
+            const nx = x + f.dir[0];
+            const ny = y + f.dir[1];
+            const nz = z + f.dir[2];
 
-          const quadVertices = ChunkBuilder.getFaceVertices(x, y, z, f.name);
-          const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets!, bState.name, f.name);
-          const quadUvs = [u0, v1, u0, v0, u1, v0, u1, v1];
+            if (isOpaque && ChunkBuilder.isFaceOpaque(getNeighborBlockName(region, nx, ny, nz), opaqueList)) {
+              continue;
+            }
 
-          if (isOpaque) {
-            opPositions.push(...quadVertices);
-            for (let i = 0; i < 4; i++) opNormals.push(...f.norm);
-            opUvs.push(...quadUvs);
-            opIndices.push(opVertexCount, opVertexCount + 1, opVertexCount + 2, opVertexCount, opVertexCount + 2, opVertexCount + 3);
-            opVertexCount += 4;
-          } else {
-            trPositions.push(...quadVertices);
-            for (let i = 0; i < 4; i++) trNormals.push(...f.norm);
-            trUvs.push(...quadUvs);
-            trIndices.push(trVertexCount, trVertexCount + 1, trVertexCount + 2, trVertexCount, trVertexCount + 2, trVertexCount + 3);
-            trVertexCount += 4;
+            const quadVertices = ChunkBuilder.getFaceVertices(x, y, z, f.name);
+            const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets!, bState.name, f.name);
+            const quadUvs = [u0, v1, u0, v0, u1, v0, u1, v1];
+
+            if (isOpaque) {
+              opPositions.push(...quadVertices);
+              for (let i = 0; i < 4; i++) opNormals.push(...f.norm);
+              opUvs.push(...quadUvs);
+              opIndices.push(
+                opVertexCount, opVertexCount + 1, opVertexCount + 2,
+                opVertexCount, opVertexCount + 2, opVertexCount + 3
+              );
+              opVertexCount += 4;
+            } else {
+              trPositions.push(...quadVertices);
+              for (let i = 0; i < 4; i++) trNormals.push(...f.norm);
+              trUvs.push(...quadUvs);
+              trIndices.push(
+                trVertexCount, trVertexCount + 1, trVertexCount + 2,
+                trVertexCount, trVertexCount + 2, trVertexCount + 3
+              );
+              trVertexCount += 4;
+            }
           }
         }
       }
@@ -406,7 +473,8 @@ function processLitematic(root: any): SchematicData {
 
     const paletteTags = reg.BlockStatePalette || [];
     const palette: BlockState[] = paletteTags.map((p: any) => ({
-      name: String(p.Name || 'minecraft:air')
+      name: String(p.Name || 'minecraft:air'),
+      properties: p.Properties ? Object.fromEntries(Object.entries(p.Properties).map(([k, v]) => [k, String(v)])) : undefined
     }));
 
     const volume = size.x * size.y * size.z;
@@ -453,12 +521,19 @@ function processSchem(root: any): SchematicData {
   for (const [key, val] of Object.entries(rawPalette)) {
     const rawIdx = Number(val);
     const cleanName = key.split('[')[0];
-    const bState: BlockState = { name: cleanName };
-
-    let listIdx = paletteList.findIndex(p => p.name === cleanName);
-    if (listIdx < 0) {
-      listIdx = paletteList.push(bState) - 1;
+    let properties: Record<string, string> | undefined = undefined;
+    if (key.includes('[')) {
+      const propStr = key.substring(key.indexOf('[') + 1, key.indexOf(']'));
+      properties = {};
+      for (const pair of propStr.split(',')) {
+        const [k, v] = pair.split('=');
+        if (k && v) properties[k] = v;
+      }
     }
+    const bState: BlockState = { name: cleanName, properties };
+
+    let listIdx = paletteList.length;
+    paletteList.push(bState);
     paletteMap.set(rawIdx, listIdx);
   }
 
@@ -502,7 +577,8 @@ function processJavaNbt(root: any): SchematicData {
   const size = { x: parsed.size[0], y: parsed.size[1], z: parsed.size[2] };
 
   const palette: BlockState[] = parsed.palette.map(p => ({
-    name: String(p.Name || 'minecraft:air')
+    name: String(p.Name || 'minecraft:air'),
+    properties: p.Properties ? Object.fromEntries(Object.entries(p.Properties).map(([k, v]) => [k, String(v)])) : undefined
   }));
 
   const blocksMap = new Map<string, number>();
@@ -535,7 +611,8 @@ function processMcstructure(root: any): SchematicData {
   const size = { x: parsed.size[0], y: parsed.size[1], z: parsed.size[2] };
 
   const palette: BlockState[] = parsed.palette.map(p => ({
-    name: String(p.name || 'minecraft:air')
+    name: String(p.name || 'minecraft:air'),
+    properties: p.states ? Object.fromEntries(Object.entries(p.states).map(([k, v]) => [k, String(v)])) : undefined
   }));
 
   const blocksMap = new Map<string, number>();
