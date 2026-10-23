@@ -41,6 +41,8 @@ export interface AssetsData {
   textures: Record<string, [number, number, number, number]>;
   blockstates?: Record<string, any>;
   models?: Record<string, any>;
+  atlasWidth?: number;
+  atlasHeight?: number;
 }
 
 export class ChunkBuilder {
@@ -449,10 +451,13 @@ export class ChunkBuilder {
       h = (vMax - vMin) * info[3];
     }
 
-    const u0 = (x0 + 0.5) / 2048;
-    const v0 = 1.0 - (y0 + h - 0.5) / 2048;
-    const u1 = (x0 + w - 0.5) / 2048;
-    const v1 = 1.0 - (y0 + 0.5) / 2048;
+    const atlasW = assets.atlasWidth || 2048;
+    const atlasH = assets.atlasHeight || 2048;
+
+    const u0 = (x0 + 0.5) / atlasW;
+    const v0 = 1.0 - (y0 + h - 0.5) / atlasH;
+    const u1 = (x0 + w - 0.5) / atlasW;
+    const v1 = 1.0 - (y0 + 0.5) / atlasH;
 
     return { u0, v0, u1, v1 };
   }
