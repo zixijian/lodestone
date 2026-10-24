@@ -6,10 +6,13 @@ const { PNG } = require('pngjs');
 const repoDir = '/tmp/atlas_repo';
 const repoUrl = 'https://github.com/zixijian/atlas.git';
 
-// Ensure atlas repo is available
+// Ensure atlas repo is available on branch xekr
 if (!fs.existsSync(repoDir)) {
-  console.log('Cloning atlas repository from', repoUrl);
-  execSync(`git clone ${repoUrl} ${repoDir}`, { stdio: 'inherit' });
+  console.log('Cloning atlas repository (branch xekr) from', repoUrl);
+  execSync(`git clone -b xekr ${repoUrl} ${repoDir}`, { stdio: 'inherit' });
+} else {
+  console.log('Updating atlas repository on branch xekr...');
+  execSync(`git -C ${repoDir} fetch origin xekr && git -C ${repoDir} checkout xekr && git -C ${repoDir} pull origin xekr`, { stdio: 'inherit' });
 }
 
 function parseTxt(filename) {
@@ -27,8 +30,6 @@ function parseTxt(filename) {
     const h = parseInt(parts[4].split('=')[1], 10);
 
     // zixijian/atlas sub-atlas images (.png_0.png) include a 1px extrusion padding around each sprite.
-    // The metadata (.txt) records the outer top-left bounding box at (x, y).
-    // The actual 1:1 sprite pixel content starts at (x + 1, y + 1).
     x += 1;
     y += 1;
 
@@ -53,26 +54,32 @@ txtFiles.forEach(txtFile => {
   }
   const entries = parseTxt(txtFile);
   entries.forEach(entry => {
-    // Avoid duplicate key entries (e.g. missingno in multiple sub-atlases)
     if (seenKeys.has(entry.key)) {
       return;
     }
-    seenKeys.add(entry.key);
-    allSprites.push({
-      subAtlasFile: pngFile,
-      ...entry
-    });
+    // Filter to retain block, item, and entity textures relevant for 3D world rendering
+    if (
+      entry.key.startsWith('block/') ||
+      entry.key.startsWith('item/') ||
+      entry.key.startsWith('entity/')
+    ) {
+      seenKeys.add(entry.key);
+      allSprites.push({
+        subAtlasFile: pngFile,
+        ...entry
+      });
+    }
   });
 });
 
-console.log(`Parsed ${allSprites.length} unique texture sprites.`);
+console.log(`Parsed ${allSprites.length} filtered texture sprites.`);
 
 // Sort sprites by cell height descending for optimal shelf packing with 1px padding
-const pad = 1; // 1px padding around each sprite in the destination atlas to prevent GPU sampling bleeding
+const pad = 1;
 allSprites.sort((a, b) => (b.h + pad * 2) - (a.h + pad * 2) || (b.w + pad * 2) - (a.w + pad * 2) || a.key.localeCompare(b.key));
 
 const atlasWidth = 2048;
-const atlasHeight = 2048; // Standard 2048x2048 square canvas
+const atlasHeight = 2048; // Fits easily within 2048x2048 canvas
 
 let currentX = 0;
 let currentY = 0;
@@ -157,7 +164,7 @@ for (const sprite of packedSprites) {
     }
   }
 
-  // 2. Extrude top & bottom edge borders (pad = 1)
+  // 2. Extrude top & bottom edge borders
   for (let x = 0; x < sprite.w; x++) {
     const topPixel = getPixel(srcPng, sprite.x + x, sprite.y);
     setPixel(masterPng, sprite.destX + x, sprite.destY - 1, ...topPixel);
@@ -197,7 +204,7 @@ console.log('Writing master atlas PNG to', outputAtlasPath);
 const masterBuffer = PNG.sync.write(masterPng);
 fs.writeFileSync(outputAtlasPath, masterBuffer);
 
-// Build new textures dictionary for assets.json (exact destX, destY without pad offset)
+// Build new textures dictionary for assets.json
 const newTextures = {};
 packedSprites.forEach(sprite => {
   newTextures[sprite.key] = [sprite.destX, sprite.destY, sprite.w, sprite.h];
@@ -218,6 +225,9 @@ woodTypes.forEach(w => {
 console.log('Updating assets.json at', outputAssetsJsonPath);
 const assetsData = JSON.parse(fs.readFileSync(outputAssetsJsonPath, 'utf-8'));
 assetsData.textures = newTextures;
+assetsData.atlasWidth = atlasWidth;
+assetsData.atlasHeight = atlasHeight;
+
 fs.writeFileSync(outputAssetsJsonPath, JSON.stringify(assetsData));
 
 console.log('Atlas build completed successfully!');

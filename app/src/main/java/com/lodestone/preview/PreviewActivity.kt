@@ -231,21 +231,11 @@ class PreviewActivity : AppCompatActivity() {
         @JavascriptInterface
         fun onLoadingProgress(state: String) {
             runOnUiThread {
+                // Keep native overlay hidden so WebView glassmorphism overlay handles progress indicators
+                binding.llLoadingOverlay.visibility = View.GONE
                 if (state == "READY") {
-                    binding.llLoadingOverlay.visibility = View.VISIBLE
-                    binding.tvLoadingStatus.setText(R.string.loading)
                     binding.webviewRenderer.evaluateJavascript("loadLitematic();", null)
-                } else if (state == "SUCCESS") {
-                    binding.llLoadingOverlay.visibility = View.GONE
-                } else if (state.startsWith("DECODING_")) {
-                    val pct = state.removePrefix("DECODING_").removeSuffix("%")
-                    binding.llLoadingOverlay.visibility = View.VISIBLE
-                    binding.tvLoadingStatus.text = "解析数据 $pct%"
-                } else if (state.startsWith("RENDERING_")) {
-                    // Remove "构建网格" prompt overlay during chunk rendering so 3D model is 100% visible
-                    binding.llLoadingOverlay.visibility = View.GONE
                 } else if (state.startsWith("ERROR:")) {
-                    binding.llLoadingOverlay.visibility = View.GONE
                     Toast.makeText(this@PreviewActivity, state, Toast.LENGTH_LONG).show()
                 }
             }
