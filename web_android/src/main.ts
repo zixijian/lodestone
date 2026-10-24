@@ -22,7 +22,7 @@ export interface RegionData {
   size: { x: number; y: number; z: number };
   position: { x: number; y: number; z: number };
   palette: BlockState[];
-  blocks: Map<string, number>;
+  blocksData: Uint16Array | Uint32Array;
 }
 
 export interface SchematicData {
@@ -181,6 +181,7 @@ async function initAssets(baseUrl: string): Promise<void> {
   transparentMaterial = new THREE.MeshLambertMaterial({
     map: atlasTexture,
     transparent: true,
+    opacity: 0.85,
     depthWrite: false,
     side: THREE.DoubleSide,
     clippingPlanes: [slicerController.getClippingPlane()]
@@ -286,8 +287,9 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
   for (let x = minX; x < maxX; x++) {
     for (let y = minY; y < maxY; y++) {
       for (let z = minZ; z < maxZ; z++) {
-        const palIdx = region.blocks.get(`${x},${y},${z}`);
-        if (palIdx === undefined) continue;
+        const idx = (y * region.size.z + z) * region.size.x + x;
+        const palIdx = region.blocksData[idx];
+        if (!palIdx) continue;
         const bState = region.palette[palIdx];
         if (!bState) continue;
 
@@ -299,12 +301,13 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
           for (const el of resolvedModel.elements) {
             for (const faceKey in el.faces) {
               const face = el.faces[faceKey];
-              const cullDir = face.cullface || faceKey;
-              const dir = faceDirMap[cullDir];
-              if (dir) {
-                const neighborName = getNeighborBlockName(region, x + dir[0], y + dir[1], z + dir[2]);
-                if (ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
-                  continue; // Skip face if culled by opaque neighbor
+              if (face.cullface) {
+                const dir = faceDirMap[face.cullface];
+                if (dir) {
+                  const neighborName = getNeighborBlockName(region, x + dir[0], y + dir[1], z + dir[2]);
+                  if (ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
+                    continue; // Skip face if culled by opaque neighbor
+                  }
                 }
               }
 
@@ -399,8 +402,9 @@ function getNeighborBlockName(region: RegionData, x: number, y: number, z: numbe
   if (x < 0 || y < 0 || z < 0 || x >= region.size.x || y >= region.size.y || z >= region.size.z) {
     return 'minecraft:air';
   }
-  const palIdx = region.blocks.get(`${x},${y},${z}`);
-  if (palIdx === undefined) return 'minecraft:air';
+  const idx = (y * region.size.z + z) * region.size.x + x;
+  const palIdx = region.blocksData[idx];
+  if (!palIdx) return 'minecraft:air';
   return region.palette[palIdx]?.name || 'minecraft:air';
 }
 
@@ -411,11 +415,12 @@ function resetCamera(): void {
 
   const min = new THREE.Vector3(0, 0, 0);
   const max = new THREE.Vector3(reg.size.x, reg.size.y, reg.size.z);
-  viewController.frameBoundingBox(min, max, controls.target);
+  const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+  viewController.recenterTarget(center, controls.target);
   controls.update();
 }
 
-async function parseSchematic(buffer: ArrayBuffer | Uint8Array): SchematicData {
+async function parseSchematic(buffer: ArrayBuffer | Uint8Array): Promise<SchematicData> {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
 
   let uncompressed = bytes;
@@ -478,7 +483,7 @@ function processLitematic(root: any): SchematicData {
     }));
 
     const volume = size.x * size.y * size.z;
-    const blocksMap = new Map<string, number>();
+    const blocksData = new Uint16Array(volume);
 
     if (reg.BlockStates && palette.length > 0) {
       const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
@@ -492,7 +497,7 @@ function processLitematic(root: any): SchematicData {
             if (palIdx > 0 && palIdx < palette.length) {
               const bState = palette[palIdx];
               if (bState && bState.name !== 'minecraft:air' && bState.name !== 'air') {
-                blocksMap.set(`${x},${y},${z}`, palIdx);
+                blocksData[index] = palIdx;
                 totalBlocks++;
                 blockStats[bState.name] = (blockStats[bState.name] || 0) + 1;
               }
@@ -502,7 +507,7 @@ function processLitematic(root: any): SchematicData {
       }
     }
 
-    regions[regName] = { name: regName, size, position: pos, palette, blocks: blocksMap };
+    regions[regName] = { name: regName, size, position: pos, palette, blocksData };
   }
 
   return { format: 'litematic', regions, totalBlocks, blockStats };
@@ -541,7 +546,7 @@ function processSchem(root: any): SchematicData {
   const totalVolume = width * height * length;
   const decoded = decodeVarintStream(blockDataBytes, totalVolume);
 
-  const blocksMap = new Map<string, number>();
+  const blocksData = new Uint16Array(totalVolume);
   const blockStats: Record<string, number> = {};
   let totalBlocks = 0;
 
@@ -553,7 +558,7 @@ function processSchem(root: any): SchematicData {
         const palIdx = paletteMap.get(rawPalIdx) ?? 0;
         const bState = paletteList[palIdx];
         if (bState && bState.name !== 'minecraft:air' && bState.name !== 'air') {
-          blocksMap.set(`${x},${y},${z}`, palIdx);
+          blocksData[idx] = palIdx;
           totalBlocks++;
           blockStats[bState.name] = (blockStats[bState.name] || 0) + 1;
         }
@@ -566,7 +571,7 @@ function processSchem(root: any): SchematicData {
     size: { x: width, y: height, z: length },
     position: { x: 0, y: 0, z: 0 },
     palette: paletteList,
-    blocks: blocksMap
+    blocksData
   };
 
   return { format: 'schem', regions: { Main: region }, totalBlocks, blockStats };
@@ -581,7 +586,8 @@ function processJavaNbt(root: any): SchematicData {
     properties: p.Properties ? Object.fromEntries(Object.entries(p.Properties).map(([k, v]) => [k, String(v)])) : undefined
   }));
 
-  const blocksMap = new Map<string, number>();
+  const volume = size.x * size.y * size.z;
+  const blocksData = new Uint16Array(volume);
   const blockStats: Record<string, number> = {};
   let totalBlocks = 0;
 
@@ -589,9 +595,12 @@ function processJavaNbt(root: any): SchematicData {
     const palIdx = b.state;
     const bState = palette[palIdx];
     if (bState && bState.name !== 'minecraft:air' && bState.name !== 'air') {
-      blocksMap.set(`${b.pos[0]},${b.pos[1]},${b.pos[2]}`, palIdx);
-      totalBlocks++;
-      blockStats[bState.name] = (blockStats[bState.name] || 0) + 1;
+      const idx = (b.pos[1] * size.z + b.pos[2]) * size.x + b.pos[0];
+      if (idx >= 0 && idx < volume) {
+        blocksData[idx] = palIdx;
+        totalBlocks++;
+        blockStats[bState.name] = (blockStats[bState.name] || 0) + 1;
+      }
     }
   }
 
@@ -600,7 +609,7 @@ function processJavaNbt(root: any): SchematicData {
     size,
     position: { x: 0, y: 0, z: 0 },
     palette,
-    blocks: blocksMap
+    blocksData
   };
 
   return { format: 'nbt', regions: { Main: region }, totalBlocks, blockStats };
@@ -615,19 +624,21 @@ function processMcstructure(root: any): SchematicData {
     properties: p.states ? Object.fromEntries(Object.entries(p.states).map(([k, v]) => [k, String(v)])) : undefined
   }));
 
-  const blocksMap = new Map<string, number>();
+  const volume = size.x * size.y * size.z;
+  const blocksData = new Uint16Array(volume);
   const blockStats: Record<string, number> = {};
   let totalBlocks = 0;
 
   for (let x = 0; x < size.x; x++) {
     for (let y = 0; y < size.y; y++) {
       for (let z = 0; z < size.z; z++) {
-        const idx = (x * size.y + y) * size.z + z;
-        const palIdx = parsed.layer0Indices[idx];
+        const mcIdx = (x * size.y + y) * size.z + z;
+        const palIdx = parsed.layer0Indices[mcIdx];
         if (palIdx >= 0 && palIdx < palette.length) {
           const bState = palette[palIdx];
           if (bState && bState.name !== 'minecraft:air' && bState.name !== 'air') {
-            blocksMap.set(`${x},${y},${z}`, palIdx);
+            const stdIdx = (y * size.z + z) * size.x + x;
+            blocksData[stdIdx] = palIdx;
             totalBlocks++;
             blockStats[bState.name] = (blockStats[bState.name] || 0) + 1;
           }
@@ -641,7 +652,7 @@ function processMcstructure(root: any): SchematicData {
     size,
     position: { x: 0, y: 0, z: 0 },
     palette,
-    blocks: blocksMap
+    blocksData
   };
 
   return { format: 'mcstructure', regions: { Main: region }, totalBlocks, blockStats };
@@ -723,7 +734,7 @@ async function switchRegion(regionName: string): Promise<void> {
     window.AndroidHost.onLoadingProgress('RENDERING_0%');
   }
 
-  renderRegion(reg);
+  await renderRegionAsync(reg);
 
   const slicerSlider = document.getElementById('slicer-slider') as HTMLInputElement;
   const layerValue = document.getElementById('layer-value');
@@ -737,7 +748,10 @@ async function switchRegion(regionName: string): Promise<void> {
   }
   slicerController.setLayer(reg.size.y);
 
-  resetCamera();
+  const min = new THREE.Vector3(0, 0, 0);
+  const max = new THREE.Vector3(reg.size.x, reg.size.y, reg.size.z);
+  viewController.frameBoundingBox(min, max, controls.target);
+  controls.update();
 
   if (window.AndroidHost) {
     window.AndroidHost.onLoadingProgress('RENDERING_100%');

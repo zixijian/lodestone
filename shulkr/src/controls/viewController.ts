@@ -37,4 +37,10 @@ export class ViewController {
       controlsTarget.copy(center);
     }
   }
+
+  public recenterTarget(center: THREE.Vector3, controlsTarget: THREE.Vector3): void {
+    const offset = new THREE.Vector3().subVectors(center, controlsTarget);
+    this.camera.position.add(offset);
+    controlsTarget.copy(center);
+  }
 }

@@ -31,22 +31,25 @@ export interface LitematicResult {
 }
 
 export function parseLitematicBitArray(
-  longArray: BigInt64Array,
+  longArray: BigInt64Array | number[] | any,
   bitsPerBlock: number,
   volume: number
-): number[] {
+): Uint32Array {
   const mask = (1n << BigInt(bitsPerBlock)) - 1n;
   const blocksPerLong = Math.floor(64 / bitsPerBlock);
-  const result: number[] = new Array(volume);
+  const result = new Uint32Array(volume);
 
-  for (let i = 0; i < volume; i++) {
-    const longIndex = Math.floor(i / blocksPerLong);
-    const bitOffset = (i % blocksPerLong) * bitsPerBlock;
-    if (longIndex < longArray.length) {
-      const val = Number((longArray[longIndex] >> BigInt(bitOffset)) & mask);
-      result[i] = val;
-    } else {
-      result[i] = 0;
+  if (!longArray || longArray.length === 0) return result;
+
+  let blockIdx = 0;
+  const numLongs = longArray.length;
+
+  for (let i = 0; i < numLongs && blockIdx < volume; i++) {
+    const rawVal = longArray[i];
+    const val = typeof rawVal === 'bigint' ? rawVal : BigInt(rawVal ?? 0);
+    for (let b = 0; b < blocksPerLong && blockIdx < volume; b++) {
+      const bitOffset = BigInt(b * bitsPerBlock);
+      result[blockIdx++] = Number((val >> bitOffset) & mask);
     }
   }
 

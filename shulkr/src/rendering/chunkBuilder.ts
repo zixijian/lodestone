@@ -27,6 +27,9 @@ export interface ModelElement {
     angle: number;
     rescale?: boolean;
   };
+  variantRotX?: number;
+  variantRotY?: number;
+  variantRotZ?: number;
 }
 
 export interface ResolvedVariantModel {
@@ -56,8 +59,38 @@ export class ChunkBuilder {
     if (opaqueList.has(cleanName) || opaqueList.has('minecraft:' + cleanName)) {
       return true;
     }
-    const transparentList = ['glass', 'water', 'leaves', 'slab', 'stairs', 'torch', 'sign', 'door', 'fence', 'pane', 'repeater', 'comparator', 'redstone'];
+    const transparentList = ['glass', 'water', 'lava', 'leaves', 'slab', 'stairs', 'torch', 'sign', 'door', 'fence', 'pane', 'repeater', 'comparator', 'redstone', 'dripstone'];
     return !transparentList.some(t => cleanName.includes(t));
+  }
+
+  public static matchWhenCondition(
+    when: any,
+    properties?: Record<string, string>
+  ): boolean {
+    if (!when) return true;
+    if (!properties) return false;
+
+    if (when.OR && Array.isArray(when.OR)) {
+      return when.OR.some((cond: any) => ChunkBuilder.matchWhenCondition(cond, properties));
+    }
+    if (when.AND && Array.isArray(when.AND)) {
+      return when.AND.every((cond: any) => ChunkBuilder.matchWhenCondition(cond, properties));
+    }
+
+    for (const key of Object.keys(when)) {
+      if (key === 'OR' || key === 'AND') continue;
+      const expected = String(when[key]);
+      const actual = properties[key];
+      if (actual === undefined) return false;
+
+      if (expected.includes('|')) {
+        const allowed = expected.split('|');
+        if (!allowed.includes(actual)) return false;
+      } else {
+        if (expected !== actual) return false;
+      }
+    }
+    return true;
   }
 
   public static resolveBlockModel(
@@ -68,12 +101,71 @@ export class ChunkBuilder {
     if (!assets.blockstates || !assets.models) return null;
 
     let cleanName = blockName.startsWith('minecraft:') ? blockName.substring(10) : blockName;
+
+    // Synthetic model for water and lava fluids
+    if (cleanName === 'water' || cleanName === 'lava') {
+      const level = properties?.level ? parseInt(properties.level, 10) : 0;
+      let height = 16;
+      if (level > 0 && level < 8) {
+        height = Math.max(2, 16 - level * 2);
+      }
+      const texName = cleanName === 'water' ? 'block/water_still' : 'block/lava_still';
+      const fluidElement: ModelElement = {
+        from: [0, 0, 0],
+        to: [16, height, 16],
+        faces: {
+          up: { texture: texName },
+          down: { texture: texName },
+          north: { texture: texName },
+          south: { texture: texName },
+          east: { texture: texName },
+          west: { texture: texName }
+        }
+      };
+      return {
+        elements: [fluidElement],
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0
+      };
+    }
     let bs = assets.blockstates[cleanName];
     if (!bs) {
       if (assets.blockstates['minecraft:' + cleanName]) {
         bs = assets.blockstates['minecraft:' + cleanName];
       } else {
         return null;
+      }
+    }
+
+    if (bs.multipart && Array.isArray(bs.multipart)) {
+      const combinedElements: ModelElement[] = [];
+      for (const part of bs.multipart) {
+        if (ChunkBuilder.matchWhenCondition(part.when, properties)) {
+          const applies = Array.isArray(part.apply) ? part.apply : [part.apply];
+          for (const apply of applies) {
+            if (!apply) continue;
+            let mName = apply.model || '';
+            if (mName.startsWith('minecraft:')) mName = mName.substring(10);
+            const resolved = ChunkBuilder.resolveModelElements(assets, mName);
+            if (resolved && resolved.elements) {
+              const pRotX = apply.x || 0;
+              const pRotY = apply.y || 0;
+              const pRotZ = apply.z || 0;
+              for (const el of resolved.elements) {
+                combinedElements.push({
+                  ...el,
+                  variantRotX: pRotX,
+                  variantRotY: pRotY,
+                  variantRotZ: pRotZ
+                });
+              }
+            }
+          }
+        }
+      }
+      if (combinedElements.length > 0) {
+        return { elements: combinedElements, rotX: 0, rotY: 0, rotZ: 0 };
       }
     }
 
@@ -259,8 +351,8 @@ export class ChunkBuilder {
       ry = y * cos - z * sin;
       rz = y * sin + z * cos;
     } else if (axis === 'y') {
-      rx = x * cos + z * sin;
-      rz = -x * sin + z * cos;
+      rx = x * cos - z * sin;
+      rz = x * sin + z * cos;
     } else if (axis === 'z') {
       rx = x * cos - y * sin;
       ry = x * sin + y * cos;
@@ -329,19 +421,23 @@ export class ChunkBuilder {
       baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], element.rotation.axis, element.rotation.angle);
     }
 
-    // Apply variant rotation (rotX, rotY, rotZ around block center [0.5, 0.5, 0.5])
+    // Apply variant rotation (effRotX, effRotY, effRotZ around block center [0.5, 0.5, 0.5])
     const center: [number, number, number] = [0.5, 0.5, 0.5];
-    if (rotX !== 0) {
-      quadVerts = quadVerts.map(v => ChunkBuilder.rotatePoint(v, center, 'x', rotX));
-      baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], 'x', rotX);
+    const effRotX = element.variantRotX !== undefined ? element.variantRotX : rotX;
+    const effRotY = element.variantRotY !== undefined ? element.variantRotY : rotY;
+    const effRotZ = element.variantRotZ !== undefined ? element.variantRotZ : rotZ;
+
+    if (effRotX !== 0) {
+      quadVerts = quadVerts.map(v => ChunkBuilder.rotatePoint(v, center, 'x', effRotX));
+      baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], 'x', effRotX);
     }
-    if (rotY !== 0) {
-      quadVerts = quadVerts.map(v => ChunkBuilder.rotatePoint(v, center, 'y', rotY));
-      baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], 'y', rotY);
+    if (effRotY !== 0) {
+      quadVerts = quadVerts.map(v => ChunkBuilder.rotatePoint(v, center, 'y', effRotY));
+      baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], 'y', effRotY);
     }
-    if (rotZ !== 0) {
-      quadVerts = quadVerts.map(v => ChunkBuilder.rotatePoint(v, center, 'z', rotZ));
-      baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], 'z', rotZ);
+    if (effRotZ !== 0) {
+      quadVerts = quadVerts.map(v => ChunkBuilder.rotatePoint(v, center, 'z', effRotZ));
+      baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], 'z', effRotZ);
     }
 
     // Translate to block coordinates [x, y, z]
