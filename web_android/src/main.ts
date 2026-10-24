@@ -226,20 +226,31 @@ function clearScene(): void {
   chunkMeshes = [];
 }
 
-function renderRegion(region: RegionData): void {
+async function renderRegionAsync(region: RegionData): Promise<void> {
   clearScene();
   if (!assets || !atlasTexture) return;
 
-  const { size, palette, blocks } = region;
+  const { size } = region;
   const chunkSize = ChunkBuilder.CHUNK_SIZE;
   const chunksX = Math.ceil(size.x / chunkSize);
   const chunksY = Math.ceil(size.y / chunkSize);
   const chunksZ = Math.ceil(size.z / chunkSize);
 
+  let processed = 0;
+  const totalChunks = chunksX * chunksY * chunksZ;
+
   for (let cx = 0; cx < chunksX; cx++) {
     for (let cy = 0; cy < chunksY; cy++) {
       for (let cz = 0; cz < chunksZ; cz++) {
         buildChunkMesh(region, cx, cy, cz, chunkSize);
+        processed++;
+        if (processed % 10 === 0) {
+          const pct = Math.floor((processed / totalChunks) * 100);
+          if (window.AndroidHost) {
+            window.AndroidHost.onLoadingProgress(`RENDERING_${pct}%`);
+          }
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
     }
   }
