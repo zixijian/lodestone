@@ -50,7 +50,7 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      padding: 12px;
+      padding: max(12px, env(safe-area-inset-top, 12px)) max(12px, env(safe-area-inset-right, 12px)) max(12px, env(safe-area-inset-bottom, 12px)) max(12px, env(safe-area-inset-left, 12px));
     }
 
     .ui-interactive {
@@ -70,8 +70,8 @@
     /* Floating Action Tools (Right) */
     .toolbar-right {
       position: absolute;
-      right: 12px;
-      top: 16px;
+      right: max(12px, env(safe-area-inset-right, 12px));
+      top: max(16px, calc(env(safe-area-inset-top, 0px) + 16px));
       display: flex;
       flex-direction: column;
       gap: 10px;

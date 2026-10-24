@@ -996,7 +996,7 @@ function setupUIEventListeners(): void {
 
   document.getElementById('btn-toggle-day')?.addEventListener('click', () => {
     isDay = !isDay;
-    scene.background = new THREE.Color(isDay ? 0x87ceeb : 0x050510);
+    scene.background = new THREE.Color(isDay ? 0x87ceeb : 0x000000);
     dirLight.intensity = isDay ? 1.2 : 0.2;
   });
 
@@ -1041,8 +1041,13 @@ window.resetCamera = resetCamera;
 window.toggleCameraView = () => {};
 window.toggleDayNight = () => {
   isDay = !isDay;
-  scene.background = new THREE.Color(isDay ? 0x87ceeb : 0x050510);
+  scene.background = new THREE.Color(isDay ? 0x87ceeb : 0x000000);
   dirLight.intensity = isDay ? 1.2 : 0.2;
+};
+(window as any).setBackgroundColor = (colorHex: string | number) => {
+  if (scene) {
+    scene.background = new THREE.Color(colorHex);
+  }
 };
 window.startRenderLoop = startRenderLoop;
 window.stopRenderLoop = stopRenderLoop;
