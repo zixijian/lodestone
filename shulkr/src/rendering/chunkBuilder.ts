@@ -56,11 +56,7 @@ export class ChunkBuilder {
       return false;
     }
     const cleanName = blockName.startsWith('minecraft:') ? blockName.substring(10) : blockName;
-    if (opaqueList.has(cleanName) || opaqueList.has('minecraft:' + cleanName)) {
-      return true;
-    }
-    const transparentList = ['glass', 'water', 'lava', 'leaves', 'slab', 'stairs', 'torch', 'sign', 'door', 'fence', 'pane', 'repeater', 'comparator', 'redstone', 'dripstone'];
-    return !transparentList.some(t => cleanName.includes(t));
+    return opaqueList.has(cleanName) || opaqueList.has('minecraft:' + cleanName);
   }
 
   public static matchWhenCondition(
@@ -93,6 +89,49 @@ export class ChunkBuilder {
     return true;
   }
 
+  public static getRotatedCullDirection(
+    cullface: string,
+    rotX: number = 0,
+    rotY: number = 0,
+    rotZ: number = 0
+  ): [number, number, number] | null {
+    if (!cullface) return null;
+    let dir: [number, number, number] = [0, 0, 0];
+    switch (cullface) {
+      case 'up': dir = [0, 1, 0]; break;
+      case 'down': dir = [0, -1, 0]; break;
+      case 'south': dir = [0, 0, 1]; break;
+      case 'north': dir = [0, 0, -1]; break;
+      case 'east': dir = [1, 0, 0]; break;
+      case 'west': dir = [-1, 0, 0]; break;
+      default: return null;
+    }
+
+    if (rotX !== 0) dir = ChunkBuilder.rotatePoint(dir, [0, 0, 0], 'x', rotX);
+    if (rotY !== 0) dir = ChunkBuilder.rotatePoint(dir, [0, 0, 0], 'y', rotY);
+    if (rotZ !== 0) dir = ChunkBuilder.rotatePoint(dir, [0, 0, 0], 'z', rotZ);
+
+    return [Math.round(dir[0]), Math.round(dir[1]), Math.round(dir[2])];
+  }
+
+  public static isElementFaceOnBoundary(
+    element: ModelElement,
+    faceName: string
+  ): boolean {
+    if (element.rotation && element.rotation.angle % 360 !== 0) {
+      return false;
+    }
+    switch (faceName) {
+      case 'up': return element.to[1] === 16;
+      case 'down': return element.from[1] === 0;
+      case 'south': return element.to[2] === 16;
+      case 'north': return element.from[2] === 0;
+      case 'east': return element.to[0] === 16;
+      case 'west': return element.from[0] === 0;
+      default: return false;
+    }
+  }
+
   public static resolveBlockModel(
     assets: AssetsData,
     blockName: string,
@@ -102,33 +141,6 @@ export class ChunkBuilder {
 
     let cleanName = blockName.startsWith('minecraft:') ? blockName.substring(10) : blockName;
 
-    // Synthetic model for water and lava fluids
-    if (cleanName === 'water' || cleanName === 'lava') {
-      const level = properties?.level ? parseInt(properties.level, 10) : 0;
-      let height = 16;
-      if (level > 0 && level < 8) {
-        height = Math.max(2, 16 - level * 2);
-      }
-      const texName = cleanName === 'water' ? 'block/water_still' : 'block/lava_still';
-      const fluidElement: ModelElement = {
-        from: [0, 0, 0],
-        to: [16, height, 16],
-        faces: {
-          up: { texture: texName },
-          down: { texture: texName },
-          north: { texture: texName },
-          south: { texture: texName },
-          east: { texture: texName },
-          west: { texture: texName }
-        }
-      };
-      return {
-        elements: [fluidElement],
-        rotX: 0,
-        rotY: 0,
-        rotZ: 0
-      };
-    }
     let bs = assets.blockstates[cleanName];
     if (!bs) {
       if (assets.blockstates['minecraft:' + cleanName]) {
@@ -179,20 +191,29 @@ export class ChunkBuilder {
         if (bs.variants[propStr]) {
           selectedVariant = bs.variants[propStr];
         } else {
-          // Find partial/best match
+          // Best-match variant scoring
+          let bestScore = -1;
           for (const variantKey of Object.keys(bs.variants)) {
             const pairs = variantKey.split(',');
             let match = true;
+            let score = 0;
             for (const pair of pairs) {
               const [k, v] = pair.split('=');
-              if (k && v && properties[k] !== undefined && properties[k] !== v) {
-                match = false;
-                break;
+              if (k && v) {
+                const actual = properties[k];
+                if (actual !== undefined) {
+                  if (actual === v) {
+                    score++;
+                  } else {
+                    match = false;
+                    break;
+                  }
+                }
               }
             }
-            if (match) {
+            if (match && score > bestScore) {
+              bestScore = score;
               selectedVariant = bs.variants[variantKey];
-              break;
             }
           }
         }
@@ -319,12 +340,16 @@ export class ChunkBuilder {
     normals: number[],
     uvs: number[],
     indices: number[],
-    material: THREE.Material
+    material: THREE.Material,
+    colors?: number[]
   ): THREE.Mesh {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    if (colors && colors.length > 0) {
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    }
     geometry.setIndex(indices);
 
     return new THREE.Mesh(geometry, material);
@@ -417,6 +442,19 @@ export class ChunkBuilder {
         element.rotation.origin[1] / 16,
         element.rotation.origin[2] / 16
       ];
+
+      if (element.rotation.rescale && element.rotation.angle !== 0) {
+        const rad = (Math.abs(element.rotation.angle) * Math.PI) / 180;
+        const scaleFactor = 1 / Math.cos(rad);
+        const axis = element.rotation.axis;
+        quadVerts = quadVerts.map(v => {
+          const rx = axis === 'x' ? v[0] : orig[0] + (v[0] - orig[0]) * scaleFactor;
+          const ry = axis === 'y' ? v[1] : orig[1] + (v[1] - orig[1]) * scaleFactor;
+          const rz = axis === 'z' ? v[2] : orig[2] + (v[2] - orig[2]) * scaleFactor;
+          return [rx, ry, rz];
+        });
+      }
+
       quadVerts = quadVerts.map(v => ChunkBuilder.rotatePoint(v, orig, element.rotation!.axis, element.rotation!.angle));
       baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], element.rotation.axis, element.rotation.angle);
     }
@@ -475,7 +513,17 @@ export class ChunkBuilder {
     }
 
     const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets, face.texture, faceUV);
-    let cornerUVs: [number, number][] = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
+
+    // Correct UV alignment:
+    // For top/bottom horizontal faces, cornerUVs map to [u0, v1], [u1, v1], [u1, v0], [u0, v0]
+    // For vertical side faces (south, north, east, west), quad vertices start at Y=by0 (bottom),
+    // so cornerUVs map to [u0, v0], [u1, v0], [u1, v1], [u0, v1]
+    let cornerUVs: [number, number][];
+    if (faceName === 'up' || faceName === 'down') {
+      cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
+    } else {
+      cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+    }
 
     if (face.rotation) {
       const shift = Math.floor(face.rotation / 90) % 4;

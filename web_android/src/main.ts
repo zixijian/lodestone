@@ -175,15 +175,17 @@ async function initAssets(baseUrl: string): Promise<void> {
   opaqueMaterial = new THREE.MeshLambertMaterial({
     map: atlasTexture,
     side: THREE.FrontSide,
+    vertexColors: true,
     clippingPlanes: [slicerController.getClippingPlane()]
   });
 
   transparentMaterial = new THREE.MeshLambertMaterial({
     map: atlasTexture,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.8,
     depthWrite: false,
     side: THREE.DoubleSide,
+    vertexColors: true,
     clippingPlanes: [slicerController.getClippingPlane()]
   });
 }
@@ -265,6 +267,49 @@ const faceDirMap: Record<string, [number, number, number]> = {
   west: [-1, 0, 0]
 };
 
+function getFluidBlockInfo(region: RegionData, x: number, y: number, z: number): { isFluid: boolean; isWater: boolean; level: number } | null {
+  if (x < 0 || y < 0 || z < 0 || x >= region.size.x || y >= region.size.y || z >= region.size.z) {
+    return null;
+  }
+  const idx = (y * region.size.z + z) * region.size.x + x;
+  const palIdx = region.blocksData[idx];
+  if (!palIdx) return null;
+  const bState = region.palette[palIdx];
+  if (!bState) return null;
+  const cleanName = bState.name.startsWith('minecraft:') ? bState.name.substring(10) : bState.name;
+  if (cleanName === 'water' || cleanName === 'lava' || cleanName === 'flowing_water' || cleanName === 'flowing_lava') {
+    const level = bState.properties?.level ? parseInt(bState.properties.level, 10) : 0;
+    return { isFluid: true, isWater: cleanName.includes('water'), level };
+  }
+  return null;
+}
+
+function getFluidCellHeight(region: RegionData, x: number, y: number, z: number): number {
+  const info = getFluidBlockInfo(region, x, y, z);
+  if (!info || !info.isFluid) return 0;
+  const above = getFluidBlockInfo(region, x, y + 1, z);
+  if (above && above.isFluid) return 1.0;
+  if (info.level >= 8) return 1.0;
+  return Math.max(0.125, (15 - info.level * 1.8) / 16);
+}
+
+function getCornerFluidHeight(region: RegionData, x: number, y: number, z: number, cornerX: 0 | 1, cornerZ: 0 | 1): number {
+  const dxs = cornerX === 0 ? [0, -1] : [0, 1];
+  const dzs = cornerZ === 0 ? [0, -1] : [0, 1];
+  let sum = 0;
+  let count = 0;
+  for (const dx of dxs) {
+    for (const dz of dzs) {
+      const h = getFluidCellHeight(region, x + dx, y, z + dz);
+      if (h > 0) {
+        sum += h;
+        count++;
+      }
+    }
+  }
+  return count > 0 ? sum / count : 1.0;
+}
+
 function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, chunkSize: number): void {
   const minX = cx * chunkSize;
   const maxX = Math.min((cx + 1) * chunkSize, region.size.x);
@@ -276,11 +321,13 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
   const opPositions: number[] = [];
   const opNormals: number[] = [];
   const opUvs: number[] = [];
+  const opColors: number[] = [];
   const opIndices: number[] = [];
 
   const trPositions: number[] = [];
   const trNormals: number[] = [];
   const trUvs: number[] = [];
+  const trColors: number[] = [];
   const trIndices: number[] = [];
 
   let opVertexCount = 0;
@@ -304,6 +351,167 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
         const bState = region.palette[palIdx];
         if (!bState) continue;
 
+        const cleanName = bState.name.startsWith('minecraft:') ? bState.name.substring(10) : bState.name;
+        const fluidInfo = getFluidBlockInfo(region, x, y, z);
+
+        if (fluidInfo && fluidInfo.isFluid) {
+          // Custom Smooth Fluid Mesh
+          const h00 = getCornerFluidHeight(region, x, y, z, 0, 0);
+          const h10 = getCornerFluidHeight(region, x, y, z, 1, 0);
+          const h11 = getCornerFluidHeight(region, x, y, z, 1, 1);
+          const h01 = getCornerFluidHeight(region, x, y, z, 0, 1);
+
+          const texName = fluidInfo.isWater ? 'block/water_still' : 'block/lava_still';
+          const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets!, texName);
+
+          const fluidColor: [number, number, number] = fluidInfo.isWater
+            ? [0.25, 0.46, 0.89] // Water tint
+            : [1.0, 1.0, 1.0];
+
+          // Up face
+          const aboveInfo = getFluidBlockInfo(region, x, y + 1, z);
+          if (!aboveInfo || !aboveInfo.isFluid) {
+            trPositions.push(
+              x, y + h01, z + 1,
+              x + 1, y + h11, z + 1,
+              x + 1, y + h10, z,
+              x, y + h00, z
+            );
+            for (let i = 0; i < 4; i++) {
+              trNormals.push(0, 1, 0);
+              trColors.push(...fluidColor);
+            }
+            trUvs.push(u0, v1, u1, v1, u1, v0, u0, v0);
+            trIndices.push(
+              trVertexCount, trVertexCount + 1, trVertexCount + 2,
+              trVertexCount, trVertexCount + 2, trVertexCount + 3
+            );
+            trVertexCount += 4;
+          }
+
+          // Down face
+          const belowInfo = getFluidBlockInfo(region, x, y - 1, z);
+          if (!belowInfo || !belowInfo.isFluid) {
+            const neighborName = getNeighborBlockName(region, x, y - 1, z);
+            if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
+              trPositions.push(
+                x, y, z,
+                x + 1, y, z,
+                x + 1, y, z + 1,
+                x, y, z + 1
+              );
+              for (let i = 0; i < 4; i++) {
+                trNormals.push(0, -1, 0);
+                trColors.push(...fluidColor);
+              }
+              trUvs.push(u0, v0, u1, v0, u1, v1, u0, v1);
+              trIndices.push(
+                trVertexCount, trVertexCount + 1, trVertexCount + 2,
+                trVertexCount, trVertexCount + 2, trVertexCount + 3
+              );
+              trVertexCount += 4;
+            }
+          }
+
+          // South face (+Z)
+          const southInfo = getFluidBlockInfo(region, x, y, z + 1);
+          if (!southInfo || !southInfo.isFluid) {
+            const neighborName = getNeighborBlockName(region, x, y, z + 1);
+            if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
+              trPositions.push(
+                x, y, z + 1,
+                x + 1, y, z + 1,
+                x + 1, y + h11, z + 1,
+                x, y + h01, z + 1
+              );
+              for (let i = 0; i < 4; i++) {
+                trNormals.push(0, 0, 1);
+                trColors.push(...fluidColor);
+              }
+              trUvs.push(u0, v0, u1, v0, u1, v1, u0, v1);
+              trIndices.push(
+                trVertexCount, trVertexCount + 1, trVertexCount + 2,
+                trVertexCount, trVertexCount + 2, trVertexCount + 3
+              );
+              trVertexCount += 4;
+            }
+          }
+
+          // North face (-Z)
+          const northInfo = getFluidBlockInfo(region, x, y, z - 1);
+          if (!northInfo || !northInfo.isFluid) {
+            const neighborName = getNeighborBlockName(region, x, y, z - 1);
+            if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
+              trPositions.push(
+                x + 1, y, z,
+                x, y, z,
+                x, y + h00, z,
+                x + 1, y + h10, z
+              );
+              for (let i = 0; i < 4; i++) {
+                trNormals.push(0, 0, -1);
+                trColors.push(...fluidColor);
+              }
+              trUvs.push(u0, v0, u1, v0, u1, v1, u0, v1);
+              trIndices.push(
+                trVertexCount, trVertexCount + 1, trVertexCount + 2,
+                trVertexCount, trVertexCount + 2, trVertexCount + 3
+              );
+              trVertexCount += 4;
+            }
+          }
+
+          // East face (+X)
+          const eastInfo = getFluidBlockInfo(region, x + 1, y, z);
+          if (!eastInfo || !eastInfo.isFluid) {
+            const neighborName = getNeighborBlockName(region, x + 1, y, z);
+            if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
+              trPositions.push(
+                x + 1, y, z + 1,
+                x + 1, y, z,
+                x + 1, y + h10, z,
+                x + 1, y + h11, z + 1
+              );
+              for (let i = 0; i < 4; i++) {
+                trNormals.push(1, 0, 0);
+                trColors.push(...fluidColor);
+              }
+              trUvs.push(u0, v0, u1, v0, u1, v1, u0, v1);
+              trIndices.push(
+                trVertexCount, trVertexCount + 1, trVertexCount + 2,
+                trVertexCount, trVertexCount + 2, trVertexCount + 3
+              );
+              trVertexCount += 4;
+            }
+          }
+
+          // West face (-X)
+          const westInfo = getFluidBlockInfo(region, x - 1, y, z);
+          if (!westInfo || !westInfo.isFluid) {
+            const neighborName = getNeighborBlockName(region, x - 1, y, z);
+            if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
+              trPositions.push(
+                x, y, z,
+                x, y, z + 1,
+                x, y + h01, z + 1,
+                x, y + h00, z
+              );
+              for (let i = 0; i < 4; i++) {
+                trNormals.push(-1, 0, 0);
+                trColors.push(...fluidColor);
+              }
+              trUvs.push(u0, v0, u1, v0, u1, v1, u0, v1);
+              trIndices.push(
+                trVertexCount, trVertexCount + 1, trVertexCount + 2,
+                trVertexCount, trVertexCount + 2, trVertexCount + 3
+              );
+              trVertexCount += 4;
+            }
+          }
+
+          continue;
+        }
+
         const resolvedModel = ChunkBuilder.resolveBlockModel(assets!, bState.name, bState.properties);
         const isOpaque = ChunkBuilder.isFaceOpaque(bState.name, opaqueList);
 
@@ -313,11 +521,16 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
             for (const faceKey in el.faces) {
               const face = el.faces[faceKey];
               if (face.cullface) {
-                const dir = faceDirMap[face.cullface];
-                if (dir) {
-                  const neighborName = getNeighborBlockName(region, x + dir[0], y + dir[1], z + dir[2]);
+                const cullDir = ChunkBuilder.getRotatedCullDirection(
+                  face.cullface,
+                  resolvedModel.rotX,
+                  resolvedModel.rotY,
+                  resolvedModel.rotZ
+                );
+                if (cullDir && ChunkBuilder.isElementFaceOnBoundary(el, faceKey)) {
+                  const neighborName = getNeighborBlockName(region, x + cullDir[0], y + cullDir[1], z + cullDir[2]);
                   if (ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
-                    continue; // Skip face if culled by opaque neighbor
+                    continue; // Skip face if culled by opaque neighbor at block boundary
                   }
                 }
               }
@@ -339,6 +552,7 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
                 opPositions.push(...quadData.positions);
                 opNormals.push(...quadData.normals);
                 opUvs.push(...quadData.uvs);
+                for (let i = 0; i < 4; i++) opColors.push(1.0, 1.0, 1.0);
                 opIndices.push(
                   opVertexCount, opVertexCount + 1, opVertexCount + 2,
                   opVertexCount, opVertexCount + 2, opVertexCount + 3
@@ -348,6 +562,7 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
                 trPositions.push(...quadData.positions);
                 trNormals.push(...quadData.normals);
                 trUvs.push(...quadData.uvs);
+                for (let i = 0; i < 4; i++) trColors.push(1.0, 1.0, 1.0);
                 trIndices.push(
                   trVertexCount, trVertexCount + 1, trVertexCount + 2,
                   trVertexCount, trVertexCount + 2, trVertexCount + 3
@@ -373,7 +588,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
 
             if (isOpaque) {
               opPositions.push(...quadVertices);
-              for (let i = 0; i < 4; i++) opNormals.push(...f.norm);
+              for (let i = 0; i < 4; i++) {
+                opNormals.push(...f.norm);
+                opColors.push(1.0, 1.0, 1.0);
+              }
               opUvs.push(...quadUvs);
               opIndices.push(
                 opVertexCount, opVertexCount + 1, opVertexCount + 2,
@@ -382,7 +600,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
               opVertexCount += 4;
             } else {
               trPositions.push(...quadVertices);
-              for (let i = 0; i < 4; i++) trNormals.push(...f.norm);
+              for (let i = 0; i < 4; i++) {
+                trNormals.push(...f.norm);
+                trColors.push(1.0, 1.0, 1.0);
+              }
               trUvs.push(...quadUvs);
               trIndices.push(
                 trVertexCount, trVertexCount + 1, trVertexCount + 2,
@@ -397,13 +618,13 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
   }
 
   if (opPositions.length > 0 && opaqueMaterial) {
-    const mesh = ChunkBuilder.buildChunkMesh(opPositions, opNormals, opUvs, opIndices, opaqueMaterial);
+    const mesh = ChunkBuilder.buildChunkMesh(opPositions, opNormals, opUvs, opIndices, opaqueMaterial, opColors);
     scene.add(mesh);
     chunkMeshes.push(mesh);
   }
 
   if (trPositions.length > 0 && transparentMaterial) {
-    const mesh = ChunkBuilder.buildChunkMesh(trPositions, trNormals, trUvs, trIndices, transparentMaterial);
+    const mesh = ChunkBuilder.buildChunkMesh(trPositions, trNormals, trUvs, trIndices, transparentMaterial, trColors);
     scene.add(mesh);
     chunkMeshes.push(mesh);
   }
