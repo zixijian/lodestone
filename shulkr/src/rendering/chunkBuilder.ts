@@ -519,10 +519,22 @@ export class ChunkBuilder {
     // For vertical side faces (south, north, east, west), quad vertices start at Y=by0 (bottom),
     // so cornerUVs map to [u0, v0], [u1, v0], [u1, v1], [u0, v1]
     let cornerUVs: [number, number][];
-    if (faceName === 'up' || faceName === 'down') {
-      cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
-    } else {
-      cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+    switch (faceName) {
+      case 'up':
+        cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
+        break;
+      case 'down':
+        cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        break;
+      case 'north':
+        cornerUVs = [[u1, v0], [u0, v0], [u0, v1], [u1, v1]];
+        break;
+      case 'south':
+      case 'east':
+      case 'west':
+      default:
+        cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        break;
     }
 
     if (face.rotation) {

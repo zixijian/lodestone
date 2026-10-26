@@ -532,6 +532,26 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
                   if (ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
                     continue; // Skip face if culled by opaque neighbor at block boundary
                   }
+                  // Culling for adjacent transparent/glass faces of the same block type
+                  if (!isOpaque && neighborName === bState.name) {
+                    continue;
+                  }
+                }
+              } else if (!isOpaque) {
+                // Check boundary culling for non-opaque blocks without explicit cullface
+                let dir: [number, number, number] | null = null;
+                if (faceKey === 'up') dir = [0, 1, 0];
+                else if (faceKey === 'down') dir = [0, -1, 0];
+                else if (faceKey === 'south') dir = [0, 0, 1];
+                else if (faceKey === 'north') dir = [0, 0, -1];
+                else if (faceKey === 'east') dir = [1, 0, 0];
+                else if (faceKey === 'west') dir = [-1, 0, 0];
+
+                if (dir && ChunkBuilder.isElementFaceOnBoundary(el, faceKey)) {
+                  const neighborName = getNeighborBlockName(region, x + dir[0], y + dir[1], z + dir[2]);
+                  if (neighborName === bState.name) {
+                    continue; // Cull adjacent inner faces between identical glass/transparent blocks
+                  }
                 }
               }
 
@@ -548,11 +568,24 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
                 resolvedModel.rotZ
               );
 
+              // Redstone Tint Color Calculation
+              let tintRGB: [number, number, number] = [1.0, 1.0, 1.0];
+              if (face.tintindex !== undefined && face.tintindex >= 0) {
+                if (bState.name.includes('redstone_wire') || bState.name.includes('redstone_dust')) {
+                  const power = Math.max(0, Math.min(15, Number(bState.properties?.power || 0)));
+                  // Redstone tint calculation from power level 0..15
+                  const r = (power * 0.6 + 0.4) / 1.0;
+                  const g = power === 0 ? 0 : (power * 0.06 + 0.05);
+                  const b = 0;
+                  tintRGB = [r, g, b];
+                }
+              }
+
               if (isOpaque) {
                 opPositions.push(...quadData.positions);
                 opNormals.push(...quadData.normals);
                 opUvs.push(...quadData.uvs);
-                for (let i = 0; i < 4; i++) opColors.push(1.0, 1.0, 1.0);
+                for (let i = 0; i < 4; i++) opColors.push(...tintRGB);
                 opIndices.push(
                   opVertexCount, opVertexCount + 1, opVertexCount + 2,
                   opVertexCount, opVertexCount + 2, opVertexCount + 3
@@ -562,7 +595,7 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
                 trPositions.push(...quadData.positions);
                 trNormals.push(...quadData.normals);
                 trUvs.push(...quadData.uvs);
-                for (let i = 0; i < 4; i++) trColors.push(1.0, 1.0, 1.0);
+                for (let i = 0; i < 4; i++) trColors.push(...tintRGB);
                 trIndices.push(
                   trVertexCount, trVertexCount + 1, trVertexCount + 2,
                   trVertexCount, trVertexCount + 2, trVertexCount + 3
@@ -697,15 +730,18 @@ function processLitematic(root: any): SchematicData {
   const rawRegions = root.Regions || {};
   for (const regName of Object.keys(rawRegions)) {
     const reg = rawRegions[regName];
+    const rawSX = Number(reg.Size?.x ?? reg.Size?.X ?? 0);
+    const rawSY = Number(reg.Size?.y ?? reg.Size?.Y ?? 0);
+    const rawSZ = Number(reg.Size?.z ?? reg.Size?.Z ?? 0);
     const size = {
-      x: Math.abs(Number(reg.Size?.x ?? reg.Size?.X ?? 0)),
-      y: Math.abs(Number(reg.Size?.y ?? reg.Size?.Y ?? 0)),
-      z: Math.abs(Number(reg.Size?.z ?? reg.Size?.Z ?? 0))
+      x: Math.abs(rawSX),
+      y: Math.abs(rawSY),
+      z: Math.abs(rawSZ)
     };
     const pos = {
-      x: Number(reg.Position?.x ?? reg.Position?.X ?? 0),
-      y: Number(reg.Position?.y ?? reg.Position?.Y ?? 0),
-      z: Number(reg.Position?.z ?? reg.Position?.Z ?? 0)
+      x: Number(reg.Position?.x ?? reg.Position?.X ?? 0) + (rawSX < 0 ? rawSX + 1 : 0),
+      y: Number(reg.Position?.y ?? reg.Position?.Y ?? 0) + (rawSY < 0 ? rawSY + 1 : 0),
+      z: Number(reg.Position?.z ?? reg.Position?.Z ?? 0) + (rawSZ < 0 ? rawSZ + 1 : 0)
     };
 
     const paletteTags = reg.BlockStatePalette || [];
