@@ -80,7 +80,7 @@ async function initApp(): Promise<void> {
   if (!container) return;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
+  scene.background = new THREE.Color(0x0d1117);
 
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(30, 30, 30);
@@ -573,11 +573,9 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
               if (face.tintindex !== undefined && face.tintindex >= 0) {
                 if (bState.name.includes('redstone_wire') || bState.name.includes('redstone_dust')) {
                   const power = Math.max(0, Math.min(15, Number(bState.properties?.power || 0)));
-                  // Redstone tint calculation from power level 0..15
-                  const r = (power * 0.6 + 0.4) / 1.0;
-                  const g = power === 0 ? 0 : (power * 0.06 + 0.05);
-                  const b = 0;
-                  tintRGB = [r, g, b];
+                  // Pure red tint calculation from power level 0..15
+                  const r = (power * 0.6 + 0.4);
+                  tintRGB = [r, 0.0, 0.0];
                 }
               }
 
@@ -765,7 +763,11 @@ function processLitematic(root: any): SchematicData {
             if (palIdx > 0 && palIdx < palette.length) {
               const bState = palette[palIdx];
               if (bState && bState.name !== 'minecraft:air' && bState.name !== 'air') {
-                blocksData[index] = palIdx;
+                const localX = rawSX < 0 ? size.x - 1 - x : x;
+                const localY = rawSY < 0 ? size.y - 1 - y : y;
+                const localZ = rawSZ < 0 ? size.z - 1 - z : z;
+                const stdIndex = (localY * size.z + localZ) * size.x + localX;
+                blocksData[stdIndex] = palIdx;
                 totalBlocks++;
                 blockStats[bState.name] = (blockStats[bState.name] || 0) + 1;
               }
@@ -1032,7 +1034,7 @@ function setupUIEventListeners(): void {
 
   document.getElementById('btn-toggle-day')?.addEventListener('click', () => {
     isDay = !isDay;
-    scene.background = new THREE.Color(isDay ? 0x87ceeb : 0x000000);
+    scene.background = new THREE.Color(isDay ? 0x0d1117 : 0x000000);
     dirLight.intensity = isDay ? 1.2 : 0.2;
   });
 
@@ -1077,7 +1079,7 @@ window.resetCamera = resetCamera;
 window.toggleCameraView = () => {};
 window.toggleDayNight = () => {
   isDay = !isDay;
-  scene.background = new THREE.Color(isDay ? 0x87ceeb : 0x000000);
+  scene.background = new THREE.Color(isDay ? 0x0d1117 : 0x000000);
   dirLight.intensity = isDay ? 1.2 : 0.2;
 };
 (window as any).setBackgroundColor = (colorHex: string | number) => {

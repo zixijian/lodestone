@@ -521,10 +521,10 @@ export class ChunkBuilder {
     let cornerUVs: [number, number][];
     switch (faceName) {
       case 'up':
-        cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
+        cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
         break;
       case 'down':
-        cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
         break;
       case 'north':
         cornerUVs = [[u1, v0], [u0, v0], [u0, v1], [u1, v1]];

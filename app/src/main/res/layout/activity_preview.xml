@@ -51,14 +51,15 @@
 
     </FrameLayout>
 
-    <!-- Top Floating Actions Overlay -->
+    <!-- Top Floating Actions Overlay (Hidden to avoid overlapping HTML WebView UI) -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:visibility="gone">
 
         <!-- Camera Switch (透视 / 正交) -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
