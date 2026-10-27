@@ -59,12 +59,43 @@ export class ChunkBuilder {
     return opaqueList.has(cleanName) || opaqueList.has('minecraft:' + cleanName);
   }
 
+  public static getDefaultBlockProperties(blockName: string): Record<string, string> {
+    const clean = blockName.startsWith('minecraft:') ? blockName.substring(10) : blockName;
+    if (clean.includes('repeater')) {
+      return { delay: '1', facing: 'north', locked: 'false', powered: 'false' };
+    }
+    if (clean.includes('comparator')) {
+      return { facing: 'north', mode: 'compare', powered: 'false' };
+    }
+    if (clean.includes('redstone_wire') || clean.includes('redstone_dust')) {
+      return { power: '0', east: 'none', north: 'none', south: 'none', west: 'none' };
+    }
+    if (clean.includes('piston')) {
+      return { facing: 'north', extended: 'false' };
+    }
+    if (clean.includes('observer')) {
+      return { facing: 'north', powered: 'false' };
+    }
+    if (clean.includes('dropper') || clean.includes('dispenser') || clean.includes('hopper')) {
+      return { facing: 'north', enabled: 'true', triggered: 'false' };
+    }
+    if (clean.includes('door')) {
+      return { facing: 'north', half: 'lower', hinge: 'left', open: 'false', powered: 'false' };
+    }
+    if (clean.includes('trapdoor')) {
+      return { facing: 'north', half: 'bottom', open: 'false', powered: 'false', waterlogged: 'false' };
+    }
+    if (clean.includes('stair')) {
+      return { facing: 'north', half: 'bottom', shape: 'straight', waterlogged: 'false' };
+    }
+    return {};
+  }
+
   public static matchWhenCondition(
     when: any,
     properties?: Record<string, string>
   ): boolean {
     if (!when) return true;
-    if (!properties) return false;
 
     if (when.OR && Array.isArray(when.OR)) {
       return when.OR.some((cond: any) => ChunkBuilder.matchWhenCondition(cond, properties));
@@ -76,8 +107,14 @@ export class ChunkBuilder {
     for (const key of Object.keys(when)) {
       if (key === 'OR' || key === 'AND') continue;
       const expected = String(when[key]);
-      const actual = properties[key];
-      if (actual === undefined) return false;
+      const actual = properties ? properties[key] : undefined;
+
+      if (actual === undefined) {
+        if (expected === 'false' || expected === 'none') {
+          continue;
+        }
+        return false;
+      }
 
       if (expected.includes('|')) {
         const allowed = expected.split('|');
@@ -150,10 +187,15 @@ export class ChunkBuilder {
       }
     }
 
+    const mergedProperties = {
+      ...ChunkBuilder.getDefaultBlockProperties(cleanName),
+      ...(properties || {})
+    };
+
     if (bs.multipart && Array.isArray(bs.multipart)) {
       const combinedElements: ModelElement[] = [];
       for (const part of bs.multipart) {
-        if (ChunkBuilder.matchWhenCondition(part.when, properties)) {
+        if (ChunkBuilder.matchWhenCondition(part.when, mergedProperties)) {
           const applies = Array.isArray(part.apply) ? part.apply : [part.apply];
           for (const apply of applies) {
             if (!apply) continue;
@@ -184,10 +226,10 @@ export class ChunkBuilder {
     let selectedVariant: any = null;
 
     if (bs.variants) {
-      if (properties && Object.keys(properties).length > 0) {
+      if (mergedProperties && Object.keys(mergedProperties).length > 0) {
         // Try matching exact sorted property string
-        const propKeys = Object.keys(properties).sort();
-        const propStr = propKeys.map(k => `${k}=${properties[k]}`).join(',');
+        const propKeys = Object.keys(mergedProperties).sort();
+        const propStr = propKeys.map(k => `${k}=${mergedProperties[k]}`).join(',');
         if (bs.variants[propStr]) {
           selectedVariant = bs.variants[propStr];
         } else {
@@ -200,7 +242,7 @@ export class ChunkBuilder {
             for (const pair of pairs) {
               const [k, v] = pair.split('=');
               if (k && v) {
-                const actual = properties[k];
+                const actual = mergedProperties[k];
                 if (actual !== undefined) {
                   if (actual === v) {
                     score++;
@@ -514,26 +556,20 @@ export class ChunkBuilder {
 
     const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets, face.texture, faceUV);
 
-    // Correct UV alignment:
-    // For top/bottom horizontal faces, cornerUVs map to [u0, v1], [u1, v1], [u1, v0], [u0, v0]
-    // For vertical side faces (south, north, east, west), quad vertices start at Y=by0 (bottom),
-    // so cornerUVs map to [u0, v0], [u1, v0], [u1, v1], [u0, v1]
     let cornerUVs: [number, number][];
     switch (faceName) {
       case 'up':
-        cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
-        break;
-      case 'down':
         cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
         break;
-      case 'north':
-        cornerUVs = [[u1, v0], [u0, v0], [u0, v1], [u1, v1]];
+      case 'down':
+        cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
         break;
       case 'south':
+      case 'north':
       case 'east':
       case 'west':
       default:
-        cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
         break;
     }
 

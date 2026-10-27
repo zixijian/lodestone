@@ -60,6 +60,7 @@ let slicerController: SlicerController;
 let assets: AssetsData | null = null;
 let atlasTexture: THREE.Texture | null = null;
 let opaqueMaterial: THREE.MeshLambertMaterial | null = null;
+let cutoutMaterial: THREE.MeshLambertMaterial | null = null;
 let transparentMaterial: THREE.MeshLambertMaterial | null = null;
 
 let opaqueList = new Set<string>();
@@ -179,6 +180,17 @@ async function initAssets(baseUrl: string): Promise<void> {
     clippingPlanes: [slicerController.getClippingPlane()]
   });
 
+  cutoutMaterial = new THREE.MeshLambertMaterial({
+    map: atlasTexture,
+    transparent: true,
+    alphaTest: 0.1,
+    opacity: 1.0,
+    depthWrite: true,
+    side: THREE.DoubleSide,
+    vertexColors: true,
+    clippingPlanes: [slicerController.getClippingPlane()]
+  });
+
   transparentMaterial = new THREE.MeshLambertMaterial({
     map: atlasTexture,
     transparent: true,
@@ -258,15 +270,6 @@ async function renderRegionAsync(region: RegionData): Promise<void> {
   }
 }
 
-const faceDirMap: Record<string, [number, number, number]> = {
-  up: [0, 1, 0],
-  down: [0, -1, 0],
-  south: [0, 0, 1],
-  north: [0, 0, -1],
-  east: [1, 0, 0],
-  west: [-1, 0, 0]
-};
-
 function getFluidBlockInfo(region: RegionData, x: number, y: number, z: number): { isFluid: boolean; isWater: boolean; level: number } | null {
   if (x < 0 || y < 0 || z < 0 || x >= region.size.x || y >= region.size.y || z >= region.size.z) {
     return null;
@@ -324,6 +327,12 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
   const opColors: number[] = [];
   const opIndices: number[] = [];
 
+  const cutPositions: number[] = [];
+  const cutNormals: number[] = [];
+  const cutUvs: number[] = [];
+  const cutColors: number[] = [];
+  const cutIndices: number[] = [];
+
   const trPositions: number[] = [];
   const trNormals: number[] = [];
   const trUvs: number[] = [];
@@ -331,6 +340,7 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
   const trIndices: number[] = [];
 
   let opVertexCount = 0;
+  let cutVertexCount = 0;
   let trVertexCount = 0;
 
   const faces = [
@@ -590,15 +600,15 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
                 );
                 opVertexCount += 4;
               } else {
-                trPositions.push(...quadData.positions);
-                trNormals.push(...quadData.normals);
-                trUvs.push(...quadData.uvs);
-                for (let i = 0; i < 4; i++) trColors.push(...tintRGB);
-                trIndices.push(
-                  trVertexCount, trVertexCount + 1, trVertexCount + 2,
-                  trVertexCount, trVertexCount + 2, trVertexCount + 3
+                cutPositions.push(...quadData.positions);
+                cutNormals.push(...quadData.normals);
+                cutUvs.push(...quadData.uvs);
+                for (let i = 0; i < 4; i++) cutColors.push(...tintRGB);
+                cutIndices.push(
+                  cutVertexCount, cutVertexCount + 1, cutVertexCount + 2,
+                  cutVertexCount, cutVertexCount + 2, cutVertexCount + 3
                 );
-                trVertexCount += 4;
+                cutVertexCount += 4;
               }
             }
           }
@@ -630,17 +640,17 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
               );
               opVertexCount += 4;
             } else {
-              trPositions.push(...quadVertices);
+              cutPositions.push(...quadVertices);
               for (let i = 0; i < 4; i++) {
-                trNormals.push(...f.norm);
-                trColors.push(1.0, 1.0, 1.0);
+                cutNormals.push(...f.norm);
+                cutColors.push(1.0, 1.0, 1.0);
               }
-              trUvs.push(...quadUvs);
-              trIndices.push(
-                trVertexCount, trVertexCount + 1, trVertexCount + 2,
-                trVertexCount, trVertexCount + 2, trVertexCount + 3
+              cutUvs.push(...quadUvs);
+              cutIndices.push(
+                cutVertexCount, cutVertexCount + 1, cutVertexCount + 2,
+                cutVertexCount, cutVertexCount + 2, cutVertexCount + 3
               );
-              trVertexCount += 4;
+              cutVertexCount += 4;
             }
           }
         }
@@ -650,6 +660,12 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
 
   if (opPositions.length > 0 && opaqueMaterial) {
     const mesh = ChunkBuilder.buildChunkMesh(opPositions, opNormals, opUvs, opIndices, opaqueMaterial, opColors);
+    scene.add(mesh);
+    chunkMeshes.push(mesh);
+  }
+
+  if (cutPositions.length > 0 && cutoutMaterial) {
+    const mesh = ChunkBuilder.buildChunkMesh(cutPositions, cutNormals, cutUvs, cutIndices, cutoutMaterial, cutColors);
     scene.add(mesh);
     chunkMeshes.push(mesh);
   }
@@ -763,11 +779,7 @@ function processLitematic(root: any): SchematicData {
             if (palIdx > 0 && palIdx < palette.length) {
               const bState = palette[palIdx];
               if (bState && bState.name !== 'minecraft:air' && bState.name !== 'air') {
-                const localX = rawSX < 0 ? size.x - 1 - x : x;
-                const localY = rawSY < 0 ? size.y - 1 - y : y;
-                const localZ = rawSZ < 0 ? size.z - 1 - z : z;
-                const stdIndex = (localY * size.z + localZ) * size.x + localX;
-                blocksData[stdIndex] = palIdx;
+                blocksData[index] = palIdx;
                 totalBlocks++;
                 blockStats[bState.name] = (blockStats[bState.name] || 0) + 1;
               }
