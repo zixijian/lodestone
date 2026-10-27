@@ -61,6 +61,12 @@ export class ChunkBuilder {
 
   public static getDefaultBlockProperties(blockName: string): Record<string, string> {
     const clean = blockName.startsWith('minecraft:') ? blockName.substring(10) : blockName;
+    if (clean.includes('wall_torch') || clean.includes('wall_redstone_torch') || clean.includes('redstone_wall_torch')) {
+      return { facing: 'north', lit: 'true' };
+    }
+    if (clean.includes('torch')) {
+      return { lit: 'true' };
+    }
     if (clean.includes('repeater')) {
       return { delay: '1', facing: 'north', locked: 'false', powered: 'false' };
     }
@@ -76,8 +82,11 @@ export class ChunkBuilder {
     if (clean.includes('observer')) {
       return { facing: 'north', powered: 'false' };
     }
-    if (clean.includes('dropper') || clean.includes('dispenser') || clean.includes('hopper')) {
-      return { facing: 'north', enabled: 'true', triggered: 'false' };
+    if (clean.includes('dropper') || clean.includes('dispenser') || clean.includes('hopper') || clean.includes('barrel')) {
+      return { facing: 'north', enabled: 'true', triggered: 'false', open: 'false' };
+    }
+    if (clean.includes('lever') || clean.includes('button')) {
+      return { face: 'wall', facing: 'north', powered: 'false' };
     }
     if (clean.includes('door')) {
       return { facing: 'north', half: 'lower', hinge: 'left', open: 'false', powered: 'false' };
@@ -87,6 +96,12 @@ export class ChunkBuilder {
     }
     if (clean.includes('stair')) {
       return { facing: 'north', half: 'bottom', shape: 'straight', waterlogged: 'false' };
+    }
+    if (clean.includes('lantern')) {
+      return { hanging: 'false', waterlogged: 'false' };
+    }
+    if (clean.includes('camp_fire') || clean.includes('campfire')) {
+      return { facing: 'north', lit: 'true', signal_fire: 'false', waterlogged: 'false' };
     }
     return {};
   }
@@ -227,13 +242,11 @@ export class ChunkBuilder {
 
     if (bs.variants) {
       if (mergedProperties && Object.keys(mergedProperties).length > 0) {
-        // Try matching exact sorted property string
         const propKeys = Object.keys(mergedProperties).sort();
         const propStr = propKeys.map(k => `${k}=${mergedProperties[k]}`).join(',');
         if (bs.variants[propStr]) {
           selectedVariant = bs.variants[propStr];
         } else {
-          // Best-match variant scoring
           let bestScore = -1;
           for (const variantKey of Object.keys(bs.variants)) {
             const pairs = variantKey.split(',');
@@ -245,11 +258,13 @@ export class ChunkBuilder {
                 const actual = mergedProperties[k];
                 if (actual !== undefined) {
                   if (actual === v) {
-                    score++;
+                    score += 2;
                   } else {
                     match = false;
                     break;
                   }
+                } else if (v === 'true' || v === 'north') {
+                  score += 1;
                 }
               }
             }
@@ -273,7 +288,6 @@ export class ChunkBuilder {
       }
     }
 
-    // Handle array of variants (pick first)
     if (Array.isArray(selectedVariant)) {
       selectedVariant = selectedVariant[0];
     }
@@ -334,7 +348,6 @@ export class ChunkBuilder {
 
     if (!elements) return null;
 
-    // Resolve texture variable references (e.g. #slab -> block/smooth_stone)
     function resolveTex(ref: string): string {
       let curr = ref;
       let depth = 0;
@@ -358,7 +371,6 @@ export class ChunkBuilder {
       resolvedTextures[k] = resolveTex(textures[k]);
     }
 
-    // Clone and substitute resolved textures on faces
     const resolvedElements: ModelElement[] = elements.map(el => {
       const faces: Record<string, ModelElementFace> = {};
       for (const faceKey in el.faces) {
@@ -556,21 +568,51 @@ export class ChunkBuilder {
 
     const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets, face.texture, faceUV);
 
-    let cornerUVs: [number, number][];
-    switch (faceName) {
-      case 'up':
-        cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
-        break;
-      case 'down':
-        cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
-        break;
-      case 'south':
-      case 'north':
-      case 'east':
-      case 'west':
-      default:
-        cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
-        break;
+    const nY = baseNorm[1];
+    const nX = baseNorm[0];
+    const nZ = baseNorm[2];
+
+    const cornerUVs: [number, number][] = new Array(4);
+
+    if (Math.abs(nY) > 0.8) {
+      for (let i = 0; i < 4; i++) {
+        const v = quadVerts[i];
+        const xBit = v[0] >= 0.5 ? 1 : 0;
+        const zBit = v[2] >= 0.5 ? 1 : 0;
+        if (nY > 0) {
+          if (xBit === 0 && zBit === 1) cornerUVs[i] = [u0, v1];
+          else if (xBit === 1 && zBit === 1) cornerUVs[i] = [u1, v1];
+          else if (xBit === 1 && zBit === 0) cornerUVs[i] = [u1, v0];
+          else cornerUVs[i] = [u0, v0];
+        } else {
+          if (xBit === 0 && zBit === 0) cornerUVs[i] = [u0, v0];
+          else if (xBit === 1 && zBit === 0) cornerUVs[i] = [u1, v0];
+          else if (xBit === 1 && zBit === 1) cornerUVs[i] = [u1, v1];
+          else cornerUVs[i] = [u0, v1];
+        }
+      }
+    } else {
+      const tX = nZ;
+      const tZ = -nX;
+
+      const dots = quadVerts.map(v => v[0] * tX + v[2] * tZ);
+      const minDot = Math.min(...dots);
+      const maxDot = Math.max(...dots);
+      const midDot = (minDot + maxDot) / 2;
+
+      const minY = Math.min(...quadVerts.map(v => v[1]));
+      const maxY = Math.max(...quadVerts.map(v => v[1]));
+      const midY = (minY + maxY) / 2;
+
+      for (let i = 0; i < 4; i++) {
+        const v = quadVerts[i];
+        const isTop = v[1] >= midY;
+        const isRight = dots[i] >= midDot;
+
+        const uVal = isRight ? u1 : u0;
+        const vVal = isTop ? v0 : v1;
+        cornerUVs[i] = [uVal, vVal];
+      }
     }
 
     if (face.rotation) {

@@ -284,6 +284,9 @@ function getFluidBlockInfo(region: RegionData, x: number, y: number, z: number):
     const level = bState.properties?.level ? parseInt(bState.properties.level, 10) : 0;
     return { isFluid: true, isWater: cleanName.includes('water'), level };
   }
+  if (bState.properties?.waterlogged === 'true' || bState.properties?.waterlogged === '1') {
+    return { isFluid: true, isWater: true, level: 0 };
+  }
   return null;
 }
 
@@ -381,11 +384,16 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
           // Up face
           const aboveInfo = getFluidBlockInfo(region, x, y + 1, z);
           if (!aboveInfo || !aboveInfo.isFluid) {
+            const eps01 = h01 >= 0.999 ? 0.9995 : h01;
+            const eps11 = h11 >= 0.999 ? 0.9995 : h11;
+            const eps10 = h10 >= 0.999 ? 0.9995 : h10;
+            const eps00 = h00 >= 0.999 ? 0.9995 : h00;
+
             trPositions.push(
-              x, y + h01, z + 1,
-              x + 1, y + h11, z + 1,
-              x + 1, y + h10, z,
-              x, y + h00, z
+              x, y + eps01, z + 1,
+              x + 1, y + eps11, z + 1,
+              x + 1, y + eps10, z,
+              x, y + eps00, z
             );
             for (let i = 0; i < 4; i++) {
               trNormals.push(0, 1, 0);
@@ -519,7 +527,9 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
             }
           }
 
-          continue;
+          if (cleanName === 'water' || cleanName === 'lava' || cleanName === 'flowing_water' || cleanName === 'flowing_lava') {
+            continue;
+          }
         }
 
         const resolvedModel = ChunkBuilder.resolveBlockModel(assets!, bState.name, bState.properties);
