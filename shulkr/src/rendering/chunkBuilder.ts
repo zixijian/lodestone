@@ -60,7 +60,10 @@ export class ChunkBuilder {
   }
 
   public static getDefaultBlockProperties(blockName: string): Record<string, string> {
-    const clean = blockName.startsWith('minecraft:') ? blockName.substring(10) : blockName;
+    const clean = blockName.toLowerCase().startsWith('minecraft:')
+      ? blockName.toLowerCase().substring(10)
+      : blockName.toLowerCase();
+
     if (clean.includes('wall_torch') || clean.includes('wall_redstone_torch') || clean.includes('redstone_wall_torch')) {
       return { facing: 'north', lit: 'true' };
     }
@@ -121,8 +124,9 @@ export class ChunkBuilder {
 
     for (const key of Object.keys(when)) {
       if (key === 'OR' || key === 'AND') continue;
-      const expected = String(when[key]);
-      const actual = properties ? properties[key] : undefined;
+      const expected = String(when[key]).toLowerCase();
+      const actualProp = properties ? properties[key] || properties[key.toLowerCase()] : undefined;
+      const actual = actualProp ? String(actualProp).toLowerCase() : undefined;
 
       if (actual === undefined) {
         if (expected === 'false' || expected === 'none') {
@@ -149,7 +153,7 @@ export class ChunkBuilder {
   ): [number, number, number] | null {
     if (!cullface) return null;
     let dir: [number, number, number] = [0, 0, 0];
-    switch (cullface) {
+    switch (cullface.toLowerCase()) {
       case 'up': dir = [0, 1, 0]; break;
       case 'down': dir = [0, -1, 0]; break;
       case 'south': dir = [0, 0, 1]; break;
@@ -173,7 +177,7 @@ export class ChunkBuilder {
     if (element.rotation && element.rotation.angle % 360 !== 0) {
       return false;
     }
-    switch (faceName) {
+    switch (faceName.toLowerCase()) {
       case 'up': return element.to[1] === 16;
       case 'down': return element.from[1] === 0;
       case 'south': return element.to[2] === 16;
@@ -202,9 +206,17 @@ export class ChunkBuilder {
       }
     }
 
+    // Normalize properties to lowercase
+    const normalizedProperties: Record<string, string> = {};
+    if (properties) {
+      for (const k in properties) {
+        normalizedProperties[k.toLowerCase()] = String(properties[k]).toLowerCase();
+      }
+    }
+
     const mergedProperties = {
       ...ChunkBuilder.getDefaultBlockProperties(cleanName),
-      ...(properties || {})
+      ...normalizedProperties
     };
 
     if (bs.multipart && Array.isArray(bs.multipart)) {
@@ -255,15 +267,17 @@ export class ChunkBuilder {
             for (const pair of pairs) {
               const [k, v] = pair.split('=');
               if (k && v) {
-                const actual = mergedProperties[k];
+                const normK = k.toLowerCase();
+                const normV = v.toLowerCase();
+                const actual = mergedProperties[normK];
                 if (actual !== undefined) {
-                  if (actual === v) {
+                  if (actual === normV) {
                     score += 2;
                   } else {
                     match = false;
                     break;
                   }
-                } else if (v === 'true' || v === 'north') {
+                } else if (normV === 'true' || normV === 'north') {
                   score += 1;
                 }
               }
@@ -462,7 +476,8 @@ export class ChunkBuilder {
     let quadVerts: [number, number, number][] = [];
     let baseNorm: [number, number, number] = [0, 0, 0];
 
-    switch (faceName) {
+    // Standard CCW 3D quad vertices for 6 unrotated faces
+    switch (faceName.toLowerCase()) {
       case 'up':
         quadVerts = [[bx0, by1, bz1], [bx1, by1, bz1], [bx1, by1, bz0], [bx0, by1, bz0]];
         baseNorm = [0, 1, 0];
@@ -489,7 +504,48 @@ export class ChunkBuilder {
         break;
     }
 
-    // Apply element rotation if present
+    // Determine UV bounds
+    let faceUV: [number, number, number, number];
+    if (face.uv) {
+      faceUV = face.uv;
+    } else {
+      switch (faceName.toLowerCase()) {
+        case 'up':
+        case 'down':
+          faceUV = [element.from[0], element.from[2], element.to[0], element.to[2]];
+          break;
+        case 'south':
+        case 'north':
+          faceUV = [element.from[0], 16 - element.to[1], element.to[0], 16 - element.from[1]];
+          break;
+        case 'east':
+        case 'west':
+          faceUV = [element.from[2], 16 - element.to[1], element.to[2], 16 - element.from[1]];
+          break;
+        default:
+          faceUV = [0, 0, 16, 16];
+      }
+    }
+
+    const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets, face.texture, faceUV);
+
+    // Initial 1:1 paired corner UVs mapped fixedly to the 4 vertices
+    let cornerUVs: [number, number][];
+    if (faceName.toLowerCase() === 'down') {
+      cornerUVs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
+    } else {
+      cornerUVs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+    }
+
+    // Apply model face rotation if specified in JSON
+    if (face.rotation) {
+      const shift = Math.floor(face.rotation / 90) % 4;
+      for (let s = 0; s < shift; s++) {
+        cornerUVs.push(cornerUVs.shift()!);
+      }
+    }
+
+    // Apply element rotation (if element specifies axis rotation)
     if (element.rotation) {
       const orig: [number, number, number] = [
         element.rotation.origin[0] / 16,
@@ -532,7 +588,7 @@ export class ChunkBuilder {
       baseNorm = ChunkBuilder.rotatePoint(baseNorm, [0, 0, 0], 'z', effRotZ);
     }
 
-    // Translate to block coordinates [x, y, z]
+    // Translate 3D vertices to world block coordinates [x, y, z]
     const positions: number[] = [];
     for (const v of quadVerts) {
       positions.push(v[0] + x, v[1] + y, v[2] + z);
@@ -541,85 +597,6 @@ export class ChunkBuilder {
     const normals: number[] = [];
     for (let i = 0; i < 4; i++) {
       normals.push(baseNorm[0], baseNorm[1], baseNorm[2]);
-    }
-
-    // Determine UV bounds
-    let faceUV: [number, number, number, number];
-    if (face.uv) {
-      faceUV = face.uv;
-    } else {
-      switch (faceName) {
-        case 'up':
-        case 'down':
-          faceUV = [element.from[0], element.from[2], element.to[0], element.to[2]];
-          break;
-        case 'south':
-        case 'north':
-          faceUV = [element.from[0], 16 - element.to[1], element.to[0], 16 - element.from[1]];
-          break;
-        case 'east':
-        case 'west':
-          faceUV = [element.from[2], 16 - element.to[1], element.to[2], 16 - element.from[1]];
-          break;
-        default:
-          faceUV = [0, 0, 16, 16];
-      }
-    }
-
-    const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets, face.texture, faceUV);
-
-    const nY = baseNorm[1];
-    const nX = baseNorm[0];
-    const nZ = baseNorm[2];
-
-    const cornerUVs: [number, number][] = new Array(4);
-
-    if (Math.abs(nY) > 0.8) {
-      for (let i = 0; i < 4; i++) {
-        const v = quadVerts[i];
-        const xBit = v[0] >= 0.5 ? 1 : 0;
-        const zBit = v[2] >= 0.5 ? 1 : 0;
-        if (nY > 0) {
-          if (xBit === 0 && zBit === 1) cornerUVs[i] = [u0, v1];
-          else if (xBit === 1 && zBit === 1) cornerUVs[i] = [u1, v1];
-          else if (xBit === 1 && zBit === 0) cornerUVs[i] = [u1, v0];
-          else cornerUVs[i] = [u0, v0];
-        } else {
-          if (xBit === 0 && zBit === 0) cornerUVs[i] = [u0, v0];
-          else if (xBit === 1 && zBit === 0) cornerUVs[i] = [u1, v0];
-          else if (xBit === 1 && zBit === 1) cornerUVs[i] = [u1, v1];
-          else cornerUVs[i] = [u0, v1];
-        }
-      }
-    } else {
-      const tX = nZ;
-      const tZ = -nX;
-
-      const dots = quadVerts.map(v => v[0] * tX + v[2] * tZ);
-      const minDot = Math.min(...dots);
-      const maxDot = Math.max(...dots);
-      const midDot = (minDot + maxDot) / 2;
-
-      const minY = Math.min(...quadVerts.map(v => v[1]));
-      const maxY = Math.max(...quadVerts.map(v => v[1]));
-      const midY = (minY + maxY) / 2;
-
-      for (let i = 0; i < 4; i++) {
-        const v = quadVerts[i];
-        const isTop = v[1] >= midY;
-        const isRight = dots[i] >= midDot;
-
-        const uVal = isRight ? u1 : u0;
-        const vVal = isTop ? v0 : v1;
-        cornerUVs[i] = [uVal, vVal];
-      }
-    }
-
-    if (face.rotation) {
-      const shift = Math.floor(face.rotation / 90) % 4;
-      for (let s = 0; s < shift; s++) {
-        cornerUVs.push(cornerUVs.shift()!);
-      }
     }
 
     const uvs: number[] = [];
@@ -635,7 +612,7 @@ export class ChunkBuilder {
     const y0 = y, y1 = y + 1;
     const z0 = z, z1 = z + 1;
 
-    switch (face) {
+    switch (face.toLowerCase()) {
       case 'up':
         return [x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0];
       case 'down':
