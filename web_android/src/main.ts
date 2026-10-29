@@ -186,7 +186,7 @@ async function initAssets(baseUrl: string): Promise<void> {
     alphaTest: 0.1,
     opacity: 1.0,
     depthWrite: true,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
     vertexColors: true,
     clippingPlanes: [slicerController.getClippingPlane()]
   });
@@ -324,6 +324,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
   const minZ = cz * chunkSize;
   const maxZ = Math.min((cz + 1) * chunkSize, region.size.z);
 
+  const px = region.position?.x || 0;
+  const py = region.position?.y || 0;
+  const pz = region.position?.z || 0;
+
   const opPositions: number[] = [];
   const opNormals: number[] = [];
   const opUvs: number[] = [];
@@ -358,6 +362,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
   for (let x = minX; x < maxX; x++) {
     for (let y = minY; y < maxY; y++) {
       for (let z = minZ; z < maxZ; z++) {
+        const worldX = x + px;
+        const worldY = y + py;
+        const worldZ = z + pz;
+
         const idx = (y * region.size.z + z) * region.size.x + x;
         const palIdx = region.blocksData[idx];
         if (!palIdx) continue;
@@ -390,10 +398,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
             const eps00 = h00 >= 0.999 ? 0.9995 : h00;
 
             trPositions.push(
-              x, y + eps01, z + 1,
-              x + 1, y + eps11, z + 1,
-              x + 1, y + eps10, z,
-              x, y + eps00, z
+              worldX, worldY + eps01, worldZ + 1,
+              worldX + 1, worldY + eps11, worldZ + 1,
+              worldX + 1, worldY + eps10, worldZ,
+              worldX, worldY + eps00, worldZ
             );
             for (let i = 0; i < 4; i++) {
               trNormals.push(0, 1, 0);
@@ -413,10 +421,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
             const neighborName = getNeighborBlockName(region, x, y - 1, z);
             if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
               trPositions.push(
-                x, y, z,
-                x + 1, y, z,
-                x + 1, y, z + 1,
-                x, y, z + 1
+                worldX, worldY, worldZ,
+                worldX + 1, worldY, worldZ,
+                worldX + 1, worldY, worldZ + 1,
+                worldX, worldY, worldZ + 1
               );
               for (let i = 0; i < 4; i++) {
                 trNormals.push(0, -1, 0);
@@ -437,10 +445,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
             const neighborName = getNeighborBlockName(region, x, y, z + 1);
             if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
               trPositions.push(
-                x, y, z + 1,
-                x + 1, y, z + 1,
-                x + 1, y + h11, z + 1,
-                x, y + h01, z + 1
+                worldX, worldY, worldZ + 1,
+                worldX + 1, worldY, worldZ + 1,
+                worldX + 1, worldY + h11, worldZ + 1,
+                worldX, worldY + h01, worldZ + 1
               );
               for (let i = 0; i < 4; i++) {
                 trNormals.push(0, 0, 1);
@@ -461,10 +469,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
             const neighborName = getNeighborBlockName(region, x, y, z - 1);
             if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
               trPositions.push(
-                x + 1, y, z,
-                x, y, z,
-                x, y + h00, z,
-                x + 1, y + h10, z
+                worldX + 1, worldY, worldZ,
+                worldX, worldY, worldZ,
+                worldX, worldY + h00, worldZ,
+                worldX + 1, worldY + h10, worldZ
               );
               for (let i = 0; i < 4; i++) {
                 trNormals.push(0, 0, -1);
@@ -485,10 +493,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
             const neighborName = getNeighborBlockName(region, x + 1, y, z);
             if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
               trPositions.push(
-                x + 1, y, z + 1,
-                x + 1, y, z,
-                x + 1, y + h10, z,
-                x + 1, y + h11, z + 1
+                worldX + 1, worldY, worldZ + 1,
+                worldX + 1, worldY, worldZ,
+                worldX + 1, worldY + h10, worldZ,
+                worldX + 1, worldY + h11, worldZ + 1
               );
               for (let i = 0; i < 4; i++) {
                 trNormals.push(1, 0, 0);
@@ -509,10 +517,10 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
             const neighborName = getNeighborBlockName(region, x - 1, y, z);
             if (!ChunkBuilder.isFaceOpaque(neighborName, opaqueList)) {
               trPositions.push(
-                x, y, z,
-                x, y, z + 1,
-                x, y + h01, z + 1,
-                x, y + h00, z
+                worldX, worldY, worldZ,
+                worldX, worldY, worldZ + 1,
+                worldX, worldY + h01, worldZ + 1,
+                worldX, worldY + h00, worldZ
               );
               for (let i = 0; i < 4; i++) {
                 trNormals.push(-1, 0, 0);
@@ -577,9 +585,9 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
 
               const quadData = ChunkBuilder.getTransformedElementFace(
                 assets!,
-                x,
-                y,
-                z,
+                worldX,
+                worldY,
+                worldZ,
                 el,
                 faceKey,
                 face,
@@ -633,7 +641,7 @@ function buildChunkMesh(region: RegionData, cx: number, cy: number, cz: number, 
               continue;
             }
 
-            const quadVertices = ChunkBuilder.getFaceVertices(x, y, z, f.name);
+            const quadVertices = ChunkBuilder.getFaceVertices(worldX, worldY, worldZ, f.name);
             const { u0, v0, u1, v1 } = ChunkBuilder.getTextureUV(assets!, bState.name, f.name);
             const quadUvs = [u0, v1, u0, v0, u1, v0, u1, v1];
 
@@ -702,8 +710,12 @@ function resetCamera(): void {
   const reg = currentSchematic.regions[currentRegionName];
   if (!reg) return;
 
-  const min = new THREE.Vector3(0, 0, 0);
-  const max = new THREE.Vector3(reg.size.x, reg.size.y, reg.size.z);
+  const px = reg.position?.x || 0;
+  const py = reg.position?.y || 0;
+  const pz = reg.position?.z || 0;
+
+  const min = new THREE.Vector3(px, py, pz);
+  const max = new THREE.Vector3(px + reg.size.x, py + reg.size.y, pz + reg.size.z);
   const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
   viewController.recenterTarget(center, controls.target);
   controls.update();
@@ -1040,8 +1052,12 @@ async function switchRegion(regionName: string): Promise<void> {
   }
   slicerController.setLayer(reg.size.y);
 
-  const min = new THREE.Vector3(0, 0, 0);
-  const max = new THREE.Vector3(reg.size.x, reg.size.y, reg.size.z);
+  const px = reg.position?.x || 0;
+  const py = reg.position?.y || 0;
+  const pz = reg.position?.z || 0;
+
+  const min = new THREE.Vector3(px, py, pz);
+  const max = new THREE.Vector3(px + reg.size.x, py + reg.size.y, pz + reg.size.z);
   viewController.frameBoundingBox(min, max, controls.target);
   controls.update();
 
