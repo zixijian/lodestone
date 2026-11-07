@@ -27,9 +27,13 @@
     <string name="stats_title">方块统计信息</string>
     <string name="stats_total">总方块数: %1$d</string>
     <string name="view_mode">视图</string>
+    <string name="view_flight">飞行模式</string>
+    <string name="view_orbit">环绕模式</string>
     <string name="view_reset">重置</string>
     <string name="view_region">区域</string>
     <string name="view_day_night">昼夜切换</string>
+    <string name="view_projection">正交/透视</string>
+    <string name="layer_slice">分层：%1$d / %2$d</string>
     <string name="no_regions">无子区域或解析失败</string>
     <string name="select_region">选择渲染区域</string>
     <string name="loading">加载中...</string>

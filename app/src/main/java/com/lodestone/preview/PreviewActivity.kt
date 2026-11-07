@@ -1,20 +1,20 @@
 package com.lodestone.preview
 
-import android.annotation.SuppressLint
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import android.view.View
-import android.webkit.*
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.webkit.WebViewAssetLoader
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.lodestone.preview.databinding.ActivityPreviewBinding
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -22,277 +22,214 @@ import java.io.InputStream
 class PreviewActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityPreviewBinding
-    private lateinit var assetLoader: WebViewAssetLoader
+    private lateinit var engine: FilamentSchematicEngine
     private lateinit var statsAdapter: BlockStatsAdapter
-    private var fileUri: Uri? = null
+    private lateinit var bottomSheetBehavior: BottomSheetBehavior<View>
 
-    // For caching or tracking region options and current indices
-    private var regionNamesList: List<String> = emptyList()
+    private var parsedSchematic: ParsedSchematic? = null
+    private var activeRegion: SchematicRegion? = null
+    private var fileUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Ensure window background is Solarized Dark from the very first frame to prevent white screen flashes
-        window.setBackgroundDrawableResource(R.color.solarized_base03)
-        window.statusBarColor = getColor(R.color.solarized_base03)
-        window.navigationBarColor = getColor(R.color.solarized_base03)
-
         binding = ActivityPreviewBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.root.setBackgroundColor(getColor(R.color.solarized_base03))
-        binding.webviewRenderer.setBackgroundColor(getColor(R.color.solarized_base03))
+        initEngine()
+        initViews()
+        loadSchematicAsync()
+    }
 
-        fileUri = intent.data
+    private fun initEngine() {
+        engine = FilamentSchematicEngine(this)
+        val rendererView = engine.createView(this)
+        binding.flRendererContainer.addView(rendererView)
+    }
 
-        // Setup bottom sheet
-        val bottomSheetLayout = binding.bottomSheetRoot.bottomSheetLayout
-        val bottomSheetBehavior = BottomSheetBehavior.from(bottomSheetLayout)
+    private fun initViews() {
+        // Bottom Sheet for Block Statistics
+        bottomSheetBehavior = BottomSheetBehavior.from(binding.bottomSheetRoot.root)
+        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+        bottomSheetBehavior.peekHeight = (64 * resources.displayMetrics.density).toInt()
 
-        // Define a custom peek height in pixels (64dp)
-        val density = resources.displayMetrics.density
-        bottomSheetBehavior.peekHeight = (64 * density).toInt()
-
-        // Setup stats recycler
         statsAdapter = BlockStatsAdapter(emptyList())
-        binding.bottomSheetRoot.rvStatistics.layoutManager = LinearLayoutManager(this)
-        binding.bottomSheetRoot.rvStatistics.adapter = statsAdapter
-
-        // Setup Web Asset Loader to map assets folder safely
-        assetLoader = WebViewAssetLoader.Builder()
-            .addPathHandler("/", WebViewAssetLoader.AssetsPathHandler(this))
-            .build()
-
-        setupWebView()
-
-        // Float Buttons Listeners
-        binding.fabCameraMode.setOnClickListener {
-            binding.webviewRenderer.evaluateJavascript("toggleCameraView();", null)
+        binding.bottomSheetRoot.rvStatistics.apply {
+            layoutManager = LinearLayoutManager(this@PreviewActivity)
+            adapter = statsAdapter
         }
 
-        binding.fabResetCamera.setOnClickListener {
-            binding.webviewRenderer.evaluateJavascript("resetCamera();", null)
+        // Camera mode toggle (Orbit / Flight)
+        binding.btnCameraMode.setOnClickListener {
+            if (engine.cameraMode == FilamentSchematicEngine.CameraMode.ORBIT) {
+                engine.cameraMode = FilamentSchematicEngine.CameraMode.FLIGHT
+                binding.btnCameraMode.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.solarized_magenta))
+                Toast.makeText(this, R.string.view_flight, Toast.LENGTH_SHORT).show()
+            } else {
+                engine.cameraMode = FilamentSchematicEngine.CameraMode.ORBIT
+                binding.btnCameraMode.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.solarized_cyan))
+                Toast.makeText(this, R.string.view_orbit, Toast.LENGTH_SHORT).show()
+            }
         }
 
-        binding.fabDayNight.setOnClickListener {
-            binding.webviewRenderer.evaluateJavascript("toggleDayNight();", null)
+        // Projection mode toggle (Perspective / Orthographic)
+        binding.btnProjectionMode.setOnClickListener {
+            val isOrtho = engine.toggleCameraProjection()
+            binding.btnProjectionMode.imageTintList = ColorStateList.valueOf(
+                ContextCompat.getColor(this, if (isOrtho) R.color.solarized_green else R.color.solarized_blue)
+            )
         }
 
-        binding.fabRegionSwitch.setOnClickListener {
+        // Reset camera
+        binding.btnResetCamera.setOnClickListener {
+            engine.resetCamera()
+        }
+
+        // Day / Night toggle
+        binding.btnDayNight.setOnClickListener {
+            val isNight = engine.toggleDayNight()
+            binding.btnDayNight.imageTintList = ColorStateList.valueOf(
+                ContextCompat.getColor(this, if (isNight) R.color.solarized_violet else R.color.solarized_orange)
+            )
+        }
+
+        // Region selector
+        binding.btnRegionSwitch.setOnClickListener {
             showRegionSelector()
         }
-    }
 
-    @SuppressLint("SetJavaScriptEnabled")
-    private fun setupWebView() {
-        val webSettings = binding.webviewRenderer.settings
-        webSettings.javaScriptEnabled = true
-        webSettings.domStorageEnabled = true
-        webSettings.allowFileAccess = true
-        webSettings.cacheMode = WebSettings.LOAD_NO_CACHE
-
-        // Force Solarized Dark background on WebView before loading content
-        binding.webviewRenderer.setBackgroundColor(getColor(R.color.solarized_base03))
-
-        // Force dynamic cache clearing to prevent loaded model glitches
-        binding.webviewRenderer.clearCache(true)
-        deleteDatabase("webview.db")
-        deleteDatabase("webviewCache.db")
-
-        binding.webviewRenderer.webViewClient = object : WebViewClient() {
-            override fun shouldInterceptRequest(
-                view: WebView?,
-                request: WebResourceRequest?
-            ): WebResourceResponse? {
-                val url = request?.url ?: return null
-                val path = url.path ?: ""
-
-                // Intercept default resource pack requests to serve custom uploaded resource pack files if available
-                if (path.contains("/default-pack/")) {
-                    val rawSub = path.substringAfter("/default-pack/").substringBefore("?")
-                    val subPath = rawSub
-                    val customPackFile = File(filesDir, "custom_resource_pack/$subPath")
-                    if (customPackFile.exists() && customPackFile.isFile) {
-                        try {
-                            val mimeType = when {
-                                subPath.endsWith(".png", ignoreCase = true) -> "image/png"
-                                subPath.endsWith(".json", ignoreCase = true) -> "application/json"
-                                else -> "application/octet-stream"
-                            }
-                            val encoding = if (mimeType.startsWith("image/") || mimeType == "application/octet-stream") null else "UTF-8"
-                            return WebResourceResponse(
-                                mimeType,
-                                encoding,
-                                200,
-                                "OK",
-                                mapOf("Access-Control-Allow-Origin" to "*"),
-                                FileInputStream(customPackFile)
-                            )
-                        } catch (e: Exception) {
-                            Log.e("Lodestone", "Failed to serve custom resource pack file", e)
-                        }
-                    }
-                }
-
-                // Read local schematic file stream for offline 3D rendering
-                if (path.endsWith("/model.litematic")) {
-                    try {
-                        val filePath = intent.getStringExtra("file_path")
-                        val file = if (filePath != null) File(filePath) else null
-                        val fileSize = file?.length() ?: -1L
-
-                        val stream: InputStream? = if (file != null && file.exists()) {
-                            FileInputStream(file)
-                        } else {
-                            fileUri?.let { uri ->
-                                contentResolver.openInputStream(uri)
-                            }
-                        }
-
-                        if (stream != null) {
-                            val responseHeaders = mutableMapOf<String, String>()
-                            responseHeaders["Access-Control-Allow-Origin"] = "*"
-                            if (fileSize > 0) {
-                                responseHeaders["Content-Length"] = fileSize.toString()
-                            }
-
-                            return WebResourceResponse(
-                                "application/octet-stream",
-                                null,
-                                200,
-                                "OK",
-                                responseHeaders,
-                                stream
-                            )
-                        }
-                    } catch (e: Exception) {
-                        Log.e("Lodestone", "Failed to open schematic stream", e)
-                    }
-                }
-
-                return assetLoader.shouldInterceptRequest(url)
+        // Layer Slicer Slider
+        binding.sliderLayer.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                val currentY = value.toInt()
+                val reg = activeRegion ?: return@addOnChangeListener
+                binding.tvLayerLabel.text = getString(R.string.layer_slice, currentY, reg.sizeY)
+                engine.updateLayerSlice(0, currentY)
             }
         }
+    }
 
-        // Forward JS console logs directly into logcat output
-        binding.webviewRenderer.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                consoleMessage?.let {
-                    Log.d("LodestoneJS", "[${it.messageLevel()}] ${it.message()} -- From line ${it.lineNumber()} of ${it.sourceId()}")
+    private fun loadSchematicAsync() {
+        binding.tvLoadingIndicator.visibility = View.VISIBLE
+        binding.tvLoadingIndicator.text = getString(R.string.loading)
+
+        val filePath = intent.getStringExtra("file_path")
+        val uriString = intent.getStringExtra("file_uri")
+        fileUri = if (uriString != null) Uri.parse(uriString) else null
+        val fileName = intent.getStringExtra("file_name") ?: (if (filePath != null) File(filePath).name else "model.litematic")
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val bytes = readSchematicBytes(filePath, fileUri)
+                withContext(Dispatchers.Main) {
+                    binding.tvLoadingIndicator.text = "解析数据..."
                 }
-                return true
+
+                val schematic = SchematicParser.parse(bytes, fileName)
+                parsedSchematic = schematic
+
+                withContext(Dispatchers.Main) {
+                    onSchematicLoaded(schematic)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    binding.tvLoadingIndicator.visibility = View.GONE
+                    Toast.makeText(this@PreviewActivity, "加载失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
-
-        // Bridge communication interfaces
-        binding.webviewRenderer.addJavascriptInterface(AndroidJSBridge(), "AndroidHost")
-
-        // Append random query parameter to bypass dynamic WebView file caching aggressively
-        val cacheBusterUrl = "https://appassets.androidplatform.net/web/index.html?cb=" + System.currentTimeMillis()
-        binding.webviewRenderer.loadUrl(cacheBusterUrl)
     }
 
-    override fun onPause() {
-        super.onPause()
-        binding.webviewRenderer.evaluateJavascript("if(window.stopRenderLoop) window.stopRenderLoop();", null)
+    private fun readSchematicBytes(filePath: String?, uri: Uri?): ByteArray {
+        val stream: InputStream = if (filePath != null && File(filePath).exists()) {
+            FileInputStream(File(filePath))
+        } else if (uri != null) {
+            contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("Cannot open URI stream")
+        } else {
+            throw IllegalArgumentException("No file source provided")
+        }
+        return stream.use { it.readBytes() }
     }
 
-    override fun onResume() {
-        super.onResume()
-        binding.webviewRenderer.evaluateJavascript("if(window.startRenderLoop) window.startRenderLoop();", null)
+    private fun onSchematicLoaded(schematic: ParsedSchematic) {
+        binding.tvLoadingIndicator.visibility = View.GONE
+        if (schematic.regions.isEmpty()) {
+            Toast.makeText(this, R.string.no_regions, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        switchRegion(schematic.regions[0])
     }
 
-    override fun onDestroy() {
-        binding.webviewRenderer.evaluateJavascript("if(window.destroyRenderer) window.destroyRenderer();", null)
-        binding.webviewRenderer.loadUrl("about:blank")
-        binding.webviewRenderer.stopLoading()
-        binding.webviewRenderer.clearHistory()
-        binding.webviewRenderer.removeAllViews()
-        binding.webviewRenderer.destroy()
-        super.onDestroy()
+    private fun switchRegion(region: SchematicRegion) {
+        activeRegion = region
+
+        // Update layer slider range
+        binding.sliderLayer.valueFrom = 0.0f
+        binding.sliderLayer.valueTo = region.sizeY.toFloat()
+        binding.sliderLayer.value = region.sizeY.toFloat()
+        binding.tvLayerLabel.text = getString(R.string.layer_slice, region.sizeY, region.sizeY)
+
+        // Render region in Filament
+        binding.tvLoadingIndicator.visibility = View.VISIBLE
+        binding.tvLoadingIndicator.text = "构建网格..."
+
+        lifecycleScope.launch(Dispatchers.Default) {
+            // Calculate block statistics
+            val statsMap = mutableMapOf<String, Int>()
+            var totalBlocks = 0
+            for (i in 0 until region.blockIndices.size) {
+                val idx = region.blockIndices[i]
+                if (idx > 0) {
+                    val state = region.palette.getOrNull(idx)
+                    if (state != null && state.name != "minecraft:air" && state.name != "air") {
+                        val name = state.name
+                        statsMap[name] = (statsMap[name] ?: 0) + 1
+                        totalBlocks++
+                    }
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                engine.loadRegion(region) { progress ->
+                    binding.tvLoadingIndicator.text = "构建网格 $progress%"
+                }
+                binding.tvLoadingIndicator.visibility = View.GONE
+
+                // Update bottom sheet statistics
+                binding.bottomSheetRoot.tvStatsTotal.text = getString(R.string.stats_total, totalBlocks)
+                val statsList = statsMap.map { Pair(it.key, it.value) }.sortedByDescending { it.second }
+                statsAdapter.updateData(statsList)
+            }
+        }
     }
 
     private fun showRegionSelector() {
-        val displayList = if (regionNamesList.isEmpty()) listOf("Region1") else regionNamesList
-        val items = displayList.toTypedArray()
+        val schematic = parsedSchematic ?: return
+        if (schematic.regions.isEmpty()) return
+
+        val regionNames = schematic.regions.map { it.name }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(R.string.select_region)
-            .setItems(items) { _, which ->
-                val selectedRegion = items[which]
-                binding.webviewRenderer.evaluateJavascript("switchRegion('$selectedRegion');", null)
+            .setItems(regionNames) { _, which ->
+                switchRegion(schematic.regions[which])
             }
             .setNegativeButton(R.string.dialog_ok, null)
             .show()
     }
 
-    // Inner class for JS-Android communications
-    inner class AndroidJSBridge {
+    override fun onResume() {
+        super.onResume()
+        engine.startRendering()
+    }
 
-        @JavascriptInterface
-        fun onLoadingProgress(state: String) {
-            runOnUiThread {
-                if (state == "READY") {
-                    binding.llLoadingOverlay.visibility = View.VISIBLE
-                    binding.tvLoadingStatus.setText(R.string.loading)
-                    binding.webviewRenderer.evaluateJavascript("loadLitematic();", null)
-                } else if (state == "SUCCESS") {
-                    binding.llLoadingOverlay.visibility = View.GONE
-                } else if (state.startsWith("DECODING_")) {
-                    val pct = state.removePrefix("DECODING_").removeSuffix("%")
-                    binding.llLoadingOverlay.visibility = View.VISIBLE
-                    binding.tvLoadingStatus.text = "解析数据 $pct%"
-                } else if (state.startsWith("RENDERING_")) {
-                    // Remove "构建网格" prompt overlay during chunk rendering so 3D model is 100% visible
-                    binding.llLoadingOverlay.visibility = View.GONE
-                } else if (state.startsWith("ERROR:")) {
-                    binding.llLoadingOverlay.visibility = View.GONE
-                    Toast.makeText(this@PreviewActivity, state, Toast.LENGTH_LONG).show()
-                }
-            }
-        }
+    override fun onPause() {
+        super.onPause()
+        engine.stopRendering()
+    }
 
-        @JavascriptInterface
-        fun onRegionsParsed(regionsJsonStr: String) {
-            runOnUiThread {
-                try {
-                    val array = JSONArray(regionsJsonStr)
-                    val list = mutableListOf<String>()
-                    for (i in 0 until array.length()) {
-                        val regionName = array.getString(i)
-                        if (regionName.isNotEmpty() && regionName != "properties" && regionName != "constructor") {
-                            list.add(regionName)
-                        }
-                    }
-                    if (list.isEmpty()) {
-                        list.add("Region1")
-                    }
-                    regionNamesList = list
-                } catch (e: Exception) {
-                    Log.e("Lodestone", "Failed to parse region options JSON", e)
-                    regionNamesList = listOf("Region1")
-                }
-            }
-        }
-
-        @JavascriptInterface
-        fun onStatisticsUpdated(totalBlocks: Int, statsJsonStr: String) {
-            runOnUiThread {
-                try {
-                    binding.bottomSheetRoot.tvStatsTotal.text = getString(R.string.stats_total, totalBlocks)
-
-                    val list = mutableListOf<Pair<String, Int>>()
-                    val obj = JSONObject(statsJsonStr)
-                    val keys = obj.keys()
-                    while (keys.hasNext()) {
-                        val key = keys.next()
-                        val count = obj.getInt(key)
-                        list.add(Pair(key, count))
-                    }
-                    statsAdapter.updateData(list)
-                } catch (e: Exception) {
-                    Log.e("Lodestone", "Failed to parse block statistics JSON", e)
-                }
-            }
-        }
+    override fun onDestroy() {
+        engine.destroy()
+        super.onDestroy()
     }
 }
