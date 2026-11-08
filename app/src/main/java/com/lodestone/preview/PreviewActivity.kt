@@ -112,10 +112,31 @@ class PreviewActivity : AppCompatActivity() {
         binding.tvLoadingIndicator.visibility = View.VISIBLE
         binding.tvLoadingIndicator.text = getString(R.string.loading)
 
-        val filePath = intent.getStringExtra("file_path")
+        var filePath = intent.getStringExtra("file_path")
         val uriString = intent.getStringExtra("file_uri")
         fileUri = if (uriString != null) Uri.parse(uriString) else null
-        val fileName = intent.getStringExtra("file_name") ?: (if (filePath != null) File(filePath).name else "model.litematic")
+        if (fileUri == null && intent.data != null) {
+            fileUri = intent.data
+        }
+        if (filePath == null && fileUri != null && fileUri?.scheme == "file") {
+            filePath = fileUri?.path
+        }
+
+        // Try to query display name from content resolver if available
+        var resolvedName: String? = null
+        if (fileUri != null && fileUri?.scheme == "content") {
+            try {
+                contentResolver.query(fileUri!!, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIdx >= 0) resolvedName = cursor.getString(nameIdx)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        val fileName = intent.getStringExtra("file_name")
+            ?: resolvedName
+            ?: (if (filePath != null) File(filePath).name else "model.litematic")
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -144,9 +165,9 @@ class PreviewActivity : AppCompatActivity() {
         val stream: InputStream = if (filePath != null && File(filePath).exists()) {
             FileInputStream(File(filePath))
         } else if (uri != null) {
-            contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("Cannot open URI stream")
+            contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("Cannot open URI stream for: $uri")
         } else {
-            throw IllegalArgumentException("No file source provided")
+            throw IllegalArgumentException("No file source provided (filePath and intent data are both null)")
         }
         return stream.use { it.readBytes() }
     }

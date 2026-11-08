@@ -143,27 +143,29 @@ class FilamentSchematicEngine(private val context: Context) {
             // Load master atlas texture
             val isStream: InputStream = context.assets.open("web/default-pack/atlas.png")
             val bitmap = BitmapFactory.decodeStream(isStream)
-            val w = bitmap.width
-            val h = bitmap.height
+            if (bitmap != null) {
+                val w = bitmap.width
+                val h = bitmap.height
 
-            val tex = Texture.Builder()
-                .width(w)
-                .height(h)
-                .levels(1)
-                .sampler(Texture.Sampler.SAMPLER_2D)
-                .format(Texture.InternalFormat.RGBA8)
-                .build(engine)
+                val tex = Texture.Builder()
+                    .width(w)
+                    .height(h)
+                    .levels(1)
+                    .sampler(Texture.Sampler.SAMPLER_2D)
+                    .format(Texture.InternalFormat.RGBA8)
+                    .build(engine)
 
-            val byteBuffer = ByteBuffer.allocateDirect(w * h * 4)
-            bitmap.copyPixelsToBuffer(byteBuffer)
-            byteBuffer.rewind()
-            bitmap.recycle()
+                val byteBuffer = ByteBuffer.allocateDirect(w * h * 4)
+                bitmap.copyPixelsToBuffer(byteBuffer)
+                byteBuffer.rewind()
+                bitmap.recycle()
 
-            tex.setImage(
-                engine, 0,
-                Texture.PixelBufferDescriptor(byteBuffer, Texture.Format.RGBA, Texture.Type.UBYTE)
-            )
-            atlasTexture = tex
+                tex.setImage(
+                    engine, 0,
+                    Texture.PixelBufferDescriptor(byteBuffer, Texture.Format.RGBA, Texture.Type.UBYTE)
+                )
+                atlasTexture = tex
+            }
 
             // Create Ubershader unlit material instance
             val ubershaderProvider = UbershaderProvider(engine)
@@ -177,19 +179,24 @@ class FilamentSchematicEngine(private val context: Context) {
                 val baseMi = template.instance?.materialInstances?.firstOrNull()
                 if (baseMi != null) {
                     val mi = MaterialInstance.duplicate(baseMi, "minecraft-atlas-mat")
-                    if (mi.material.hasParameter("baseColorMap")) {
-                        val sampler = TextureSampler(
-                            TextureSampler.MinFilter.NEAREST,
-                            TextureSampler.MagFilter.NEAREST,
-                            TextureSampler.WrapMode.CLAMP_TO_EDGE
-                        )
-                        mi.setParameter("baseColorMap", tex, sampler)
+                    atlasTexture?.let { tex ->
+                        if (mi.material.hasParameter("baseColorMap")) {
+                            val sampler = TextureSampler(
+                                TextureSampler.MinFilter.NEAREST,
+                                TextureSampler.MagFilter.NEAREST,
+                                TextureSampler.WrapMode.CLAMP_TO_EDGE
+                            )
+                            mi.setParameter("baseColorMap", tex, sampler)
+                        }
                     }
                     materialInstance = mi
                 }
             }
+            if (materialInstance == null) {
+                android.util.Log.e("FilamentEngine", "Failed to create materialInstance from template asset")
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("FilamentEngine", "Error initializing material/texture", e)
         }
     }
 
@@ -397,7 +404,12 @@ class FilamentSchematicEngine(private val context: Context) {
     }
 
     private fun updateClearColor() {
-        val bg = if (isNightMode) floatArrayOf(0.016f, 0.031f, 0.063f, 1f) else floatArrayOf(0f, 0.169f, 0.212f, 1f)
+        // Shulkr dark theme: #121212 (day/default neutral dark) and #080808 (night)
+        val bg = if (isNightMode) {
+            floatArrayOf(0.031f, 0.031f, 0.031f, 1f) // #080808
+        } else {
+            floatArrayOf(0.071f, 0.071f, 0.071f, 1f) // #121212
+        }
         renderer.clearOptions = Renderer.ClearOptions().apply {
             clear = true
             clearColor = bg
