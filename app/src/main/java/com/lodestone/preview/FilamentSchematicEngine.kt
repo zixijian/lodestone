@@ -113,22 +113,22 @@ class FilamentSchematicEngine(private val context: Context) {
         filamentView.colorGrading = ColorGrading.Builder().toneMapper(ToneMapper.PBRNeutralToneMapper()).build(engine)
         updateClearColor()
 
-        // Sunlight
+        // Sunlight (from top-left-front)
         sunEntity = EntityManager.get().create()
         LightManager.Builder(LightManager.Type.DIRECTIONAL)
             .color(1f, 0.98f, 0.95f)
-            .intensity(100_000f)
-            .direction(0.6f, -1.0f, -0.8f)
+            .intensity(110_000f)
+            .direction(-0.5f, -1.0f, -0.8f)
             .castShadows(false)
             .build(engine, sunEntity)
         scene.addEntity(sunEntity)
 
-        // Fill Light
+        // Fill Light (from bottom-right-back)
         ambientEntity = EntityManager.get().create()
         LightManager.Builder(LightManager.Type.DIRECTIONAL)
             .color(0.85f, 0.92f, 1.0f)
-            .intensity(35_000f)
-            .direction(-0.6f, 0.8f, 0.5f)
+            .intensity(45_000f)
+            .direction(0.6f, 0.8f, 0.5f)
             .castShadows(false)
             .build(engine, ambientEntity)
         scene.addEntity(ambientEntity)
@@ -404,11 +404,11 @@ class FilamentSchematicEngine(private val context: Context) {
     }
 
     private fun updateClearColor() {
-        // Shulkr dark theme: #121212 (day/default neutral dark) and #080808 (night)
+        // Solarized Dark Base03: #002b36 (RGB: 0.0, 0.169, 0.212) and Night mode: #00171d (RGB: 0.0, 0.09, 0.114)
         val bg = if (isNightMode) {
-            floatArrayOf(0.031f, 0.031f, 0.031f, 1f) // #080808
+            floatArrayOf(0.0f, 0.090f, 0.114f, 1f)
         } else {
-            floatArrayOf(0.071f, 0.071f, 0.071f, 1f) // #121212
+            floatArrayOf(0.0f, 0.169f, 0.212f, 1f)
         }
         renderer.clearOptions = Renderer.ClearOptions().apply {
             clear = true

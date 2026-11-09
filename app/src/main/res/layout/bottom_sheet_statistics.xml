@@ -4,23 +4,23 @@
     android:id="@+id/bottom_sheet_layout"
     android:layout_width="match_parent"
     android:layout_height="350dp"
-    android:background="#1E1E1E"
+    android:background="@color/solarized_base02"
     app:behavior_hideable="false"
     app:behavior_peekHeight="64dp"
     app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
-    <!-- Handle drag visualizer -->
+    <!-- Handle Bar -->
     <View
-        android:id="@+id/drag_handle"
+        android:id="@+id/bottom_sheet_handle"
         android:layout_width="48dp"
         android:layout_height="4dp"
         android:layout_marginTop="8dp"
-        android:background="#4A4A4A"
+        android:background="@color/solarized_base01"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Total count header -->
+    <!-- Title Bar -->
     <TextView
         android:id="@+id/tv_stats_title"
         android:layout_width="wrap_content"
@@ -28,11 +28,11 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="16dp"
         android:text="@string/stats_title"
-        android:textColor="#38BDF8"
+        android:textColor="@color/solarized_cyan"
         android:textSize="18sp"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/drag_handle" />
+        app:layout_constraintTop_toBottomOf="@id/bottom_sheet_handle" />
 
     <TextView
         android:id="@+id/tv_stats_total"
@@ -40,34 +40,36 @@
         android:layout_height="wrap_content"
         android:layout_marginEnd="16dp"
         android:text="0"
-        android:textColor="#4ADE80"
+        android:textColor="@color/solarized_green"
         android:textSize="14sp"
         android:textStyle="bold"
         app:layout_constraintBottom_toBottomOf="@id/tv_stats_title"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@id/tv_stats_title"
-        tools:text="Total: 125,000" />
+        app:layout_constraintTop_toTopOf="@id/tv_stats_title" />
 
     <!-- Divider -->
     <View
-        android:id="@+id/header_divider"
+        android:id="@+id/divider"
         android:layout_width="0dp"
         android:layout_height="1dp"
         android:layout_marginTop="12dp"
-        android:background="#2E2E2E"
+        android:background="@color/solarized_base03"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tv_stats_title" />
 
-    <!-- RecyclerView for statistics items -->
+    <!-- Block List -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_statistics"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:padding="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:clipToPadding="false"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/header_divider" />
+        app:layout_constraintTop_toBottomOf="@id/divider"
+        tools:listitem="@layout/item_block_stats" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

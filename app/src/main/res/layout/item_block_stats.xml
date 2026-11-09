@@ -3,14 +3,17 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:padding="8dp">
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
 
     <TextView
         android:id="@+id/tv_block_name"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:textColor="#E5E7EB"
+        android:textColor="@color/solarized_base0"
         android:textSize="14sp"
         tools:text="minecraft:stone" />
 
@@ -18,7 +21,7 @@
         android:id="@+id/tv_block_count"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#9CA3AF"
+        android:textColor="@color/solarized_base1"
         android:textSize="14sp"
         android:textStyle="bold"
         tools:text="15,412" />

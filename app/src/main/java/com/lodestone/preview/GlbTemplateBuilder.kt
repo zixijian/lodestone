@@ -10,12 +10,13 @@ object GlbTemplateBuilder {
 
     private const val JSON = "{\"asset\":{\"version\":\"2.0\"},\"extensionsUsed\":[\"KHR_materials_unlit\"],\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"TEXCOORD_0\":1,\"COLOR_0\":2},\"material\":0}]}],\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,1,1,1],\"baseColorTexture\":{\"index\":0}},\"doubleSided\":true,\"extensions\":{\"KHR_materials_unlit\":{}}}],\"textures\":[{\"source\":0}],\"images\":[{\"bufferView\":3,\"mimeType\":\"image/png\"}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},{\"bufferView\":1,\"componentType\":5126,\"count\":3,\"type\":\"VEC2\"},{\"bufferView\":2,\"componentType\":5126,\"count\":3,\"type\":\"VEC4\"}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":24},{\"buffer\":0,\"byteOffset\":60,\"byteLength\":48},{\"buffer\":0,\"byteOffset\":108,\"byteLength\":68}],\"buffers\":[{\"byteLength\":176}]}"
 
-    // 1x1 White PNG
+    // 1x1 White PNG (68 bytes)
     private val WHITE_PNG = byteArrayOf(
         -119, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
         0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, -60,
-        -119, 0, 0, 0, 11, 73, 68, 65, 84, 120, 1, 99, -8, -1, -1, 63,
-        0, 5, -2, 2, -2, -90, -85, 98, 109, 0, 0, 0, 0, 73, 69, 78, 68, -82, 66, 96, -126
+        -119, 0, 0, 0, 11, 73, 68, 65, 84, 120, -100, 99, -8, 15, 4, 0,
+        9, -5, 3, -3, -96, 122, 78, -98, 0, 0, 0, 0, 73, 69, 78, 68,
+        -82, 66, 96, -126
     )
 
     fun createGlb(): ByteBuffer {

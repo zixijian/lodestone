@@ -79,6 +79,18 @@ class PreviewActivity : AppCompatActivity() {
             )
         }
 
+        // Layer Slice visibility toggle button (Default hidden)
+        binding.btnLayerSlice.setOnClickListener {
+            val isCurrentlyVisible = binding.llLayerSlicer.visibility == View.VISIBLE
+            if (isCurrentlyVisible) {
+                binding.llLayerSlicer.visibility = View.GONE
+                binding.btnLayerSlice.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.solarized_base0))
+            } else {
+                binding.llLayerSlicer.visibility = View.VISIBLE
+                binding.btnLayerSlice.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.solarized_cyan))
+            }
+        }
+
         // Reset camera
         binding.btnResetCamera.setOnClickListener {
             engine.resetCamera()
