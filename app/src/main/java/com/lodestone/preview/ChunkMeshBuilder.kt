@@ -5,6 +5,7 @@ import java.nio.ByteOrder
 
 /**
  * Builds 3D geometry with 16x16x16 chunk partitioning and neighbor face culling.
+ * Resolves face-specific UVs (top/bottom/sides/front) for full fidelity.
  * Yields compact vertex/index buffers ready for Filament renderables.
  */
 class ChunkMeshBuilder {
@@ -63,70 +64,73 @@ class ChunkMeshBuilder {
 
                     val isOpaque = AtlasManager.isOpaque(name)
                     val isFluid = AtlasManager.isFluid(name)
-
-                    // Get texture coordinates
-                    val texName = name.removePrefix("minecraft:")
-                    val uv = AtlasManager.getUV(texName)
+                    val props = state.properties
 
                     // Face culling: Check 6 neighbors
-                    // +Y (Top)
+                    // +Y (Top, face 0)
                     if (shouldRenderFace(region, x, y + 1, z, isOpaque, isFluid, maxY)) {
+                        val uvTop = AtlasManager.getFaceUV(name, 0, props)
                         addQuad(
                             x.toFloat(), (y + 1).toFloat(), z.toFloat(),
                             (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
                             (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
                             x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            uv, 1.0f, name, state.properties
+                            uvTop, 1.0f, name, props
                         )
                     }
-                    // -Y (Bottom)
+                    // -Y (Bottom, face 1)
                     if (shouldRenderFace(region, x, y - 1, z, isOpaque, isFluid, maxY)) {
+                        val uvBot = AtlasManager.getFaceUV(name, 1, props)
                         addQuad(
                             x.toFloat(), y.toFloat(), (z + 1).toFloat(),
                             (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
                             (x + 1).toFloat(), y.toFloat(), z.toFloat(),
                             x.toFloat(), y.toFloat(), z.toFloat(),
-                            uv, 0.5f, name, state.properties
+                            uvBot, 0.5f, name, props
                         )
                     }
-                    // +Z (South)
+                    // +Z (South, face 2)
                     if (shouldRenderFace(region, x, y, z + 1, isOpaque, isFluid, maxY)) {
+                        val uvSouth = AtlasManager.getFaceUV(name, 2, props)
                         addQuad(
                             x.toFloat(), y.toFloat(), (z + 1).toFloat(),
                             (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
                             (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
                             x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            uv, 0.8f, name, state.properties
+                            uvSouth, 0.8f, name, props
                         )
                     }
-                    // -Z (North)
+                    // -Z (North, face 3)
                     if (shouldRenderFace(region, x, y, z - 1, isOpaque, isFluid, maxY)) {
+                        val uvNorth = AtlasManager.getFaceUV(name, 3, props)
                         addQuad(
                             (x + 1).toFloat(), y.toFloat(), z.toFloat(),
                             x.toFloat(), y.toFloat(), z.toFloat(),
                             x.toFloat(), (y + 1).toFloat(), z.toFloat(),
                             (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
-                            uv, 0.8f, name, state.properties
+                            uvNorth, 0.8f, name, props
                         )
                     }
-                    // +X (East)
+                    // +X (East, face 4)
                     if (shouldRenderFace(region, x + 1, y, z, isOpaque, isFluid, maxY)) {
+                        val uvEast = AtlasManager.getFaceUV(name, 4, props)
                         addQuad(
                             (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
                             (x + 1).toFloat(), y.toFloat(), z.toFloat(),
                             (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
                             (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            uv, 0.6f, name, state.properties
+                            uvEast, 0.6f, name, props
                         )
                     }
-                    // -X (West)
+                    // -X (West, face 5)
                     if (shouldRenderFace(region, x - 1, y, z, isOpaque, isFluid, maxY)) {
+                        val uvWest = AtlasManager.getFaceUV(name, 5, props)
                         addQuad(
                             x.toFloat(), y.toFloat(), z.toFloat(),
                             x.toFloat(), y.toFloat(), (z + 1).toFloat(),
                             x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
                             x.toFloat(), (y + 1).toFloat(), z.toFloat(),
-                            uv, 0.6f, name, state.properties
+                            uvWest, 0.6f, name, props
                         )
                     }
                 }
@@ -198,16 +202,26 @@ class ChunkMeshBuilder {
         var cb = lightMult
         val ca = 1.0f
 
-        if (blockName.contains("redstone_wire")) {
+        val clean = blockName.removePrefix("minecraft:")
+        if (clean.contains("redstone_wire")) {
             val power = props["power"]?.toIntOrNull() ?: 0
             val pNorm = power / 15f
             cr = (0.4f + 0.6f * pNorm) * lightMult
             cg = (0.05f * pNorm) * lightMult
             cb = 0f
-        } else if (blockName.contains("water")) {
+        } else if (clean.contains("water")) {
             cr *= 0.24f
             cg *= 0.46f
             cb *= 0.89f
+        } else if (clean == "grass_block" && uv[0] == AtlasManager.getFaceUV("grass_block", 0)[0]) {
+            // Grass block top grass tint (foliage green)
+            cr *= 0.54f
+            cg *= 0.77f
+            cb *= 0.35f
+        } else if (clean.contains("leaves")) {
+            cr *= 0.45f
+            cg *= 0.70f
+            cb *= 0.25f
         }
 
         for (i in 0 until 4) {

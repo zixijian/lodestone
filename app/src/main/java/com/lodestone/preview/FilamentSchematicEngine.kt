@@ -379,16 +379,15 @@ class FilamentSchematicEngine(private val context: Context) {
 
     fun toggleDayNight(): Boolean {
         isNightMode = !isNightMode
-        updateClearColor()
         val lm = engine.lightManager
         val sun = lm.getInstance(sunEntity)
         val amb = lm.getInstance(ambientEntity)
         if (isNightMode) {
-            if (sun != 0) lm.setIntensity(sun, 12_000f)
-            if (amb != 0) lm.setIntensity(amb, 15_000f)
+            if (sun != 0) lm.setIntensity(sun, 15_000f)
+            if (amb != 0) lm.setIntensity(amb, 18_000f)
         } else {
-            if (sun != 0) lm.setIntensity(sun, 100_000f)
-            if (amb != 0) lm.setIntensity(amb, 35_000f)
+            if (sun != 0) lm.setIntensity(sun, 110_000f)
+            if (amb != 0) lm.setIntensity(amb, 40_000f)
         }
         return isNightMode
     }
@@ -404,12 +403,9 @@ class FilamentSchematicEngine(private val context: Context) {
     }
 
     private fun updateClearColor() {
-        // Solarized Dark Base03: #002b36 (RGB: 0.0, 0.169, 0.212) and Night mode: #00171d (RGB: 0.0, 0.09, 0.114)
-        val bg = if (isNightMode) {
-            floatArrayOf(0.0f, 0.090f, 0.114f, 1f)
-        } else {
-            floatArrayOf(0.0f, 0.169f, 0.212f, 1f)
-        }
+        // Shulkr exact dark neutral background: #1a1a1a (sRGB ~0.102f, 0.102f, 0.102f).
+        // Stays strictly identical regardless of day/night lighting toggle.
+        val bg = floatArrayOf(0.102f, 0.102f, 0.102f, 1f)
         renderer.clearOptions = Renderer.ClearOptions().apply {
             clear = true
             clearColor = bg

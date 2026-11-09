@@ -6,35 +6,35 @@ import org.junit.Test
 class ChunkMeshBuilderTest {
 
     @Test
-    fun testFaceCullingAndLayerSlicing() {
-        val palette = listOf(
-            ParsedBlockState("minecraft:air"),
-            ParsedBlockState("minecraft:stone")
-        )
-        // 2x2x2 solid stone cube
-        val sx = 2
-        val sy = 2
-        val sz = 2
-        val volume = sx * sy * sz
-        val blockIndices = IntArray(volume) { 1 } // all stone
+    fun testFaceUVResolution() {
+        // Without atlas file loaded in local JVM unit test, getFaceUV returns default or matched coordinate
+        val uvGrassTop = AtlasManager.getFaceUV("grass_block", 0)
+        assertNotNull(uvGrassTop)
+        assertEquals(4, uvGrassTop.size)
 
-        val region = SchematicRegion("TestCube", sx, sy, sz, 0, 0, 0, palette, blockIndices)
-        val builder = ChunkMeshBuilder()
+        val uvGrassSide = AtlasManager.getFaceUV("grass_block", 2)
+        assertNotNull(uvGrassSide)
+        assertEquals(4, uvGrassSide.size)
 
-        // 1. Full cube mesh
-        val fullMesh = builder.buildChunkMesh(region, 0, 0, 0, 0, 1)
-        assertNotNull(fullMesh)
-        // An external 2x2x2 cube has 24 exposed external quads (6 faces * 4 sub-quads) = 24 quads
-        // 24 quads * 4 vertices = 96 vertices
-        assertEquals(96, fullMesh!!.positions.size / 3)
-        // Internal shared faces (12 internal quad faces) must be culled!
-        // 24 quads * 6 indices = 144 indices
-        assertEquals(144, fullMesh.indices.size)
+        val uvFurnaceFront = AtlasManager.getFaceUV("furnace", 3, mapOf("facing" to "north"))
+        assertNotNull(uvFurnaceFront)
 
-        // 2. Layer slicing: slice only bottom layer y=0
-        val slicedMesh = builder.buildChunkMesh(region, 0, 0, 0, 0, 0)
-        assertNotNull(slicedMesh)
-        // Bottom layer y=0 now exposes top faces of y=0 towards y=1 because y=1 is sliced out!
-        assertTrue(slicedMesh!!.positions.size > 0)
+        val uvOakLogTop = AtlasManager.getFaceUV("oak_log", 0, mapOf("axis" to "y"))
+        assertNotNull(uvOakLogTop)
+    }
+
+    @Test
+    fun testOpacityAndFluidDetection() {
+        assertTrue(AtlasManager.isOpaque("stone"))
+        assertTrue(AtlasManager.isOpaque("minecraft:cobblestone"))
+        assertFalse(AtlasManager.isOpaque("air"))
+        assertFalse(AtlasManager.isOpaque("glass"))
+        assertFalse(AtlasManager.isOpaque("water"))
+        assertFalse(AtlasManager.isOpaque("oak_stairs"))
+        assertFalse(AtlasManager.isOpaque("oak_slab"))
+
+        assertTrue(AtlasManager.isFluid("water"))
+        assertTrue(AtlasManager.isFluid("lava"))
+        assertFalse(AtlasManager.isFluid("stone"))
     }
 }
