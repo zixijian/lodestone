@@ -97,29 +97,29 @@ class ChunkMeshBuilder {
         }
 
         // 2. Fallback full cube rendering with neighbor culling
-        // +Y (Top, face 0)
+        // +Y (Top, face 0) -> [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]
         if (shouldRenderFace(region, x, y + 1, z, isOpaque, false, maxY)) {
             val uvTop = AtlasManager.getFaceUV(name, 0, props)
             addQuad(
-                x.toFloat(), (y + 1).toFloat(), z.toFloat(),
-                (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
-                (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
                 x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
+                (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
+                (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
+                x.toFloat(), (y + 1).toFloat(), z.toFloat(),
                 uvTop, 1.0f, name, props
             )
         }
-        // -Y (Bottom, face 1)
+        // -Y (Bottom, face 1) -> [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]
         if (shouldRenderFace(region, x, y - 1, z, isOpaque, false, maxY)) {
             val uvBot = AtlasManager.getFaceUV(name, 1, props)
             addQuad(
-                x.toFloat(), y.toFloat(), (z + 1).toFloat(),
-                (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
-                (x + 1).toFloat(), y.toFloat(), z.toFloat(),
                 x.toFloat(), y.toFloat(), z.toFloat(),
+                (x + 1).toFloat(), y.toFloat(), z.toFloat(),
+                (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
+                x.toFloat(), y.toFloat(), (z + 1).toFloat(),
                 uvBot, 0.5f, name, props
             )
         }
-        // +Z (South, face 2)
+        // +Z (South, face 2) -> [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]
         if (shouldRenderFace(region, x, y, z + 1, isOpaque, false, maxY)) {
             val uvSouth = AtlasManager.getFaceUV(name, 2, props)
             addQuad(
@@ -130,7 +130,7 @@ class ChunkMeshBuilder {
                 uvSouth, 0.8f, name, props
             )
         }
-        // -Z (North, face 3)
+        // -Z (North, face 3) -> [x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]
         if (shouldRenderFace(region, x, y, z - 1, isOpaque, false, maxY)) {
             val uvNorth = AtlasManager.getFaceUV(name, 3, props)
             addQuad(
@@ -141,7 +141,7 @@ class ChunkMeshBuilder {
                 uvNorth, 0.8f, name, props
             )
         }
-        // +X (East, face 4)
+        // +X (East, face 4) -> [x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]
         if (shouldRenderFace(region, x + 1, y, z, isOpaque, false, maxY)) {
             val uvEast = AtlasManager.getFaceUV(name, 4, props)
             addQuad(
@@ -152,7 +152,7 @@ class ChunkMeshBuilder {
                 uvEast, 0.6f, name, props
             )
         }
-        // -X (West, face 5)
+        // -X (West, face 5) -> [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]
         if (shouldRenderFace(region, x - 1, y, z, isOpaque, false, maxY)) {
             val uvWest = AtlasManager.getFaceUV(name, 5, props)
             addQuad(
@@ -289,16 +289,16 @@ class ChunkMeshBuilder {
     ): Array<FloatArray> {
         return when (face) {
             "up" -> arrayOf(
-                floatArrayOf(x0, y1, z0),
-                floatArrayOf(x1, y1, z0),
+                floatArrayOf(x0, y1, z1),
                 floatArrayOf(x1, y1, z1),
-                floatArrayOf(x0, y1, z1)
+                floatArrayOf(x1, y1, z0),
+                floatArrayOf(x0, y1, z0)
             )
             "down" -> arrayOf(
-                floatArrayOf(x0, y0, z1),
-                floatArrayOf(x1, y0, z1),
+                floatArrayOf(x0, y0, z0),
                 floatArrayOf(x1, y0, z0),
-                floatArrayOf(x0, y0, z0)
+                floatArrayOf(x1, y0, z1),
+                floatArrayOf(x0, y0, z1)
             )
             "south" -> arrayOf(
                 floatArrayOf(x0, y0, z1),
