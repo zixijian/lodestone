@@ -119,7 +119,6 @@ object AtlasManager {
 
         // Logs and Wood
         if (name.endsWith("_log") || name.endsWith("_wood") || name.endsWith("_stem") || name.endsWith("_hyphae")) {
-            val isAxisY = axis == "y"
             val isTopFace = when (axis) {
                 "x" -> face == 4 || face == 5
                 "z" -> face == 2 || face == 3
@@ -132,22 +131,60 @@ object AtlasManager {
             if (spriteCoords.containsKey(name)) return name
         }
 
-        // Furnace / Smoker / Blast furnace
-        if (name == "furnace" || name == "smoker" || name == "blast_furnace") {
-            if (face == 0) return "${name}_top"
-            if (face == 1) return "${name}_top"
+        // Directional blocks with front/side/top: Furnace, Smoker, Blast Furnace, Dispenser, Dropper, Observer
+        if (name == "furnace" || name == "smoker" || name == "blast_furnace" ||
+            name == "dispenser" || name == "dropper" || name == "observer") {
             val isFront = when (facing) {
                 "north" -> face == 3
                 "south" -> face == 2
                 "west" -> face == 5
                 "east" -> face == 4
+                "up" -> face == 0
+                "down" -> face == 1
                 else -> face == 3
             }
             if (isFront) {
-                val frontCandidate = if (lit) "${name}_front_on" else "${name}_front"
-                if (spriteCoords.containsKey(frontCandidate)) return frontCandidate
+                val frontCand = if (lit) "${name}_front_on" else "${name}_front"
+                if (spriteCoords.containsKey(frontCand)) return frontCand
             }
-            return "${name}_side"
+            if (face == 0) {
+                val topCand = "${name}_top"
+                if (spriteCoords.containsKey(topCand)) return topCand
+            }
+            if (face == 1) {
+                val botCand = "${name}_bottom"
+                if (spriteCoords.containsKey(botCand)) return botCand
+            }
+            val sideCand = "${name}_side"
+            if (spriteCoords.containsKey(sideCand)) return sideCand
+            return name
+        }
+
+        // Pistons
+        if (name == "piston" || name == "sticky_piston") {
+            val isFront = when (facing) {
+                "up" -> face == 0
+                "down" -> face == 1
+                "north" -> face == 3
+                "south" -> face == 2
+                "west" -> face == 5
+                "east" -> face == 4
+                else -> face == 0
+            }
+            if (isFront) {
+                return if (name == "sticky_piston") "piston_top_sticky" else "piston_top"
+            }
+            val isBack = when (facing) {
+                "up" -> face == 1
+                "down" -> face == 0
+                "north" -> face == 2
+                "south" -> face == 3
+                "west" -> face == 4
+                "east" -> face == 5
+                else -> face == 1
+            }
+            if (isBack) return "piston_bottom"
+            return "piston_side"
         }
 
         // Crafting table

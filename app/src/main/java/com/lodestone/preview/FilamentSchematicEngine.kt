@@ -403,9 +403,9 @@ class FilamentSchematicEngine(private val context: Context) {
     }
 
     private fun updateClearColor() {
-        // Shulkr exact dark neutral background: #1a1a1a (sRGB ~0.102f, 0.102f, 0.102f).
+        // Shulkr exact deep near-black background: #0c0c0c (sRGB ~0.047f, 0.047f, 0.047f).
         // Stays strictly identical regardless of day/night lighting toggle.
-        val bg = floatArrayOf(0.102f, 0.102f, 0.102f, 1f)
+        val bg = floatArrayOf(0.047f, 0.047f, 0.047f, 1f)
         renderer.clearOptions = Renderer.ClearOptions().apply {
             clear = true
             clearColor = bg

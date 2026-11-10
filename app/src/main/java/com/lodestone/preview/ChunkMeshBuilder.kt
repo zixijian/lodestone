@@ -66,72 +66,10 @@ class ChunkMeshBuilder {
                     val isFluid = AtlasManager.isFluid(name)
                     val props = state.properties
 
-                    // Face culling: Check 6 neighbors
-                    // +Y (Top, face 0)
-                    if (shouldRenderFace(region, x, y + 1, z, isOpaque, isFluid, maxY)) {
-                        val uvTop = AtlasManager.getFaceUV(name, 0, props)
-                        addQuad(
-                            x.toFloat(), (y + 1).toFloat(), z.toFloat(),
-                            (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
-                            (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            uvTop, 1.0f, name, props
-                        )
-                    }
-                    // -Y (Bottom, face 1)
-                    if (shouldRenderFace(region, x, y - 1, z, isOpaque, isFluid, maxY)) {
-                        val uvBot = AtlasManager.getFaceUV(name, 1, props)
-                        addQuad(
-                            x.toFloat(), y.toFloat(), (z + 1).toFloat(),
-                            (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
-                            (x + 1).toFloat(), y.toFloat(), z.toFloat(),
-                            x.toFloat(), y.toFloat(), z.toFloat(),
-                            uvBot, 0.5f, name, props
-                        )
-                    }
-                    // +Z (South, face 2)
-                    if (shouldRenderFace(region, x, y, z + 1, isOpaque, isFluid, maxY)) {
-                        val uvSouth = AtlasManager.getFaceUV(name, 2, props)
-                        addQuad(
-                            x.toFloat(), y.toFloat(), (z + 1).toFloat(),
-                            (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
-                            (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            uvSouth, 0.8f, name, props
-                        )
-                    }
-                    // -Z (North, face 3)
-                    if (shouldRenderFace(region, x, y, z - 1, isOpaque, isFluid, maxY)) {
-                        val uvNorth = AtlasManager.getFaceUV(name, 3, props)
-                        addQuad(
-                            (x + 1).toFloat(), y.toFloat(), z.toFloat(),
-                            x.toFloat(), y.toFloat(), z.toFloat(),
-                            x.toFloat(), (y + 1).toFloat(), z.toFloat(),
-                            (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
-                            uvNorth, 0.8f, name, props
-                        )
-                    }
-                    // +X (East, face 4)
-                    if (shouldRenderFace(region, x + 1, y, z, isOpaque, isFluid, maxY)) {
-                        val uvEast = AtlasManager.getFaceUV(name, 4, props)
-                        addQuad(
-                            (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
-                            (x + 1).toFloat(), y.toFloat(), z.toFloat(),
-                            (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
-                            (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            uvEast, 0.6f, name, props
-                        )
-                    }
-                    // -X (West, face 5)
-                    if (shouldRenderFace(region, x - 1, y, z, isOpaque, isFluid, maxY)) {
-                        val uvWest = AtlasManager.getFaceUV(name, 5, props)
-                        addQuad(
-                            x.toFloat(), y.toFloat(), z.toFloat(),
-                            x.toFloat(), y.toFloat(), (z + 1).toFloat(),
-                            x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                            x.toFloat(), (y + 1).toFloat(), z.toFloat(),
-                            uvWest, 0.6f, name, props
-                        )
+                    if (isFluid) {
+                        buildFluidBlock(region, x, y, z, name, props, maxY)
+                    } else {
+                        buildSolidBlock(region, x, y, z, name, props, isOpaque, maxY)
                     }
                 }
             }
@@ -139,6 +77,318 @@ class ChunkMeshBuilder {
 
         if (positions.size == 0) return null
         return MeshData(positions.toArray(), uvs.toArray(), colors.toArray(), indices.toArray())
+    }
+
+    private fun buildSolidBlock(
+        region: SchematicRegion,
+        x: Int,
+        y: Int,
+        z: Int,
+        name: String,
+        props: Map<String, String>,
+        isOpaque: Boolean,
+        maxY: Int
+    ) {
+        // Handle slabs
+        val clean = name.removePrefix("minecraft:")
+        if (clean.endsWith("_slab") && !clean.contains("double")) {
+            val type = props["type"] ?: "bottom"
+            val y0 = if (type == "top") (y + 0.5f) else y.toFloat()
+            val y1 = if (type == "top") (y + 1f) else (y + 0.5f)
+
+            // Top
+            val uvTop = AtlasManager.getFaceUV(name, 0, props)
+            addQuad(
+                x.toFloat(), y1, z.toFloat(),
+                (x + 1).toFloat(), y1, z.toFloat(),
+                (x + 1).toFloat(), y1, (z + 1).toFloat(),
+                x.toFloat(), y1, (z + 1).toFloat(),
+                uvTop, 1.0f, name, props
+            )
+            // Bottom
+            val uvBot = AtlasManager.getFaceUV(name, 1, props)
+            addQuad(
+                x.toFloat(), y0, (z + 1).toFloat(),
+                (x + 1).toFloat(), y0, (z + 1).toFloat(),
+                (x + 1).toFloat(), y0, z.toFloat(),
+                x.toFloat(), y0, z.toFloat(),
+                uvBot, 0.5f, name, props
+            )
+            // Sides
+            val uvSide = AtlasManager.getFaceUV(name, 2, props)
+            // South
+            addQuad(
+                x.toFloat(), y0, (z + 1).toFloat(),
+                (x + 1).toFloat(), y0, (z + 1).toFloat(),
+                (x + 1).toFloat(), y1, (z + 1).toFloat(),
+                x.toFloat(), y1, (z + 1).toFloat(),
+                uvSide, 0.8f, name, props
+            )
+            // North
+            addQuad(
+                (x + 1).toFloat(), y0, z.toFloat(),
+                x.toFloat(), y0, z.toFloat(),
+                x.toFloat(), y1, z.toFloat(),
+                (x + 1).toFloat(), y1, z.toFloat(),
+                uvSide, 0.8f, name, props
+            )
+            // East
+            addQuad(
+                (x + 1).toFloat(), y0, (z + 1).toFloat(),
+                (x + 1).toFloat(), y0, z.toFloat(),
+                (x + 1).toFloat(), y1, z.toFloat(),
+                (x + 1).toFloat(), y1, (z + 1).toFloat(),
+                uvSide, 0.6f, name, props
+            )
+            // West
+            addQuad(
+                x.toFloat(), y0, z.toFloat(),
+                x.toFloat(), y0, (z + 1).toFloat(),
+                x.toFloat(), y1, (z + 1).toFloat(),
+                x.toFloat(), y1, z.toFloat(),
+                uvSide, 0.6f, name, props
+            )
+            return
+        }
+
+        // Full cubes / standard blocks
+        // +Y (Top, face 0)
+        if (shouldRenderFace(region, x, y + 1, z, isOpaque, false, maxY)) {
+            val uvTop = AtlasManager.getFaceUV(name, 0, props)
+            addQuad(
+                x.toFloat(), (y + 1).toFloat(), z.toFloat(),
+                (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
+                (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
+                x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
+                uvTop, 1.0f, name, props
+            )
+        }
+        // -Y (Bottom, face 1)
+        if (shouldRenderFace(region, x, y - 1, z, isOpaque, false, maxY)) {
+            val uvBot = AtlasManager.getFaceUV(name, 1, props)
+            addQuad(
+                x.toFloat(), y.toFloat(), (z + 1).toFloat(),
+                (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
+                (x + 1).toFloat(), y.toFloat(), z.toFloat(),
+                x.toFloat(), y.toFloat(), z.toFloat(),
+                uvBot, 0.5f, name, props
+            )
+        }
+        // +Z (South, face 2)
+        if (shouldRenderFace(region, x, y, z + 1, isOpaque, false, maxY)) {
+            val uvSouth = AtlasManager.getFaceUV(name, 2, props)
+            addQuad(
+                x.toFloat(), y.toFloat(), (z + 1).toFloat(),
+                (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
+                (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
+                x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
+                uvSouth, 0.8f, name, props
+            )
+        }
+        // -Z (North, face 3)
+        if (shouldRenderFace(region, x, y, z - 1, isOpaque, false, maxY)) {
+            val uvNorth = AtlasManager.getFaceUV(name, 3, props)
+            addQuad(
+                (x + 1).toFloat(), y.toFloat(), z.toFloat(),
+                x.toFloat(), y.toFloat(), z.toFloat(),
+                x.toFloat(), (y + 1).toFloat(), z.toFloat(),
+                (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
+                uvNorth, 0.8f, name, props
+            )
+        }
+        // +X (East, face 4)
+        if (shouldRenderFace(region, x + 1, y, z, isOpaque, false, maxY)) {
+            val uvEast = AtlasManager.getFaceUV(name, 4, props)
+            addQuad(
+                (x + 1).toFloat(), y.toFloat(), (z + 1).toFloat(),
+                (x + 1).toFloat(), y.toFloat(), z.toFloat(),
+                (x + 1).toFloat(), (y + 1).toFloat(), z.toFloat(),
+                (x + 1).toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
+                uvEast, 0.6f, name, props
+            )
+        }
+        // -X (West, face 5)
+        if (shouldRenderFace(region, x - 1, y, z, isOpaque, false, maxY)) {
+            val uvWest = AtlasManager.getFaceUV(name, 5, props)
+            addQuad(
+                x.toFloat(), y.toFloat(), z.toFloat(),
+                x.toFloat(), y.toFloat(), (z + 1).toFloat(),
+                x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
+                x.toFloat(), (y + 1).toFloat(), z.toFloat(),
+                uvWest, 0.6f, name, props
+            )
+        }
+    }
+
+    private fun getFluidHeight(region: SchematicRegion, fx: Int, fy: Int, fz: Int): Float {
+        if (fx !in 0 until region.sizeX || fy !in 0 until region.sizeY || fz !in 0 until region.sizeZ) {
+            return -1f
+        }
+        val idx = region.getBlockIndex(fx, fy, fz)
+        if (idx == 0) return -1f
+        val state = region.palette.getOrNull(idx) ?: return -1f
+        if (!AtlasManager.isFluid(state.name)) return -1f
+
+        // If block above is also fluid, this column is full 1.0 (16/16)
+        if (fy + 1 < region.sizeY) {
+            val aboveIdx = region.getBlockIndex(fx, fy + 1, fz)
+            if (aboveIdx > 0) {
+                val aboveState = region.palette.getOrNull(aboveIdx)
+                if (aboveState != null && AtlasManager.isFluid(aboveState.name)) {
+                    return 1.0f
+                }
+            }
+        }
+
+        val levelStr = state.properties["level"] ?: "0"
+        val level = levelStr.toIntOrNull() ?: 0
+        if (level >= 8) return 1.0f
+        // Minecraft fluid levels: 0 is highest (8/9), 7 is lowest (1/9)
+        val table = floatArrayOf(
+            14.2f / 16f, 12.5f / 16f, 10.5f / 16f, 9.0f / 16f,
+            7.0f / 16f, 5.3f / 16f, 3.7f / 16f, 1.9f / 16f
+        )
+        return table.getOrElse(level and 7) { 14.2f / 16f }
+    }
+
+    private fun getCornerFluidHeight(
+        region: SchematicRegion,
+        x: Int,
+        y: Int,
+        z: Int,
+        cornerCols: Array<IntArray>,
+        defH: Float
+    ): Float {
+        var sum = 0f
+        var count = 0
+        var maxH = -1f
+        var hasFull = false
+
+        for (col in cornerCols) {
+            val h = getFluidHeight(region, col[0], y, col[1])
+            if (h >= 0f) {
+                sum += h
+                count++
+                if (h > maxH) maxH = h
+                if (h >= 1.0f) hasFull = true
+            }
+        }
+        if (count == 0) return defH
+        if (hasFull) return 1.0f
+        val avg = sum / count
+        return minOf(avg, if (maxH >= 0f) maxH else defH)
+    }
+
+    private fun buildFluidBlock(
+        region: SchematicRegion,
+        x: Int,
+        y: Int,
+        z: Int,
+        name: String,
+        props: Map<String, String>,
+        maxY: Int
+    ) {
+        val aboveIdx = if (y + 1 < region.sizeY) region.getBlockIndex(x, y + 1, z) else 0
+        val aboveState = region.palette.getOrNull(aboveIdx)
+        val isAboveFluid = aboveState != null && AtlasManager.isFluid(aboveState.name)
+
+        val defaultH = if (isAboveFluid) 1.0f else {
+            val lvl = props["level"]?.toIntOrNull() ?: 0
+            if (lvl >= 8) 1.0f else (14.2f / 16f)
+        }
+
+        val hNW: Float
+        val hNE: Float
+        val hSE: Float
+        val hSW: Float
+
+        if (isAboveFluid) {
+            hNW = 1.0f; hNE = 1.0f; hSE = 1.0f; hSW = 1.0f
+        } else {
+            hNW = getCornerFluidHeight(region, x, y, z, arrayOf(intArrayOf(x - 1, z - 1), intArrayOf(x - 1, z), intArrayOf(x, z - 1), intArrayOf(x, z)), defaultH)
+            hNE = getCornerFluidHeight(region, x, y, z, arrayOf(intArrayOf(x, z - 1), intArrayOf(x + 1, z - 1), intArrayOf(x, z), intArrayOf(x + 1, z)), defaultH)
+            hSE = getCornerFluidHeight(region, x, y, z, arrayOf(intArrayOf(x, z), intArrayOf(x + 1, z), intArrayOf(x, z + 1), intArrayOf(x + 1, z + 1)), defaultH)
+            hSW = getCornerFluidHeight(region, x, y, z, arrayOf(intArrayOf(x - 1, z), intArrayOf(x, z), intArrayOf(x - 1, z + 1), intArrayOf(x, z + 1)), defaultH)
+        }
+
+        val fx0 = x.toFloat()
+        val fx1 = (x + 1).toFloat()
+        val fz0 = z.toFloat()
+        val fz1 = (z + 1).toFloat()
+        val fy0 = y.toFloat()
+
+        // Top face
+        if (!isAboveFluid) {
+            val uvTop = AtlasManager.getFaceUV(name, 0, props)
+            // Corners: SW(fx0, fz1), SE(fx1, fz1), NE(fx1, fz0), NW(fx0, fz0)
+            addQuad(
+                fx0, fy0 + hSW, fz1,
+                fx1, fy0 + hSE, fz1,
+                fx1, fy0 + hNE, fz0,
+                fx0, fy0 + hNW, fz0,
+                uvTop, 1.0f, name, props
+            )
+        }
+
+        // Bottom face
+        if (shouldRenderFace(region, x, y - 1, z, false, true, maxY)) {
+            val uvBot = AtlasManager.getFaceUV(name, 1, props)
+            addQuad(
+                fx0, fy0, fz1,
+                fx1, fy0, fz1,
+                fx1, fy0, fz0,
+                fx0, fy0, fz0,
+                uvBot, 0.5f, name, props
+            )
+        }
+
+        // South face (+Z)
+        if (shouldRenderFace(region, x, y, z + 1, false, true, maxY)) {
+            val uvSide = AtlasManager.getFaceUV(name, 2, props)
+            addQuad(
+                fx0, fy0, fz1,
+                fx1, fy0, fz1,
+                fx1, fy0 + hSE, fz1,
+                fx0, fy0 + hSW, fz1,
+                uvSide, 0.8f, name, props
+            )
+        }
+
+        // North face (-Z)
+        if (shouldRenderFace(region, x, y, z - 1, false, true, maxY)) {
+            val uvSide = AtlasManager.getFaceUV(name, 3, props)
+            addQuad(
+                fx1, fy0, fz0,
+                fx0, fy0, fz0,
+                fx0, fy0 + hNW, fz0,
+                fx1, fy0 + hNE, fz0,
+                uvSide, 0.8f, name, props
+            )
+        }
+
+        // East face (+X)
+        if (shouldRenderFace(region, x + 1, y, z, false, true, maxY)) {
+            val uvSide = AtlasManager.getFaceUV(name, 4, props)
+            addQuad(
+                fx1, fy0, fz1,
+                fx1, fy0, fz0,
+                fx1, fy0 + hNE, fz0,
+                fx1, fy0 + hSE, fz1,
+                uvSide, 0.6f, name, props
+            )
+        }
+
+        // West face (-X)
+        if (shouldRenderFace(region, x - 1, y, z, false, true, maxY)) {
+            val uvSide = AtlasManager.getFaceUV(name, 5, props)
+            addQuad(
+                fx0, fy0, fz0,
+                fx0, fy0, fz1,
+                fx0, fy0 + hSW, fz1,
+                fx0, fy0 + hNW, fz0,
+                uvSide, 0.6f, name, props
+            )
+        }
     }
 
     private fun shouldRenderFace(
