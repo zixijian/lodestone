@@ -89,69 +89,14 @@ class ChunkMeshBuilder {
         isOpaque: Boolean,
         maxY: Int
     ) {
-        // Handle slabs
-        val clean = name.removePrefix("minecraft:")
-        if (clean.endsWith("_slab") && !clean.contains("double")) {
-            val type = props["type"] ?: "bottom"
-            val y0 = if (type == "top") (y + 0.5f) else y.toFloat()
-            val y1 = if (type == "top") (y + 1f) else (y + 0.5f)
-
-            // Top
-            val uvTop = AtlasManager.getFaceUV(name, 0, props)
-            addQuad(
-                x.toFloat(), y1, z.toFloat(),
-                (x + 1).toFloat(), y1, z.toFloat(),
-                (x + 1).toFloat(), y1, (z + 1).toFloat(),
-                x.toFloat(), y1, (z + 1).toFloat(),
-                uvTop, 1.0f, name, props
-            )
-            // Bottom
-            val uvBot = AtlasManager.getFaceUV(name, 1, props)
-            addQuad(
-                x.toFloat(), y0, (z + 1).toFloat(),
-                (x + 1).toFloat(), y0, (z + 1).toFloat(),
-                (x + 1).toFloat(), y0, z.toFloat(),
-                x.toFloat(), y0, z.toFloat(),
-                uvBot, 0.5f, name, props
-            )
-            // Sides
-            val uvSide = AtlasManager.getFaceUV(name, 2, props)
-            // South
-            addQuad(
-                x.toFloat(), y0, (z + 1).toFloat(),
-                (x + 1).toFloat(), y0, (z + 1).toFloat(),
-                (x + 1).toFloat(), y1, (z + 1).toFloat(),
-                x.toFloat(), y1, (z + 1).toFloat(),
-                uvSide, 0.8f, name, props
-            )
-            // North
-            addQuad(
-                (x + 1).toFloat(), y0, z.toFloat(),
-                x.toFloat(), y0, z.toFloat(),
-                x.toFloat(), y1, z.toFloat(),
-                (x + 1).toFloat(), y1, z.toFloat(),
-                uvSide, 0.8f, name, props
-            )
-            // East
-            addQuad(
-                (x + 1).toFloat(), y0, (z + 1).toFloat(),
-                (x + 1).toFloat(), y0, z.toFloat(),
-                (x + 1).toFloat(), y1, z.toFloat(),
-                (x + 1).toFloat(), y1, (z + 1).toFloat(),
-                uvSide, 0.6f, name, props
-            )
-            // West
-            addQuad(
-                x.toFloat(), y0, z.toFloat(),
-                x.toFloat(), y0, (z + 1).toFloat(),
-                x.toFloat(), y1, (z + 1).toFloat(),
-                x.toFloat(), y1, z.toFloat(),
-                uvSide, 0.6f, name, props
-            )
+        // 1. Try exact Model Definition (supports all Minecraft elements, rotations, UVs, etc.)
+        val model = AtlasManager.getBlockModel(name, props)
+        if (model != null && model.elements.isNotEmpty()) {
+            buildModelElements(region, x, y, z, name, props, model, isOpaque, maxY)
             return
         }
 
-        // Full cubes / standard blocks
+        // 2. Fallback full cube rendering with neighbor culling
         // +Y (Top, face 0)
         if (shouldRenderFace(region, x, y + 1, z, isOpaque, false, maxY)) {
             val uvTop = AtlasManager.getFaceUV(name, 0, props)
@@ -217,6 +162,193 @@ class ChunkMeshBuilder {
                 x.toFloat(), (y + 1).toFloat(), z.toFloat(),
                 uvWest, 0.6f, name, props
             )
+        }
+    }
+
+    private fun buildModelElements(
+        region: SchematicRegion,
+        x: Int,
+        y: Int,
+        z: Int,
+        name: String,
+        props: Map<String, String>,
+        variant: AtlasManager.VariantDefinition,
+        isOpaque: Boolean,
+        maxY: Int
+    ) {
+        val rotX = variant.rotX
+        val rotY = variant.rotY
+
+        for (elem in variant.elements) {
+            val f0 = elem.from[0]
+            val f1 = elem.from[1]
+            val f2 = elem.from[2]
+            val t0 = elem.to[0]
+            val t1 = elem.to[1]
+            val t2 = elem.to[2]
+
+            for ((faceName, faceDef) in elem.faces) {
+                // Check culling if face reaches outer boundary
+                if (faceDef.cull) {
+                    val nx = when (faceName) {
+                        "west" -> x - 1
+                        "east" -> x + 1
+                        else -> x
+                    }
+                    val ny = when (faceName) {
+                        "down" -> y - 1
+                        "up" -> y + 1
+                        else -> y
+                    }
+                    val nz = when (faceName) {
+                        "north" -> z - 1
+                        "south" -> z + 1
+                        else -> z
+                    }
+                    if (!shouldRenderFace(region, nx, ny, nz, isOpaque, false, maxY)) {
+                        continue
+                    }
+                }
+
+                val uv = AtlasManager.getSubUV(faceDef.texture, faceDef.u0, faceDef.v0, faceDef.u1, faceDef.v1)
+                val light = when (faceName) {
+                    "up" -> 1.0f
+                    "down" -> 0.5f
+                    "north", "south" -> 0.8f
+                    else -> 0.6f
+                }
+
+                // 4 corners of the quad in [0..16] space
+                val (p0, p1, p2, p3) = getElementFaceCorners(faceName, f0, f1, f2, t0, t1, t2)
+
+                // Apply element local rotation (e.g. 45 deg Y for pointed dripstone)
+                elem.rot?.let { r ->
+                    rotatePoint(p0, r[0], r[1], r[2], r[3].toInt(), r[4])
+                    rotatePoint(p1, r[0], r[1], r[2], r[3].toInt(), r[4])
+                    rotatePoint(p2, r[0], r[1], r[2], r[3].toInt(), r[4])
+                    rotatePoint(p3, r[0], r[1], r[2], r[3].toInt(), r[4])
+                }
+
+                // Apply blockstate variant rotation (X and Y rotations around block center [8, 8, 8])
+                if (rotX != 0) {
+                    rotatePoint(p0, 8f, 8f, 8f, 0, rotX.toFloat())
+                    rotatePoint(p1, 8f, 8f, 8f, 0, rotX.toFloat())
+                    rotatePoint(p2, 8f, 8f, 8f, 0, rotX.toFloat())
+                    rotatePoint(p3, 8f, 8f, 8f, 0, rotX.toFloat())
+                }
+                if (rotY != 0) {
+                    rotatePoint(p0, 8f, 8f, 8f, 1, rotY.toFloat())
+                    rotatePoint(p1, 8f, 8f, 8f, 1, rotY.toFloat())
+                    rotatePoint(p2, 8f, 8f, 8f, 1, rotY.toFloat())
+                    rotatePoint(p3, 8f, 8f, 8f, 1, rotY.toFloat())
+                }
+
+                // Translate into world position [x, y, z]
+                val wx0 = x + p0[0] / 16f
+                val wy0 = y + p0[1] / 16f
+                val wz0 = z + p0[2] / 16f
+
+                val wx1 = x + p1[0] / 16f
+                val wy1 = y + p1[1] / 16f
+                val wz1 = z + p1[2] / 16f
+
+                val wx2 = x + p2[0] / 16f
+                val wy2 = y + p2[1] / 16f
+                val wz2 = z + p2[2] / 16f
+
+                val wx3 = x + p3[0] / 16f
+                val wy3 = y + p3[1] / 16f
+                val wz3 = z + p3[2] / 16f
+
+                addQuad(
+                    wx0, wy0, wz0,
+                    wx1, wy1, wz1,
+                    wx2, wy2, wz2,
+                    wx3, wy3, wz3,
+                    uv, light, name, props
+                )
+
+                // For double-sided rendering of flat or cutout components (rails, dripstone, torches)
+                if (!isOpaque && !faceDef.cull) {
+                    addQuad(
+                        wx3, wy3, wz3,
+                        wx2, wy2, wz2,
+                        wx1, wy1, wz1,
+                        wx0, wy0, wz0,
+                        uv, light, name, props
+                    )
+                }
+            }
+        }
+    }
+
+    private fun getElementFaceCorners(
+        face: String,
+        x0: Float, y0: Float, z0: Float,
+        x1: Float, y1: Float, z1: Float
+    ): Array<FloatArray> {
+        return when (face) {
+            "up" -> arrayOf(
+                floatArrayOf(x0, y1, z0),
+                floatArrayOf(x1, y1, z0),
+                floatArrayOf(x1, y1, z1),
+                floatArrayOf(x0, y1, z1)
+            )
+            "down" -> arrayOf(
+                floatArrayOf(x0, y0, z1),
+                floatArrayOf(x1, y0, z1),
+                floatArrayOf(x1, y0, z0),
+                floatArrayOf(x0, y0, z0)
+            )
+            "south" -> arrayOf(
+                floatArrayOf(x0, y0, z1),
+                floatArrayOf(x1, y0, z1),
+                floatArrayOf(x1, y1, z1),
+                floatArrayOf(x0, y1, z1)
+            )
+            "north" -> arrayOf(
+                floatArrayOf(x1, y0, z0),
+                floatArrayOf(x0, y0, z0),
+                floatArrayOf(x0, y1, z0),
+                floatArrayOf(x1, y1, z0)
+            )
+            "east" -> arrayOf(
+                floatArrayOf(x1, y0, z1),
+                floatArrayOf(x1, y0, z0),
+                floatArrayOf(x1, y1, z0),
+                floatArrayOf(x1, y1, z1)
+            )
+            else -> arrayOf( // "west"
+                floatArrayOf(x0, y0, z0),
+                floatArrayOf(x0, y0, z1),
+                floatArrayOf(x0, y1, z1),
+                floatArrayOf(x0, y1, z0)
+            )
+        }
+    }
+
+    private fun rotatePoint(p: FloatArray, ox: Float, oy: Float, oz: Float, axis: Int, angleDeg: Float) {
+        val rad = Math.toRadians(angleDeg.toDouble())
+        val cos = Math.cos(rad).toFloat()
+        val sin = Math.sin(rad).toFloat()
+
+        val x = p[0] - ox
+        val y = p[1] - oy
+        val z = p[2] - oz
+
+        when (axis) {
+            0 -> { // X-axis
+                p[1] = oy + (y * cos - z * sin)
+                p[2] = oz + (y * sin + z * cos)
+            }
+            1 -> { // Y-axis
+                p[0] = ox + (x * cos + z * sin)
+                p[2] = oz + (-x * sin + z * cos)
+            }
+            2 -> { // Z-axis
+                p[0] = ox + (x * cos - y * sin)
+                p[1] = oy + (x * sin + y * cos)
+            }
         }
     }
 

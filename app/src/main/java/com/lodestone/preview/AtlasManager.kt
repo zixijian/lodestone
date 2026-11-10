@@ -11,13 +11,43 @@ import java.io.InputStream
  */
 object AtlasManager {
 
+    // Raw sprite pixel coordinates: name -> [x, y, w, h]
+    private val spritePixels = HashMap<String, FloatArray>()
     private val spriteCoords = HashMap<String, FloatArray>() // name -> [uMin, vMin, uMax, vMax]
+
+    // Precompiled block models
+    data class FaceDefinition(
+        val texture: String,
+        val u0: Float,
+        val v0: Float,
+        val u1: Float,
+        val v1: Float,
+        val cull: Boolean,
+        val tint: Boolean
+    )
+
+    data class ElementDefinition(
+        val from: FloatArray, // [x, y, z] in [0..16]
+        val to: FloatArray,   // [x, y, z] in [0..16]
+        val rot: FloatArray?, // [originX, originY, originZ, axisIdx (0=x,1=y,2=z), angleDeg]
+        val faces: Map<String, FaceDefinition> // "up", "down", "north", "south", "east", "west"
+    )
+
+    data class VariantDefinition(
+        val rotX: Int,
+        val rotY: Int,
+        val elements: List<ElementDefinition>
+    )
+
+    // blockName -> (variantKey -> VariantDefinition)
+    private val blockModels = HashMap<String, Map<String, VariantDefinition>>()
     private var isLoaded = false
     private const val ATLAS_SIZE = 2048f
 
     fun load(context: Context) {
         if (isLoaded) return
         try {
+            // 1. Load textures
             val jsonStream: InputStream = context.assets.open("web/default-pack/assets.json")
             val jsonString = jsonStream.bufferedReader().use { it.readText() }
             val root = JSONObject(jsonString)
@@ -26,25 +56,172 @@ object AtlasManager {
             while (keys.hasNext()) {
                 val key = keys.next()
                 val arr = textures.getJSONArray(key)
-                val x = arr.getInt(0).toFloat()
-                val y = arr.getInt(1).toFloat()
-                val w = arr.getInt(2).toFloat()
-                val h = arr.getInt(3).toFloat()
+                val x = arr.getDouble(0).toFloat()
+                val y = arr.getDouble(1).toFloat()
+                val w = arr.getDouble(2).toFloat()
+                val h = arr.getDouble(3).toFloat()
 
-                // Calculate UVs in [0, 1] range
+                val pix = floatArrayOf(x, y, w, h)
                 val uMin = x / ATLAS_SIZE
                 val vMin = y / ATLAS_SIZE
                 val uMax = (x + w) / ATLAS_SIZE
                 val vMax = (y + h) / ATLAS_SIZE
+                val uv = floatArrayOf(uMin, vMin, uMax, vMax)
 
-                val normalizedKey = key.removePrefix("minecraft:").removePrefix("block/")
-                spriteCoords[normalizedKey] = floatArrayOf(uMin, vMin, uMax, vMax)
-                spriteCoords[key] = floatArrayOf(uMin, vMin, uMax, vMax)
+                val norm = key.removePrefix("minecraft:")
+                val stripBlock = norm.removePrefix("block/")
+
+                spritePixels[key] = pix
+                spritePixels[norm] = pix
+                spritePixels[stripBlock] = pix
+                if (!key.startsWith("block/")) {
+                    spritePixels["block/$key"] = pix
+                }
+
+                spriteCoords[key] = uv
+                spriteCoords[norm] = uv
+                spriteCoords[stripBlock] = uv
+                if (!key.startsWith("block/")) {
+                    spriteCoords["block/$key"] = uv
+                }
             }
+
+            // 2. Load precompiled block models if present
+            try {
+                val bmStream: InputStream = context.assets.open("web/default-pack/block_models.json")
+                val bmString = bmStream.bufferedReader().use { it.readText() }
+                val bmRoot = JSONObject(bmString)
+                val bKeys = bmRoot.keys()
+                while (bKeys.hasNext()) {
+                    val bName = bKeys.next()
+                    val bObj = bmRoot.getJSONObject(bName)
+                    val varKeys = bObj.keys()
+                    val variantMap = HashMap<String, VariantDefinition>()
+
+                    while (varKeys.hasNext()) {
+                        val vKey = varKeys.next()
+                        val vObj = bObj.getJSONObject(vKey)
+                        val rotX = vObj.optInt("x", 0)
+                        val rotY = vObj.optInt("y", 0)
+                        val elemsArr = vObj.getJSONArray("elems")
+                        val elemList = ArrayList<ElementDefinition>(elemsArr.length())
+
+                        for (i in 0 until elemsArr.length()) {
+                            val elObj = elemsArr.getJSONObject(i)
+                            val fArr = elObj.getJSONArray("f")
+                            val from = floatArrayOf(fArr.getDouble(0).toFloat(), fArr.getDouble(1).toFloat(), fArr.getDouble(2).toFloat())
+                            val tArr = elObj.getJSONArray("t")
+                            val to = floatArrayOf(tArr.getDouble(0).toFloat(), tArr.getDouble(1).toFloat(), tArr.getDouble(2).toFloat())
+
+                            var rot: FloatArray? = null
+                            if (elObj.has("r") && !elObj.isNull("r")) {
+                                val rArr = elObj.getJSONArray("r")
+                                val ox = rArr.getDouble(0).toFloat()
+                                val oy = rArr.getDouble(1).toFloat()
+                                val oz = rArr.getDouble(2).toFloat()
+                                val axisStr = rArr.getString(3)
+                                val axisIdx = when (axisStr) {
+                                    "x" -> 0f
+                                    "z" -> 2f
+                                    else -> 1f // "y"
+                                }
+                                val angle = rArr.getDouble(4).toFloat()
+                                rot = floatArrayOf(ox, oy, oz, axisIdx, angle)
+                            }
+
+                            val facesObj = elObj.getJSONObject("faces")
+                            val faceNames = facesObj.keys()
+                            val faceMap = HashMap<String, FaceDefinition>()
+
+                            while (faceNames.hasNext()) {
+                                val fn = faceNames.next()
+                                val fData = facesObj.getJSONArray(fn)
+                                val tex = fData.getString(0)
+                                val u0 = fData.getDouble(1).toFloat()
+                                val v0 = fData.getDouble(2).toFloat()
+                                val u1 = fData.getDouble(3).toFloat()
+                                val v1 = fData.getDouble(4).toFloat()
+                                val cull = fData.getInt(5) == 1
+                                val tint = fData.getInt(6) == 1
+
+                                faceMap[fn] = FaceDefinition(tex, u0, v0, u1, v1, cull, tint)
+                            }
+
+                            elemList.add(ElementDefinition(from, to, rot, faceMap))
+                        }
+
+                        variantMap[vKey] = VariantDefinition(rotX, rotY, elemList)
+                    }
+
+                    val cleanB = bName.removePrefix("minecraft:")
+                    blockModels[cleanB] = variantMap
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
             isLoaded = true
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    /**
+     * Retrieves the resolved model elements for a block with matching properties.
+     */
+    fun getBlockModel(blockName: String, properties: Map<String, String>): VariantDefinition? {
+        var clean = blockName.removePrefix("minecraft:")
+        if (clean.contains("[")) clean = clean.substringBefore("[")
+
+        val variants = blockModels[clean] ?: return null
+        if (variants.isEmpty()) return null
+
+        // 1. Try exact match on properties
+        if (properties.isNotEmpty()) {
+            for ((key, variant) in variants) {
+                if (key.isEmpty()) continue
+                val pairs = key.split(",")
+                var allMatch = true
+                for (p in pairs) {
+                    val kv = p.split("=")
+                    if (kv.size == 2) {
+                        val propVal = properties[kv[0]]
+                        if (propVal != null && propVal != kv[1]) {
+                            allMatch = false
+                            break
+                        }
+                    }
+                }
+                if (allMatch) return variant
+            }
+        }
+
+        // 2. Return default variant or first variant
+        return variants[""] ?: variants["normal"] ?: variants.values.firstOrNull()
+    }
+
+    /**
+     * Computes the exact sub-UV in atlas coordinates [u0, v0, u1, v1]
+     * for a model face using its element uv [0..16] bounds.
+     */
+    fun getSubUV(textureName: String, u0: Float, v0: Float, u1: Float, v1: Float): FloatArray {
+        val pix = spritePixels[textureName]
+            ?: spritePixels[textureName.removePrefix("minecraft:")]
+            ?: spritePixels["block/" + textureName.removePrefix("minecraft:")]
+            ?: spritePixels["block/stone"]
+            ?: floatArrayOf(0f, 0f, 16f, 16f)
+
+        val ax = pix[0]
+        val ay = pix[1]
+        val aw = pix[2]
+        val ah = pix[3]
+
+        val finalU0 = (ax + (u0 / 16f) * aw) / ATLAS_SIZE
+        val finalV0 = (ay + (v0 / 16f) * ah) / ATLAS_SIZE
+        val finalU1 = (ax + (u1 / 16f) * aw) / ATLAS_SIZE
+        val finalV1 = (ay + (v1 / 16f) * ah) / ATLAS_SIZE
+
+        return floatArrayOf(finalU0, finalV0, finalU1, finalV1)
     }
 
     /**
