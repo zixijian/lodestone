@@ -35,27 +35,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun validateAndOpenSchematic(uri: Uri) {
         val fileName = getFileNameFromUri(uri)?.lowercase() ?: ""
+        val isSupportedExt = fileName.endsWith(".litematic") ||
+                fileName.endsWith(".schematic") ||
+                fileName.endsWith(".schem") ||
+                fileName.endsWith(".nbt") ||
+                fileName.endsWith(".mcstructure")
 
-        if (!fileName.endsWith(".litematic") && !fileName.endsWith(".schematic") && !fileName.endsWith(".nbt")) {
-            Toast.makeText(this, "无效的文件扩展名，仅支持选择 .litematic 投影文件", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        var isValidGzip = false
-        try {
-            contentResolver.openInputStream(uri)?.use { inputStream ->
-                val header = ByteArray(2)
-                val readBytes = inputStream.read(header, 0, 2)
-                if (readBytes == 2 && header[0] == 0x1F.toByte() && header[1] == 0x8B.toByte()) {
-                    isValidGzip = true
-                }
-            }
-        } catch (e: Exception) {
-            isValidGzip = false
-        }
-
-        if (!isValidGzip) {
-            Toast.makeText(this, "无效的投影文件内容 (未通过 GZIP 压缩格式校验)", Toast.LENGTH_SHORT).show()
+        if (!isSupportedExt && fileName.isNotEmpty()) {
+            Toast.makeText(this, "不支持的文件格式，仅支持 .litematic / .schem / .schematic / .nbt / .mcstructure", Toast.LENGTH_SHORT).show()
             return
         }
 

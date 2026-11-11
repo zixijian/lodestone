@@ -115,7 +115,9 @@ class PreviewActivity : AppCompatActivity() {
                 val currentY = value.toInt()
                 val reg = activeRegion ?: return@addOnChangeListener
                 binding.tvLayerLabel.text = getString(R.string.layer_slice, currentY, reg.sizeY)
-                engine.updateLayerSlice(0, currentY)
+                lifecycleScope.launch {
+                    engine.updateLayerSlice(0, currentY)
+                }
             }
         }
     }

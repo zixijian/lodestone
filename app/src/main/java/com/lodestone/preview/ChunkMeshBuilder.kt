@@ -229,18 +229,20 @@ class ChunkMeshBuilder {
                     rotatePoint(p3, r[0], r[1], r[2], r[3].toInt(), r[4])
                 }
 
-                // Apply blockstate variant rotation (X and Y rotations around block center [8, 8, 8])
-                if (rotX != 0) {
-                    rotatePoint(p0, 8f, 8f, 8f, 0, rotX.toFloat())
-                    rotatePoint(p1, 8f, 8f, 8f, 0, rotX.toFloat())
-                    rotatePoint(p2, 8f, 8f, 8f, 0, rotX.toFloat())
-                    rotatePoint(p3, 8f, 8f, 8f, 0, rotX.toFloat())
+                // Apply element or blockstate variant rotation (X and Y rotations around block center [8, 8, 8])
+                val finalRotX = if (elem.rotX != 0) elem.rotX else rotX
+                val finalRotY = if (elem.rotY != 0) elem.rotY else rotY
+                if (finalRotX != 0) {
+                    rotatePoint(p0, 8f, 8f, 8f, 0, finalRotX.toFloat())
+                    rotatePoint(p1, 8f, 8f, 8f, 0, finalRotX.toFloat())
+                    rotatePoint(p2, 8f, 8f, 8f, 0, finalRotX.toFloat())
+                    rotatePoint(p3, 8f, 8f, 8f, 0, finalRotX.toFloat())
                 }
-                if (rotY != 0) {
-                    rotatePoint(p0, 8f, 8f, 8f, 1, rotY.toFloat())
-                    rotatePoint(p1, 8f, 8f, 8f, 1, rotY.toFloat())
-                    rotatePoint(p2, 8f, 8f, 8f, 1, rotY.toFloat())
-                    rotatePoint(p3, 8f, 8f, 8f, 1, rotY.toFloat())
+                if (finalRotY != 0) {
+                    rotatePoint(p0, 8f, 8f, 8f, 1, finalRotY.toFloat())
+                    rotatePoint(p1, 8f, 8f, 8f, 1, finalRotY.toFloat())
+                    rotatePoint(p2, 8f, 8f, 8f, 1, finalRotY.toFloat())
+                    rotatePoint(p3, 8f, 8f, 8f, 1, finalRotY.toFloat())
                 }
 
                 // Translate into world position [x, y, z]

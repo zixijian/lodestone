@@ -7,7 +7,7 @@ import java.io.InputStream
 /**
  * Texture atlas coordinate and metadata resolver.
  * Handles exact Minecraft block textures, directional faces (top/bottom/side/front),
- * opacity flags, and fluid detection.
+ * opacity flags, multipart models (redstone wire, fences, walls), and fluid detection.
  */
 object AtlasManager {
 
@@ -30,7 +30,9 @@ object AtlasManager {
         val from: FloatArray, // [x, y, z] in [0..16]
         val to: FloatArray,   // [x, y, z] in [0..16]
         val rot: FloatArray?, // [originX, originY, originZ, axisIdx (0=x,1=y,2=z), angleDeg]
-        val faces: Map<String, FaceDefinition> // "up", "down", "north", "south", "east", "west"
+        val faces: Map<String, FaceDefinition>, // "up", "down", "north", "south", "east", "west"
+        val rotX: Int = 0,
+        val rotY: Int = 0
     )
 
     data class VariantDefinition(
@@ -39,8 +41,24 @@ object AtlasManager {
         val elements: List<ElementDefinition>
     )
 
-    // blockName -> (variantKey -> VariantDefinition)
-    private val blockModels = HashMap<String, Map<String, VariantDefinition>>()
+    data class MultipartCondition(
+        val orConditions: List<Map<String, String>>
+    )
+
+    data class MultipartPart(
+        val whenCond: MultipartCondition?,
+        val rotX: Int,
+        val rotY: Int,
+        val elements: List<ElementDefinition>
+    )
+
+    sealed class BlockModelDefinition {
+        data class Variants(val variants: Map<String, VariantDefinition>) : BlockModelDefinition()
+        data class Multipart(val parts: List<MultipartPart>) : BlockModelDefinition()
+    }
+
+    // blockName -> BlockModelDefinition
+    private val blockModels = HashMap<String, BlockModelDefinition>()
     private var isLoaded = false
     private const val ATLAS_SIZE = 2048f
 
@@ -95,66 +113,38 @@ object AtlasManager {
                 while (bKeys.hasNext()) {
                     val bName = bKeys.next()
                     val bObj = bmRoot.getJSONObject(bName)
-                    val varKeys = bObj.keys()
-                    val variantMap = HashMap<String, VariantDefinition>()
+                    val type = bObj.optString("type", "variants")
 
-                    while (varKeys.hasNext()) {
-                        val vKey = varKeys.next()
-                        val vObj = bObj.getJSONObject(vKey)
-                        val rotX = vObj.optInt("x", 0)
-                        val rotY = vObj.optInt("y", 0)
-                        val elemsArr = vObj.getJSONArray("elems")
-                        val elemList = ArrayList<ElementDefinition>(elemsArr.length())
+                    if (type == "multipart") {
+                        val partsArr = bObj.getJSONArray("parts")
+                        val partsList = ArrayList<MultipartPart>(partsArr.length())
+                        for (i in 0 until partsArr.length()) {
+                            val partObj = partsArr.getJSONObject(i)
+                            val rotX = partObj.optInt("x", 0)
+                            val rotY = partObj.optInt("y", 0)
+                            val whenObj = partObj.optJSONObject("when")
+                            val condition = parseCondition(whenObj)
+                            val elems = parseElements(partObj.getJSONArray("elems"), rotX, rotY)
+                            partsList.add(MultipartPart(condition, rotX, rotY, elems))
+                        }
+                        blockModels[bName.removePrefix("minecraft:")] = BlockModelDefinition.Multipart(partsList)
+                    } else {
+                        val varObj = if (bObj.has("variants")) bObj.getJSONObject("variants") else bObj
+                        val varKeys = varObj.keys()
+                        val variantMap = HashMap<String, VariantDefinition>()
 
-                        for (i in 0 until elemsArr.length()) {
-                            val elObj = elemsArr.getJSONObject(i)
-                            val fArr = elObj.getJSONArray("f")
-                            val from = floatArrayOf(fArr.getDouble(0).toFloat(), fArr.getDouble(1).toFloat(), fArr.getDouble(2).toFloat())
-                            val tArr = elObj.getJSONArray("t")
-                            val to = floatArrayOf(tArr.getDouble(0).toFloat(), tArr.getDouble(1).toFloat(), tArr.getDouble(2).toFloat())
-
-                            var rot: FloatArray? = null
-                            if (elObj.has("r") && !elObj.isNull("r")) {
-                                val rArr = elObj.getJSONArray("r")
-                                val ox = rArr.getDouble(0).toFloat()
-                                val oy = rArr.getDouble(1).toFloat()
-                                val oz = rArr.getDouble(2).toFloat()
-                                val axisStr = rArr.getString(3)
-                                val axisIdx = when (axisStr) {
-                                    "x" -> 0f
-                                    "z" -> 2f
-                                    else -> 1f // "y"
-                                }
-                                val angle = rArr.getDouble(4).toFloat()
-                                rot = floatArrayOf(ox, oy, oz, axisIdx, angle)
-                            }
-
-                            val facesObj = elObj.getJSONObject("faces")
-                            val faceNames = facesObj.keys()
-                            val faceMap = HashMap<String, FaceDefinition>()
-
-                            while (faceNames.hasNext()) {
-                                val fn = faceNames.next()
-                                val fData = facesObj.getJSONArray(fn)
-                                val tex = fData.getString(0)
-                                val u0 = fData.getDouble(1).toFloat()
-                                val v0 = fData.getDouble(2).toFloat()
-                                val u1 = fData.getDouble(3).toFloat()
-                                val v1 = fData.getDouble(4).toFloat()
-                                val cull = fData.getInt(5) == 1
-                                val tint = fData.getInt(6) == 1
-
-                                faceMap[fn] = FaceDefinition(tex, u0, v0, u1, v1, cull, tint)
-                            }
-
-                            elemList.add(ElementDefinition(from, to, rot, faceMap))
+                        while (varKeys.hasNext()) {
+                            val vKey = varKeys.next()
+                            val vDefObj = varObj.getJSONObject(vKey)
+                            val rotX = vDefObj.optInt("x", 0)
+                            val rotY = vDefObj.optInt("y", 0)
+                            val elemList = parseElements(vDefObj.getJSONArray("elems"), rotX, rotY)
+                            variantMap[vKey] = VariantDefinition(rotX, rotY, elemList)
                         }
 
-                        variantMap[vKey] = VariantDefinition(rotX, rotY, elemList)
+                        val cleanB = bName.removePrefix("minecraft:")
+                        blockModels[cleanB] = BlockModelDefinition.Variants(variantMap)
                     }
-
-                    val cleanB = bName.removePrefix("minecraft:")
-                    blockModels[cleanB] = variantMap
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -166,6 +156,83 @@ object AtlasManager {
         }
     }
 
+    private fun parseCondition(whenObj: JSONObject?): MultipartCondition? {
+        if (whenObj == null) return null
+        val orList = ArrayList<Map<String, String>>()
+        if (whenObj.has("OR")) {
+            val orArr = whenObj.getJSONArray("OR")
+            for (i in 0 until orArr.length()) {
+                val condObj = orArr.getJSONObject(i)
+                val map = HashMap<String, String>()
+                val it = condObj.keys()
+                while (it.hasNext()) {
+                    val k = it.next()
+                    map[k] = condObj.getString(k)
+                }
+                orList.add(map)
+            }
+        } else {
+            val map = HashMap<String, String>()
+            val it = whenObj.keys()
+            while (it.hasNext()) {
+                val k = it.next()
+                map[k] = whenObj.getString(k)
+            }
+            orList.add(map)
+        }
+        return MultipartCondition(orList)
+    }
+
+    private fun parseElements(elemsArr: org.json.JSONArray, defRotX: Int, defRotY: Int): List<ElementDefinition> {
+        val elemList = ArrayList<ElementDefinition>(elemsArr.length())
+        for (i in 0 until elemsArr.length()) {
+            val elObj = elemsArr.getJSONObject(i)
+            val fArr = elObj.getJSONArray("f")
+            val from = floatArrayOf(fArr.getDouble(0).toFloat(), fArr.getDouble(1).toFloat(), fArr.getDouble(2).toFloat())
+            val tArr = elObj.getJSONArray("t")
+            val to = floatArrayOf(tArr.getDouble(0).toFloat(), tArr.getDouble(1).toFloat(), tArr.getDouble(2).toFloat())
+
+            var rot: FloatArray? = null
+            if (elObj.has("r") && !elObj.isNull("r")) {
+                val rArr = elObj.getJSONArray("r")
+                val ox = rArr.getDouble(0).toFloat()
+                val oy = rArr.getDouble(1).toFloat()
+                val oz = rArr.getDouble(2).toFloat()
+                val axisStr = rArr.getString(3)
+                val axisIdx = when (axisStr) {
+                    "x" -> 0f
+                    "z" -> 2f
+                    else -> 1f // "y"
+                }
+                val angle = rArr.getDouble(4).toFloat()
+                rot = floatArrayOf(ox, oy, oz, axisIdx, angle)
+            }
+
+            val facesObj = elObj.getJSONObject("faces")
+            val faceNames = facesObj.keys()
+            val faceMap = HashMap<String, FaceDefinition>()
+
+            while (faceNames.hasNext()) {
+                val fn = faceNames.next()
+                val fData = facesObj.getJSONArray(fn)
+                val tex = fData.getString(0)
+                val u0 = fData.getDouble(1).toFloat()
+                val v0 = fData.getDouble(2).toFloat()
+                val u1 = fData.getDouble(3).toFloat()
+                val v1 = fData.getDouble(4).toFloat()
+                val cull = fData.getInt(5) == 1
+                val tint = fData.getInt(6) == 1
+
+                faceMap[fn] = FaceDefinition(tex, u0, v0, u1, v1, cull, tint)
+            }
+
+            val elRotX = elObj.optInt("x", defRotX)
+            val elRotY = elObj.optInt("y", defRotY)
+            elemList.add(ElementDefinition(from, to, rot, faceMap, elRotX, elRotY))
+        }
+        return elemList
+    }
+
     /**
      * Retrieves the resolved model elements for a block with matching properties.
      */
@@ -173,31 +240,150 @@ object AtlasManager {
         var clean = blockName.removePrefix("minecraft:")
         if (clean.contains("[")) clean = clean.substringBefore("[")
 
-        val variants = blockModels[clean] ?: return null
-        if (variants.isEmpty()) return null
+        val modelDef = blockModels[clean] ?: return null
 
-        // 1. Try exact match on properties
-        if (properties.isNotEmpty()) {
-            for ((key, variant) in variants) {
-                if (key.isEmpty()) continue
-                val pairs = key.split(",")
-                var allMatch = true
-                for (p in pairs) {
-                    val kv = p.split("=")
-                    if (kv.size == 2) {
-                        val propVal = properties[kv[0]]
-                        if (propVal != null && propVal != kv[1]) {
-                            allMatch = false
-                            break
-                        }
+        when (modelDef) {
+            is BlockModelDefinition.Multipart -> {
+                val combinedElements = ArrayList<ElementDefinition>()
+                for (part in modelDef.parts) {
+                    if (matchMultipartCondition(part.whenCond, properties)) {
+                        combinedElements.addAll(part.elements)
                     }
                 }
-                if (allMatch) return variant
+                if (combinedElements.isEmpty() && modelDef.parts.isNotEmpty()) {
+                    combinedElements.addAll(modelDef.parts[0].elements)
+                }
+                return VariantDefinition(0, 0, combinedElements)
+            }
+            is BlockModelDefinition.Variants -> {
+                val variants = modelDef.variants
+                if (variants.isEmpty()) return null
+
+                // Complete properties with defaults (e.g. facing, shape, half, delay)
+                val mergedProps = HashMap(getDefaultBlockProperties(clean))
+                mergedProps.putAll(properties)
+
+                // 1. Try score-based best match
+                var bestVariant: VariantDefinition? = null
+                var maxScore = -1
+
+                for ((key, variant) in variants) {
+                    if (key.isEmpty()) {
+                        if (maxScore < 0) {
+                            maxScore = 0
+                            bestVariant = variant
+                        }
+                        continue
+                    }
+                    val pairs = key.split(",")
+                    var matchedCount = 0
+                    var mismatch = false
+
+                    for (p in pairs) {
+                        val kv = p.split("=")
+                        if (kv.size == 2) {
+                            val propVal = mergedProps[kv[0]]
+                            if (propVal != null) {
+                                if (propVal == kv[1]) {
+                                    matchedCount++
+                                } else {
+                                    mismatch = true
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    if (!mismatch && matchedCount > maxScore) {
+                        maxScore = matchedCount
+                        bestVariant = variant
+                    }
+                }
+
+                if (bestVariant != null) return bestVariant
+                return variants[""] ?: variants["normal"] ?: variants.values.firstOrNull()
             }
         }
+    }
 
-        // 2. Return default variant or first variant
-        return variants[""] ?: variants["normal"] ?: variants.values.firstOrNull()
+    private fun matchMultipartCondition(cond: MultipartCondition?, props: Map<String, String>): Boolean {
+        if (cond == null || cond.orConditions.isEmpty()) return true
+        for (orClause in cond.orConditions) {
+            var allMatch = true
+            for ((key, expectedVal) in orClause) {
+                val actual = props[key] ?: getDefaultPropertyForBlock(key)
+                val allowed = expectedVal.split("|")
+                if (!allowed.contains(actual)) {
+                    allMatch = false
+                    break
+                }
+            }
+            if (allMatch) return true
+        }
+        return false
+    }
+
+    private fun getDefaultPropertyForBlock(key: String): String {
+        return when (key) {
+            "east", "west", "north", "south" -> "none"
+            "up" -> "true"
+            "down" -> "true"
+            "power" -> "0"
+            "facing" -> "north"
+            "half" -> "bottom"
+            "shape" -> "straight"
+            "lit" -> "false"
+            "powered" -> "false"
+            "delay" -> "1"
+            "locked" -> "false"
+            "mode" -> "compare"
+            "extended" -> "false"
+            else -> ""
+        }
+    }
+
+    private fun getDefaultBlockProperties(cleanName: String): Map<String, String> {
+        val defaults = HashMap<String, String>()
+        if (cleanName.contains("stairs")) {
+            defaults["facing"] = "north"
+            defaults["half"] = "bottom"
+            defaults["shape"] = "straight"
+        } else if (cleanName.contains("slab")) {
+            defaults["type"] = "bottom"
+        } else if (cleanName == "repeater") {
+            defaults["facing"] = "north"
+            defaults["delay"] = "1"
+            defaults["locked"] = "false"
+            defaults["powered"] = "false"
+        } else if (cleanName == "comparator") {
+            defaults["facing"] = "north"
+            defaults["mode"] = "compare"
+            defaults["powered"] = "false"
+        } else if (cleanName == "piston" || cleanName == "sticky_piston") {
+            defaults["facing"] = "north"
+            defaults["extended"] = "false"
+        } else if (cleanName == "observer" || cleanName == "dispenser" || cleanName == "dropper") {
+            defaults["facing"] = "north"
+            defaults["powered"] = "false"
+        } else if (cleanName.contains("door")) {
+            defaults["facing"] = "north"
+            defaults["half"] = "lower"
+            defaults["hinge"] = "left"
+            defaults["open"] = "false"
+            defaults["powered"] = "false"
+        } else if (cleanName.contains("trapdoor")) {
+            defaults["facing"] = "north"
+            defaults["half"] = "bottom"
+            defaults["open"] = "false"
+            defaults["powered"] = "false"
+        } else if (cleanName.contains("fence") || cleanName.contains("wall")) {
+            defaults["east"] = "none"
+            defaults["west"] = "none"
+            defaults["north"] = "none"
+            defaults["south"] = "none"
+            defaults["up"] = "true"
+        }
+        return defaults
     }
 
     /**
@@ -208,6 +394,7 @@ object AtlasManager {
         val pix = spritePixels[textureName]
             ?: spritePixels[textureName.removePrefix("minecraft:")]
             ?: spritePixels["block/" + textureName.removePrefix("minecraft:")]
+            ?: spritePixels["block/stone_bricks"]
             ?: spritePixels["block/stone"]
             ?: floatArrayOf(0f, 0f, 16f, 16f)
 
@@ -230,7 +417,6 @@ object AtlasManager {
      */
     fun getFaceUV(blockName: String, face: Int, properties: Map<String, String> = emptyMap()): FloatArray {
         var clean = blockName.removePrefix("minecraft:")
-        // Remove state bracket if present (e.g. stone[axis=y])
         if (clean.contains("[")) {
             clean = clean.substringBefore("[")
         }
@@ -242,14 +428,21 @@ object AtlasManager {
 
         val resolvedName = resolveFaceTextureName(clean, face, facing, axis, lit, half)
         return spriteCoords[resolvedName]
+            ?: spriteCoords["block/$resolvedName"]
             ?: spriteCoords[clean]
-            ?: spriteCoords["stone"]
+            ?: spriteCoords["block/$clean"]
+            ?: spriteCoords["block/stone_bricks"]
+            ?: spriteCoords["block/stone"]
             ?: floatArrayOf(0f, 0f, 0.05f, 0.05f)
     }
 
     fun getUV(textureName: String): FloatArray {
         val clean = textureName.removePrefix("minecraft:").removePrefix("block/")
-        return spriteCoords[clean] ?: spriteCoords["stone"] ?: floatArrayOf(0f, 0f, 0.05f, 0.05f)
+        return spriteCoords[clean]
+            ?: spriteCoords["block/$clean"]
+            ?: spriteCoords["block/stone_bricks"]
+            ?: spriteCoords["block/stone"]
+            ?: floatArrayOf(0f, 0f, 0.05f, 0.05f)
     }
 
     private fun resolveFaceTextureName(
@@ -260,37 +453,50 @@ object AtlasManager {
         lit: Boolean,
         half: String
     ): String {
+        // Stone bricks and stone variants
+        if (name == "stone_bricks" || name.contains("stone_brick")) {
+            if (name == "mossy_stone_bricks") return "block/mossy_stone_bricks"
+            if (name == "cracked_stone_bricks") return "block/cracked_stone_bricks"
+            if (name == "chiseled_stone_bricks") return "block/chiseled_stone_bricks"
+            return "block/stone_bricks"
+        }
+
+        // Smooth stone
+        if (name == "smooth_stone" || name == "smooth_stone_slab") {
+            return "block/smooth_stone"
+        }
+
         // Grass block
         if (name == "grass_block") {
             return when (face) {
-                0 -> "grass_block_top"
-                1 -> "dirt"
-                else -> "grass_block_side"
+                0 -> "block/grass_block_top"
+                1 -> "block/dirt"
+                else -> "block/grass_block_side"
             }
         }
 
         // Dirt path
         if (name == "dirt_path") {
             return when (face) {
-                0 -> "dirt_path_top"
-                1 -> "dirt"
-                else -> "dirt_path_side"
+                0 -> "block/dirt_path_top"
+                1 -> "block/dirt"
+                else -> "block/dirt_path_side"
             }
         }
 
         // Podzol / Mycelium
         if (name == "podzol") {
             return when (face) {
-                0 -> "podzol_top"
-                1 -> "dirt"
-                else -> "podzol_side"
+                0 -> "block/podzol_top"
+                1 -> "block/dirt"
+                else -> "block/podzol_side"
             }
         }
         if (name == "mycelium") {
             return when (face) {
-                0 -> "mycelium_top"
-                1 -> "dirt"
-                else -> "mycelium_side"
+                0 -> "block/mycelium_top"
+                1 -> "block/dirt"
+                else -> "block/mycelium_side"
             }
         }
 
@@ -303,8 +509,10 @@ object AtlasManager {
             }
             if (isTopFace) {
                 val topCandidate = "${name}_top"
+                if (spriteCoords.containsKey("block/$topCandidate")) return "block/$topCandidate"
                 if (spriteCoords.containsKey(topCandidate)) return topCandidate
             }
+            if (spriteCoords.containsKey("block/$name")) return "block/$name"
             if (spriteCoords.containsKey(name)) return name
         }
 
@@ -322,19 +530,19 @@ object AtlasManager {
             }
             if (isFront) {
                 val frontCand = if (lit) "${name}_front_on" else "${name}_front"
-                if (spriteCoords.containsKey(frontCand)) return frontCand
+                if (spriteCoords.containsKey("block/$frontCand")) return "block/$frontCand"
             }
             if (face == 0) {
                 val topCand = "${name}_top"
-                if (spriteCoords.containsKey(topCand)) return topCand
+                if (spriteCoords.containsKey("block/$topCand")) return "block/$topCand"
             }
             if (face == 1) {
                 val botCand = "${name}_bottom"
-                if (spriteCoords.containsKey(botCand)) return botCand
+                if (spriteCoords.containsKey("block/$botCand")) return "block/$botCand"
             }
             val sideCand = "${name}_side"
-            if (spriteCoords.containsKey(sideCand)) return sideCand
-            return name
+            if (spriteCoords.containsKey("block/$sideCand")) return "block/$sideCand"
+            return "block/$name"
         }
 
         // Pistons
@@ -349,7 +557,7 @@ object AtlasManager {
                 else -> face == 0
             }
             if (isFront) {
-                return if (name == "sticky_piston") "piston_top_sticky" else "piston_top"
+                return if (name == "sticky_piston") "block/piston_top_sticky" else "block/piston_top"
             }
             val isBack = when (facing) {
                 "up" -> face == 1
@@ -360,116 +568,78 @@ object AtlasManager {
                 "east" -> face == 5
                 else -> face == 1
             }
-            if (isBack) return "piston_bottom"
-            return "piston_side"
+            if (isBack) return "block/piston_bottom"
+            return "block/piston_side"
         }
 
         // Crafting table
         if (name == "crafting_table") {
             return when (face) {
-                0 -> "crafting_table_top"
-                1 -> "oak_planks"
-                2, 3 -> "crafting_table_front"
-                else -> "crafting_table_side"
+                0 -> "block/crafting_table_top"
+                1 -> "block/oak_planks"
+                2, 3 -> "block/crafting_table_front"
+                else -> "block/crafting_table_side"
             }
         }
 
         // TNT
         if (name == "tnt") {
             return when (face) {
-                0 -> "tnt_top"
-                1 -> "tnt_bottom"
-                else -> "tnt_side"
+                0 -> "block/tnt_top"
+                1 -> "block/tnt_bottom"
+                else -> "block/tnt_side"
             }
         }
 
         // Bookshelf
         if (name == "bookshelf") {
-            return if (face == 0 || face == 1) "oak_planks" else "bookshelf"
+            return if (face == 0 || face == 1) "block/oak_planks" else "block/bookshelf"
         }
 
-        // Chiseled / Cut Sandstone & Red Sandstone
-        if (name.contains("sandstone")) {
-            if (face == 0) {
-                val topCand = "${name}_top"
-                if (spriteCoords.containsKey(topCand)) return topCand
-            }
-            if (face == 1) {
-                val botCand = "${name}_bottom"
-                if (spriteCoords.containsKey(botCand)) return botCand
-            }
+        // Redstone components
+        if (name == "repeater") {
+            return if (lit) "block/repeater_on" else "block/repeater"
         }
-
-        // Quartz Block
-        if (name == "quartz_block" || name == "chiseled_quartz_block") {
-            if (face == 0) return "quartz_block_top"
-            if (face == 1) return "quartz_block_bottom"
-            return if (name == "chiseled_quartz_block") "chiseled_quartz_block" else "quartz_block_side"
+        if (name == "comparator") {
+            return if (lit) "block/comparator_on" else "block/comparator"
         }
-
-        // Deepslate
-        if (name == "deepslate") {
-            return if (face == 0 || face == 1) "deepslate_top" else "deepslate"
+        if (name == "redstone_torch" || name == "redstone_wall_torch") {
+            return if (lit) "block/redstone_torch" else "block/redstone_torch_off"
         }
-
-        // Stonecutter
-        if (name == "stonecutter") {
-            return when (face) {
-                0 -> "stonecutter_top"
-                1 -> "stonecutter_bottom"
-                else -> "stonecutter_side"
-            }
+        if (name == "redstone_block") {
+            return "block/redstone_block"
         }
-
-        // Daylight detector
-        if (name.startsWith("daylight_detector")) {
-            return if (face == 0) "${name}_top" else "${name}_side"
-        }
-
-        // Piston & Sticky Piston
-        if (name == "piston" || name == "sticky_piston") {
-            if (face == 0) return if (name == "sticky_piston") "piston_top_sticky" else "piston_top"
-            if (face == 1) return "piston_bottom"
-            return "piston_side"
+        if (name == "redstone_wire") {
+            return "block/redstone_dust_line0"
         }
 
         // Water and Lava fluids
         if (name == "water" || name == "flowing_water") {
-            return "water_still"
+            return "block/water_still"
         }
         if (name == "lava" || name == "flowing_lava") {
-            return "lava_still"
+            return "block/lava_still"
         }
 
         // Doors
         if (name.endsWith("_door")) {
             val part = if (half == "upper" || half == "top") "top" else "bottom"
             val cand = "${name}_$part"
-            if (spriteCoords.containsKey(cand)) return cand
-        }
-
-        // Trapdoors
-        if (name.endsWith("_trapdoor")) {
-            if (spriteCoords.containsKey(name)) return name
+            if (spriteCoords.containsKey("block/$cand")) return "block/$cand"
         }
 
         // Slabs and Stairs mapping to base planks/stone/bricks
         if (name.endsWith("_slab") || name.endsWith("_stairs")) {
             val baseName = name.removeSuffix("_slab").removeSuffix("_stairs")
-            // Try baseName (e.g. oak_planks for oak_slab)
-            if (spriteCoords.containsKey(baseName)) return baseName
+            if (spriteCoords.containsKey("block/$baseName")) return "block/$baseName"
             val withPlanks = "${baseName}_planks"
-            if (spriteCoords.containsKey(withPlanks)) return withPlanks
+            if (spriteCoords.containsKey("block/$withPlanks")) return "block/$withPlanks"
             val withBricks = "${baseName}_bricks"
-            if (spriteCoords.containsKey(withBricks)) return withBricks
-        }
-
-        // Redstone wire
-        if (name == "redstone_wire") {
-            return "redstone_dust_line0"
+            if (spriteCoords.containsKey("block/$withBricks")) return "block/$withBricks"
         }
 
         // Direct key lookup check
+        if (spriteCoords.containsKey("block/$name")) return "block/$name"
         if (spriteCoords.containsKey(name)) return name
 
         return name
@@ -487,6 +657,7 @@ object AtlasManager {
         if (clean.contains("flower") || clean.contains("grass") || clean.contains("sapling") || clean.contains("rail")) return false
         if (clean.contains("lantern") || clean.contains("chain") || clean.contains("hopper") || clean.contains("rod")) return false
         if (clean.contains("sign") || clean.contains("bed") || clean.contains("cauldron") || clean.contains("bell")) return false
+        if (clean.contains("wire") || clean.contains("repeater") || clean.contains("comparator") || clean.contains("lever") || clean.contains("button")) return false
         return true
     }
 

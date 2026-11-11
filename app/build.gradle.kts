@@ -15,6 +15,9 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testOptions {
+            unitTests.isReturnDefaultValues = true
+        }
 
         ndk {
             abiFilters.add("arm64-v8a")

@@ -243,7 +243,7 @@ class FilamentSchematicEngine(private val context: Context) {
         choreographer.removeFrameCallback(frameCallback)
     }
 
-    fun loadRegion(region: SchematicRegion, onProgress: ((Int) -> Unit)? = null) {
+    suspend fun loadRegion(region: SchematicRegion, onProgress: ((Int) -> Unit)? = null) {
         currentRegion = region
         clearChunks()
 
@@ -269,21 +269,35 @@ class FilamentSchematicEngine(private val context: Context) {
         flightPosY = centerY
         flightPosZ = centerZ + radius * 1.5
 
-        for (cy in 0 until chunksY) {
-            for (cz in 0 until chunksZ) {
-                for (cx in 0 until chunksX) {
-                    val mesh = meshBuilder.buildChunkMesh(region, cx, cy, cz, sliceMinY, sliceMaxY)
-                    if (mesh != null) {
-                        createChunkRenderable(mesh, region.posX.toFloat(), region.posY.toFloat(), region.posZ.toFloat())
+        val meshList = mutableListOf<ChunkMeshBuilder.MeshData>()
+
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            for (cy in 0 until chunksY) {
+                for (cz in 0 until chunksZ) {
+                    for (cx in 0 until chunksX) {
+                        val mesh = meshBuilder.buildChunkMesh(region, cx, cy, cz, sliceMinY, sliceMaxY)
+                        if (mesh != null) {
+                            synchronized(meshList) { meshList.add(mesh) }
+                        }
+                        processed++
+                        if (processed % 16 == 0 || processed == totalChunks) {
+                            val pct = (processed * 100) / totalChunks
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                onProgress?.invoke(pct)
+                            }
+                        }
                     }
-                    processed++
-                    onProgress?.invoke((processed * 100) / totalChunks)
                 }
             }
         }
+
+        // Create renderables in batches on main thread
+        for (mesh in meshList) {
+            createChunkRenderable(mesh, region.posX.toFloat(), region.posY.toFloat(), region.posZ.toFloat())
+        }
     }
 
-    fun updateLayerSlice(minY: Int, maxY: Int) {
+    suspend fun updateLayerSlice(minY: Int, maxY: Int) {
         sliceMinY = minY
         sliceMaxY = maxY
         val region = currentRegion ?: return
@@ -293,15 +307,23 @@ class FilamentSchematicEngine(private val context: Context) {
         val chunksY = (region.sizeY + 15) / 16
         val chunksZ = (region.sizeZ + 15) / 16
 
-        for (cy in 0 until chunksY) {
-            for (cz in 0 until chunksZ) {
-                for (cx in 0 until chunksX) {
-                    val mesh = meshBuilder.buildChunkMesh(region, cx, cy, cz, sliceMinY, sliceMaxY)
-                    if (mesh != null) {
-                        createChunkRenderable(mesh, region.posX.toFloat(), region.posY.toFloat(), region.posZ.toFloat())
+        val meshList = mutableListOf<ChunkMeshBuilder.MeshData>()
+
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            for (cy in 0 until chunksY) {
+                for (cz in 0 until chunksZ) {
+                    for (cx in 0 until chunksX) {
+                        val mesh = meshBuilder.buildChunkMesh(region, cx, cy, cz, sliceMinY, sliceMaxY)
+                        if (mesh != null) {
+                            synchronized(meshList) { meshList.add(mesh) }
+                        }
                     }
                 }
             }
+        }
+
+        for (mesh in meshList) {
+            createChunkRenderable(mesh, region.posX.toFloat(), region.posY.toFloat(), region.posZ.toFloat())
         }
     }
 
